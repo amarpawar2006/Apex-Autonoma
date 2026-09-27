@@ -36,13 +36,33 @@ async function startServer() {
     });
   });
 
+  // Dedicated Autonoma Connection Health Endpoint
+  app.get('/api/autonoma/health', async (_req: Request, res: Response) => {
+    try {
+      const health = await autonomaDb.checkHealth();
+      res.json(health);
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        database: 'ready',
+        googleSheets: {
+          configured: false,
+          connected: false,
+          error: err?.message || 'Health check failed',
+          checkedAt: new Date().toISOString()
+        }
+      });
+    }
+  });
+
   // ==========================================
   // AUTONOMA PERSISTENCE & GOOGLE SHEETS API
   // ==========================================
 
   // 1. Campaigns Endpoints
-  app.get('/api/autonoma/campaigns', (_req: Request, res: Response) => {
+  app.get('/api/autonoma/campaigns', async (_req: Request, res: Response) => {
     try {
+      await autonomaDb.ensureHydrated();
       const rows = autonomaDb.getCampaigns();
       const campaigns = rows.map(dbRowToCampaign);
       res.json({ success: true, count: campaigns.length, data: campaigns });
@@ -127,8 +147,9 @@ async function startServer() {
   });
 
   // 2. Assets Endpoints
-  app.get('/api/autonoma/assets', (req: Request, res: Response) => {
+  app.get('/api/autonoma/assets', async (req: Request, res: Response) => {
     try {
+      await autonomaDb.ensureHydrated();
       const campaignId = req.query.campaignId as string | undefined;
       const rows = autonomaDb.getAssets(campaignId);
       const assets = rows.map(dbRowToAsset);
@@ -309,6 +330,31 @@ async function startServer() {
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
+  // Explicit Refresh / Hydration from Google Sheets
+  app.post('/api/autonoma/refresh-from-sheets', async (_req: Request, res: Response) => {
+    try {
+      const result = await autonomaDb.hydrateFromGoogleSheets();
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: result.error || 'Failed to refresh data from Google Sheets',
+          campaigns: result.campaigns,
+          assets: result.assets
+        });
+      }
+      res.json({
+        success: true,
+        campaigns: result.campaigns,
+        assets: result.assets
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Failed to refresh data from Google Sheets'
+      });
     }
   });
 
@@ -1075,6 +1121,16 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
     app.get('*', (_req: Request, res: Response) => {
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
     });
+  }
+
+  // Authoritative server hydration from Google Sheets: Google Sheets wins over seed baseline
+  try {
+    const hydration = await autonomaDb.hydrateFromGoogleSheets();
+    if (hydration.success) {
+      console.log(`[Apex Autonoma] Startup hydration complete: ${hydration.campaigns} campaigns, ${hydration.assets} assets from Google Sheets.`);
+    }
+  } catch (err: any) {
+    console.warn('[Apex Autonoma] Startup Google Sheets hydration warning:', err?.message || err);
   }
 
   app.listen(PORT, '0.0.0.0', () => {

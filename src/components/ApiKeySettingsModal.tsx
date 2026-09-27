@@ -29,6 +29,7 @@ interface ApiKeySettingsModalProps {
   setGeminiPaidKey?: (key: string) => void;
   sheetsWebhookUrl: string;
   setSheetsWebhookUrl: (url: string) => void;
+  onDataRefreshed?: (campaigns: any[], assets: any[]) => void;
 }
 
 export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
@@ -40,6 +41,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
   setGeminiPaidKey,
   sheetsWebhookUrl,
   setSheetsWebhookUrl,
+  onDataRefreshed
 }) => {
   const [localOpenai, setLocalOpenai] = useState(openaiKey);
   const [localGeminiPaid, setLocalGeminiPaid] = useState(geminiPaidKey);
@@ -49,6 +51,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
   // Sheets Integration States
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
+  const [isRefreshingFromSheets, setIsRefreshingFromSheets] = useState(false);
+  const [refreshResult, setRefreshResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
   const [initResult, setInitResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -59,7 +63,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       autonomaDataService.loadSettings().then(res => {
-        if (res.googleSheetsUrl && !localWebhook) {
+        if (res.googleSheetsUrl) {
           setLocalWebhook(res.googleSheetsUrl);
           setSheetsWebhookUrl(res.googleSheetsUrl);
         }
@@ -144,6 +148,39 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
       });
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleRefreshFromSheets = async () => {
+    setIsRefreshingFromSheets(true);
+    setRefreshResult(null);
+    try {
+      const res = await autonomaDataService.refreshFromGoogleSheets();
+      if (res.success) {
+        setRefreshResult({
+          success: true,
+          message: `Hydrated ${res.campaigns} campaigns and ${res.assets} assets from Google Sheets!`
+        });
+        const [freshCampaigns, freshAssets] = await Promise.all([
+          autonomaDataService.loadCampaigns(),
+          autonomaDataService.loadAssets()
+        ]);
+        if (onDataRefreshed) {
+          onDataRefreshed(freshCampaigns, freshAssets);
+        }
+      } else {
+        setRefreshResult({
+          success: false,
+          message: res.error || 'Failed to refresh data from Google Sheets'
+        });
+      }
+    } catch (err: any) {
+      setRefreshResult({
+        success: false,
+        message: err?.message || 'Error refreshing data from Google Sheets'
+      });
+    } finally {
+      setIsRefreshingFromSheets(false);
     }
   };
 
@@ -243,13 +280,26 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                 <Table className="w-3.5 h-3.5 text-[#FF4500]" />
                 <span>Google Apps Script Web App URL</span>
               </span>
-              {localWebhook ? (
+              {testResult?.success ? (
+                <span className="text-[10px] text-emerald-600 font-semibold flex items-center space-x-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span>CONNECTED</span>
+                </span>
+              ) : testResult && !testResult.success ? (
+                <span className="text-[10px] text-rose-600 font-semibold flex items-center space-x-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                  <span>DISCONNECTED</span>
+                </span>
+              ) : localWebhook ? (
                 <span className="text-[10px] text-emerald-600 font-semibold flex items-center space-x-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>Configured</span>
+                  <span>CONNECTED</span>
                 </span>
               ) : (
-                <span className="text-[10px] text-[#86868B]">Optional but recommended</span>
+                <span className="text-[10px] text-rose-500 font-semibold flex items-center space-x-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                  <span>DISCONNECTED</span>
+                </span>
               )}
             </label>
             <input
@@ -275,12 +325,12 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
 
             <button
               type="button"
-              onClick={handleInitSheet}
-              disabled={isInitializing || !localWebhook.trim()}
-              className="px-3 py-1.5 bg-white hover:bg-black/[0.02] border border-black/[0.08] text-[#1D1D1F] font-medium rounded-xl text-xs flex items-center space-x-1.5 disabled:opacity-50 transition-colors shadow-2xs"
+              onClick={handleRefreshFromSheets}
+              disabled={isRefreshingFromSheets || !localWebhook.trim()}
+              className="px-3 py-1.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white font-medium rounded-xl text-xs flex items-center space-x-1.5 disabled:opacity-50 transition-colors shadow-2xs"
             >
-              <Database className="w-3 h-3 text-emerald-600" />
-              <span>{isInitializing ? 'Initializing 8 tables…' : 'Initialize 8 tables'}</span>
+              <RefreshCw className={`w-3 h-3 text-white ${isRefreshingFromSheets ? 'animate-spin' : ''}`} />
+              <span>{isRefreshingFromSheets ? 'Refreshing…' : 'Refresh from Sheets'}</span>
             </button>
 
             <button
@@ -312,7 +362,16 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
             </a>
           </div>
 
-          {/* Test / Init Result Alerts */}
+          {/* Test / Refresh / Init Result Alerts */}
+          {refreshResult && (
+            <div className={`p-3 rounded-xl border text-xs flex items-start space-x-2 animate-in fade-in ${
+              refreshResult.success ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+            }`}>
+              {refreshResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />}
+              <p className="font-semibold">{refreshResult.message}</p>
+            </div>
+          )}
+
           {testResult && (
             <div className={`p-3 rounded-xl border text-xs flex items-start space-x-2 animate-in fade-in ${
               testResult.success ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'

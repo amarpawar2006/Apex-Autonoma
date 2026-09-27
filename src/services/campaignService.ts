@@ -46,15 +46,7 @@ export function loadSavedCampaigns(): Campaign[] {
     if (raw) {
       const parsed: Campaign[] = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Ensure baseline seed campaigns are retained if missing
-        const existingIds = new Set(parsed.map(c => c.id));
-        const merged = [...parsed];
-        for (const seed of INITIAL_CAMPAIGNS) {
-          if (!existingIds.has(seed.id)) {
-            merged.push(seed);
-          }
-        }
-        return merged;
+        return parsed;
       }
     }
   } catch (err) {

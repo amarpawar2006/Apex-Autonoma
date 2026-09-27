@@ -21,6 +21,8 @@ const __dirname = path.dirname(__filename);
 const DB_FILE_PATH = path.resolve(__dirname, '..', 'data', 'autonoma-database.json');
 
 const DEFAULT_ORG_ID = 'org_apex_pune';
+export const DEFAULT_PRODUCTION_SHEETS_URL =
+  'https://script.google.com/macros/s/AKfycbyyTzei9wvOAWbDrFeaGhk2fFkwsWVgBqK-zcFdAQH_dMKVKAQE2wLSIjvdqZHGct5m/exec';
 
 /**
  * Maps a rich frontend Campaign object to the flat Google Sheets DbCampaignRow
@@ -239,6 +241,8 @@ function createInitialDatabase(): AutonomaDatabaseStore {
 
 export class AutonomaDatabaseManager {
   private store: AutonomaDatabaseStore;
+  private hasHydrated = false;
+  private isHydrating: Promise<any> | null = null;
 
   constructor() {
     this.store = this.loadFromDisk();
@@ -312,24 +316,36 @@ export class AutonomaDatabaseManager {
 
   /**
    * Resolves the single canonical Google Sheets Web App URL with strict priority:
-   * 1. Currently saved application setting in this.store
-   * 2. Environment variable fallback only when no saved setting exists
+   * 1. Explicit persisted server setting in this.store, if available and valid (/exec)
+   * 2. Environment variable AUTONOMA_SHEETS_WEBAPP_URL (or GOOGLE_APPS_SCRIPT_URL / GOOGLE_SHEETS_WEBAPP_URL)
+   * 3. Production default Web App URL
    * Normalizes whitespace and strips trailing slashes.
    */
-  public getGoogleSheetsUrl(): string {
-    let url = (this.store.googleSheetsUrl || '').trim();
-    if (!url) {
-      const envUrl = (
-        process.env.GOOGLE_APPS_SCRIPT_URL ||
-        process.env.GOOGLE_SHEETS_WEBAPP_URL ||
-        process.env.VITE_SHEETS_WEBHOOK_URL ||
-        ''
-      ).trim();
-      if (envUrl) {
-        url = envUrl;
-      }
+  public resolveGoogleSheetsUrl(): string {
+    // 1. Explicit persisted server setting, if available and valid
+    const stored = (this.store.googleSheetsUrl || '').trim().replace(/\/+$/, '');
+    if (stored && stored.endsWith('/exec')) {
+      return stored;
     }
-    return url.replace(/\/+$/, '');
+
+    // 2. Environment variable fallback
+    const envUrl = (
+      process.env.AUTONOMA_SHEETS_WEBAPP_URL ||
+      process.env.GOOGLE_APPS_SCRIPT_URL ||
+      process.env.GOOGLE_SHEETS_WEBAPP_URL ||
+      process.env.VITE_SHEETS_WEBHOOK_URL ||
+      ''
+    ).trim().replace(/\/+$/, '');
+    if (envUrl && envUrl.endsWith('/exec')) {
+      return envUrl;
+    }
+
+    // 3. Canonical production default Web App URL
+    return DEFAULT_PRODUCTION_SHEETS_URL;
+  }
+
+  public getGoogleSheetsUrl(): string {
+    return this.resolveGoogleSheetsUrl();
   }
 
   /**
@@ -337,7 +353,7 @@ export class AutonomaDatabaseManager {
    * without exposing secrets in logs.
    */
   public validateGoogleSheetsUrl(targetUrl?: string): { valid: boolean; error?: string; url: string } {
-    const candidate = (targetUrl !== undefined ? targetUrl : this.getGoogleSheetsUrl()).trim().replace(/\/+$/, '');
+    const candidate = (targetUrl !== undefined ? targetUrl : this.resolveGoogleSheetsUrl()).trim().replace(/\/+$/, '');
     if (!candidate) {
       return { valid: false, error: 'Google Sheets Web App URL is not configured.', url: '' };
     }
@@ -349,6 +365,65 @@ export class AutonomaDatabaseManager {
       };
     }
     return { valid: true, url: candidate };
+  }
+
+  /**
+   * Performs a lightweight connection and operational health check without exposing secrets.
+   */
+  public async checkHealth(): Promise<{
+    success: boolean;
+    database: string;
+    googleSheets: {
+      configured: boolean;
+      connected: boolean;
+      latencyMs?: number;
+      error?: string;
+      checkedAt: string;
+    };
+  }> {
+    const validation = this.validateGoogleSheetsUrl();
+    const checkedAt = new Date().toISOString();
+    if (!validation.valid) {
+      return {
+        success: true,
+        database: 'ready',
+        googleSheets: {
+          configured: false,
+          connected: false,
+          error: validation.error,
+          checkedAt
+        }
+      };
+    }
+
+    const start = Date.now();
+    try {
+      const pingRes = await this.callAppsScript('PING', {});
+      const latencyMs = Date.now() - start;
+      const isConnected = Boolean(pingRes.success);
+      return {
+        success: true,
+        database: 'ready',
+        googleSheets: {
+          configured: true,
+          connected: isConnected,
+          latencyMs,
+          error: isConnected ? undefined : (pingRes.error || 'Connection verification failed'),
+          checkedAt
+        }
+      };
+    } catch (err: any) {
+      return {
+        success: true,
+        database: 'ready',
+        googleSheets: {
+          configured: true,
+          connected: false,
+          error: err?.message || 'Failed to connect to Google Sheets Web App',
+          checkedAt
+        }
+      };
+    }
   }
 
   public setGoogleSheetsUrl(url: string): void {
@@ -628,10 +703,11 @@ if (this.getGoogleSheetsUrl()) {
   // ==========================================
 
   public getSettings(): { settings: DbSettingsRow; googleSheetsUrl: string; hasSheetsConnection: boolean } {
+    const resolvedUrl = this.resolveGoogleSheetsUrl();
     return {
       settings: this.store.settings,
-      googleSheetsUrl: this.store.googleSheetsUrl,
-      hasSheetsConnection: Boolean(this.store.googleSheetsUrl)
+      googleSheetsUrl: resolvedUrl,
+      hasSheetsConnection: Boolean(resolvedUrl)
     };
   }
 
@@ -751,6 +827,118 @@ if (this.getGoogleSheetsUrl()) {
         syncedAt: this.store.lastSyncAt
       }
     };
+  }
+
+  public async ensureHydrated(): Promise<void> {
+    if (this.hasHydrated) return;
+    if (this.isHydrating) {
+      await this.isHydrating;
+      return;
+    }
+    this.isHydrating = this.hydrateFromGoogleSheets()
+      .then((res) => {
+        if (res.success) {
+          this.hasHydrated = true;
+        }
+      })
+      .finally(() => {
+        this.isHydrating = null;
+      });
+    await this.isHydrating;
+  }
+
+  /**
+   * Authoritative hydration from connected Google Sheets.
+   * Reads CAMPAIGNS and ASSETS, replaces/hydrates the server operational store,
+   * persists to disk cache, and returns counts.
+   * Google Sheets wins over seed data.
+   */
+  public async hydrateFromGoogleSheets(): Promise<{
+    success: boolean;
+    campaigns: number;
+    assets: number;
+    error?: string;
+  }> {
+    const validation = this.validateGoogleSheetsUrl();
+    if (!validation.valid) {
+      return {
+        success: false,
+        campaigns: this.store.campaigns.length,
+        assets: this.store.assets.length,
+        error: validation.error || 'Google Sheets Web App URL not configured.'
+      };
+    }
+
+    try {
+      // 1. PING connection
+      const pingRes = await this.callAppsScript('PING', {});
+      if (!pingRes.success) {
+        return {
+          success: false,
+          campaigns: this.store.campaigns.length,
+          assets: this.store.assets.length,
+          error: pingRes.error || 'Could not connect to Google Apps Script Web App.'
+        };
+      }
+
+      // 2. Read CAMPAIGNS & ASSETS in parallel
+      const [campaignsRes, assetsRes] = await Promise.all([
+        this.callAppsScript<DbCampaignRow[]>('GET_CAMPAIGNS', {}),
+        this.callAppsScript<DbAssetRow[]>('GET_ASSETS', {})
+      ]);
+
+      if (!campaignsRes.success || !Array.isArray(campaignsRes.data)) {
+        return {
+          success: false,
+          campaigns: this.store.campaigns.length,
+          assets: this.store.assets.length,
+          error: campaignsRes.error || 'Failed to read campaigns from Google Sheets.'
+        };
+      }
+
+      if (!assetsRes.success || !Array.isArray(assetsRes.data)) {
+        return {
+          success: false,
+          campaigns: this.store.campaigns.length,
+          assets: this.store.assets.length,
+          error: assetsRes.error || 'Failed to read assets from Google Sheets.'
+        };
+      }
+
+      const sheetCampaigns = campaignsRes.data;
+      const sheetAssets = assetsRes.data;
+
+      // Google Sheets wins over seed data.
+      // Seed data is ONLY fallback when Sheet is genuinely empty or unconfigured.
+      if (sheetCampaigns.length > 0) {
+        this.store.campaigns = sheetCampaigns;
+      }
+      if (sheetAssets.length > 0) {
+        this.store.assets = sheetAssets;
+      }
+
+      this.hasHydrated = true;
+      this.store.lastSyncAt = new Date().toISOString();
+      this.persistToDisk();
+
+      console.log(
+        `[Autonoma DB] Hydrated from Google Sheets: ${this.store.campaigns.length} campaigns, ${this.store.assets.length} assets.`
+      );
+
+      return {
+        success: true,
+        campaigns: this.store.campaigns.length,
+        assets: this.store.assets.length
+      };
+    } catch (err: any) {
+      console.warn('[Autonoma DB] Hydration from Google Sheets failed:', err?.message || err);
+      return {
+        success: false,
+        campaigns: this.store.campaigns.length,
+        assets: this.store.assets.length,
+        error: err?.message || 'Error hydrating from Google Sheets'
+      };
+    }
   }
 
   /**

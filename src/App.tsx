@@ -59,9 +59,40 @@ export default function App() {
   const [geminiPaidKey, setGeminiPaidKey] = useState<string>('');
   const [sheetsWebhookUrl, setSheetsWebhookUrl] = useState<string>('');
 
+  // Google Sheets connection health status on startup
+  const [sheetsHealth, setSheetsHealth] = useState<{
+    checked: boolean;
+    connected: boolean;
+    checking: boolean;
+  }>({
+    checked: false,
+    connected: true,
+    checking: false
+  });
+
+  const checkSheetsConnection = async () => {
+    setSheetsHealth((prev) => ({ ...prev, checking: true }));
+    try {
+      const health = await autonomaDataService.checkHealth();
+      const isConnected = Boolean(health?.googleSheets?.connected);
+      setSheetsHealth({
+        checked: true,
+        connected: isConnected,
+        checking: false
+      });
+    } catch {
+      setSheetsHealth({
+        checked: true,
+        connected: false,
+        checking: false
+      });
+    }
+  };
+
   // Durable initial load from server operational database & Google Sheets
   useEffect(() => {
     let isMounted = true;
+    checkSheetsConnection();
     Promise.all([
       autonomaDataService.loadCampaigns(),
       autonomaDataService.loadAssets(),
@@ -245,6 +276,26 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-5 sm:py-8">
+        {/* Startup Connection Health Warning (Non-blocking) */}
+        {sheetsHealth.checked && !sheetsHealth.connected && (
+          <div className="mb-4 p-3 sm:p-3.5 bg-amber-50 rounded-2xl border border-amber-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-amber-900 animate-in fade-in duration-200">
+            <div className="flex items-center space-x-2 min-w-0">
+              <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+              <span className="font-semibold text-amber-950 shrink-0">Google Sheets connection unavailable</span>
+              <span className="hidden sm:inline text-amber-800 text-[11px] truncate">
+                — Operations will persist to local database. Reconnect to resume Sheets sync.
+              </span>
+            </div>
+            <button
+              onClick={checkSheetsConnection}
+              disabled={sheetsHealth.checking}
+              className="px-3 py-1 bg-white hover:bg-amber-100/60 border border-amber-300 text-amber-900 font-semibold rounded-xl text-[11px] transition-colors shrink-0 disabled:opacity-50 self-start sm:self-auto"
+            >
+              {sheetsHealth.checking ? 'Checking…' : 'RETRY CONNECTION'}
+            </button>
+          </div>
+        )}
+
         {/* Active Campaign Filter Banner if filtered */}
         {activeCampaignFilter !== 'all' && activeTab !== 'campaigns' && (
           <div className="mb-6 p-3 sm:p-3.5 bg-white rounded-2xl border border-black/[0.06] shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs animate-in fade-in duration-200">
@@ -405,6 +456,14 @@ export default function App() {
         setGeminiPaidKey={setGeminiPaidKey}
         sheetsWebhookUrl={sheetsWebhookUrl}
         setSheetsWebhookUrl={setSheetsWebhookUrl}
+        onDataRefreshed={(refreshedCampaigns, refreshedAssets) => {
+          if (Array.isArray(refreshedCampaigns) && refreshedCampaigns.length > 0) {
+            setCampaigns(refreshedCampaigns);
+          }
+          if (Array.isArray(refreshedAssets) && refreshedAssets.length > 0) {
+            setAssets(refreshedAssets);
+          }
+        }}
       />
 
       {/* Asset-Level Media Production Drawer / Modal */}

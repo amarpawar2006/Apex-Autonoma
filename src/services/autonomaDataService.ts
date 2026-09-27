@@ -511,6 +511,27 @@ async updateCampaign(
   }
 
   /**
+   * Explicitly triggers authoritative hydration from Google Sheets into the server store
+   */
+  async refreshFromGoogleSheets(): Promise<{ success: boolean; campaigns: number; assets: number; error?: string }> {
+    try {
+      const res = await fetch('/api/autonoma/refresh-from-sheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      return json;
+    } catch (err: any) {
+      return {
+        success: false,
+        campaigns: 0,
+        assets: 0,
+        error: err?.message || 'Failed to trigger refresh from Google Sheets'
+      };
+    }
+  }
+
+  /**
    * Loads recent activity logs
    */
   async loadActivityLogs(): Promise<any[]> {
@@ -522,6 +543,49 @@ async updateCampaign(
       }
     } catch {}
     return [];
+  }
+
+  /**
+   * Performs an operational health check on the database and Google Sheets connection
+   */
+  async checkHealth(): Promise<{
+    success: boolean;
+    database: string;
+    googleSheets: {
+      configured: boolean;
+      connected: boolean;
+      latencyMs?: number;
+      error?: string;
+      checkedAt: string;
+    };
+  }> {
+    try {
+      const res = await fetch('/api/autonoma/health');
+      if (res.ok) {
+        return await res.json();
+      }
+      return {
+        success: false,
+        database: 'ready',
+        googleSheets: {
+          configured: false,
+          connected: false,
+          error: `Health check returned HTTP ${res.status}`,
+          checkedAt: new Date().toISOString()
+        }
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        database: 'ready',
+        googleSheets: {
+          configured: false,
+          connected: false,
+          error: err?.message || 'Network error reaching health endpoint',
+          checkedAt: new Date().toISOString()
+        }
+      };
+    }
   }
 
   // ==========================================
