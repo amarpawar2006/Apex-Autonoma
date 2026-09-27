@@ -1,0 +1,8 @@
+{
+  "name": "Apex Autonoma - Social & Video Growth Engine",
+  "description": "Autonomous social media campaign, AI image and video generation, Instagram & YouTube publishing orchestrator, and ROI reporting for Apex Engineering.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
