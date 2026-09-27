@@ -54,7 +54,7 @@ export const PublishingOrchestratorView: React.FC<PublishingOrchestratorViewProp
   return (
     <div className="space-y-6 pb-20">
       {/* Editorial Header */}
-      <div className="bg-white rounded-3xl border border-black/[0.06] p-6 sm:p-8 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+      <div className="bg-white rounded-3xl border border-black/[0.06] p-4 sm:p-8 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="space-y-1">
             <div className="flex items-center space-x-2 text-xs text-[#86868B]">
@@ -74,9 +74,9 @@ export const PublishingOrchestratorView: React.FC<PublishingOrchestratorViewProp
           <button
             onClick={handleRunPublishSimulation}
             disabled={isSimulating}
-            className="flex items-center space-x-2 px-5 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white font-medium text-xs rounded-xl shadow-sm transition-all disabled:opacity-50 self-start lg:self-center active:scale-95"
+            className="w-full sm:w-auto justify-center flex items-center space-x-2 px-5 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white font-medium text-xs rounded-xl shadow-sm transition-all disabled:opacity-50 self-start lg:self-center active:scale-95 min-h-[40px]"
           >
-            <Play className="w-3.5 h-3.5 fill-white" />
+            <Play className="w-3.5 h-3.5 fill-white shrink-0" />
             <span>{isSimulating ? 'Dispatching to cloud…' : 'Simulate auto-publish'}</span>
           </button>
         </div>

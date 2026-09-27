@@ -70,18 +70,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       {/* Editorial Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pt-2">
         <div className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-tight text-[#1D1D1F]">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#1D1D1F]">
             Publishing Calendar
           </h1>
-          <p className="text-sm text-[#6E6E73] font-normal">
+          <p className="text-xs sm:text-sm text-[#6E6E73] font-normal">
             Multi-platform schedule cadence · Lunch (11:30 AM) & evening commute (6:30 PM) releases
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 w-full sm:w-auto">
           <button
             onClick={handleExportICS}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-white hover:bg-black/[0.02] border border-black/[0.08] text-xs font-medium text-[#1D1D1F] rounded-xl shadow-sm transition-all"
+            className="w-full sm:w-auto justify-center flex items-center space-x-1.5 px-3.5 py-2.5 bg-white hover:bg-black/[0.02] border border-black/[0.08] text-xs font-medium text-[#1D1D1F] rounded-xl shadow-sm transition-all min-h-[40px]"
           >
             <Download className="w-3.5 h-3.5 text-[#6E6E73]" />
             <span>Export to iCal / Google (.ics)</span>

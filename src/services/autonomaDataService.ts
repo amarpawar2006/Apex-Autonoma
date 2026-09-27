@@ -16,12 +16,12 @@ class AutonomaDataService {
       const res = await fetch('/api/autonoma/campaigns');
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-          // Cache in localStorage
+        if (json.success && Array.isArray(json.data)) {
+          const serverCampaigns: Campaign[] = json.data;
           try {
-            localStorage.setItem(STORAGE_KEY_CAMPAIGNS, JSON.stringify(json.data));
+            localStorage.setItem(STORAGE_KEY_CAMPAIGNS, JSON.stringify(serverCampaigns));
           } catch {}
-          return json.data;
+          return serverCampaigns;
         }
       }
     } catch (err) {
@@ -61,55 +61,137 @@ class AutonomaDataService {
   /**
    * Persists a campaign to server-side durable database and Google Sheets
    */
-  async saveCampaign(campaign: Campaign): Promise<Campaign> {
+async saveCampaign(campaign: Campaign): Promise<Campaign> {
+  try {
+    const res = await fetch('/api/autonoma/campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(campaign)
+    });
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok || !json?.success || !json?.data) {
+      throw new Error(
+        json?.error ||
+        `Campaign persistence failed with HTTP ${res.status}`
+      );
+    }
+
+    // Cache ONLY after authoritative server persistence succeeds.
+    this.updateLocalCampaignCache(json.data);
+
+    return json.data;
+  } catch (err: any) {
+    console.error(
+      '[AutonomaDataService] AUTHORITATIVE campaign save failed:',
+      err
+    );
+
+    // CRITICAL:
+    // Never convert a failed DB write into a fake successful local save.
+    throw new Error(
+      err?.message ||
+      'Campaign could not be saved to the operational database.'
+    );
+  }
+}
+
+  /**
+   * Atomically commits a campaign and all its assets to the authoritative server database
+   * and Google Sheets write-through. Throws on any failure.
+   */
+  async commitCampaign(campaign: Campaign, assets: SocialAsset[]): Promise<{
+    campaign: Campaign;
+    assets: SocialAsset[];
+    assetCount: number;
+    persistence: { server: boolean; googleSheets: boolean };
+  }> {
+    if (!campaign) {
+      throw new Error('Campaign object is required.');
+    }
+    if (!Array.isArray(assets)) {
+      throw new Error('Assets array is required.');
+    }
+
     try {
-      const res = await fetch('/api/autonoma/campaigns', {
+      const res = await fetch('/api/autonoma/campaigns/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(campaign)
+        body: JSON.stringify({ campaign, assets })
       });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.data) {
-          this.updateLocalCampaignCache(json.data);
-          return json.data;
-        }
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        throw new Error(
+          json?.error ||
+          `Atomic campaign commit failed with HTTP ${res.status}`
+        );
       }
-      throw new Error('Server could not save campaign');
-    } catch (err) {
-      console.warn('[AutonomaDataService] Server save failed, saving to local cache:', err);
-      this.updateLocalCampaignCache(campaign);
-      return campaign;
+
+      const confirmedCampaign: Campaign = json.campaign || campaign;
+      const confirmedAssets: SocialAsset[] = assets;
+
+      // Update local cache ONLY AFTER authoritative commit succeeds
+      this.updateLocalCampaignCache(confirmedCampaign);
+      this.prependLocalAssetsCache(confirmedAssets);
+
+      return {
+        campaign: confirmedCampaign,
+        assets: confirmedAssets,
+        assetCount: json.assetCount ?? confirmedAssets.length,
+        persistence: json.persistence || { server: true, googleSheets: true }
+      };
+    } catch (err: any) {
+      console.error('[AutonomaDataService] Commit failed:', err);
+      throw new Error(
+        err?.message || 'Campaign commit to authoritative database failed.'
+      );
     }
   }
 
   /**
    * Updates an existing campaign
    */
-  async updateCampaign(campaignId: string, updates: Partial<Campaign>): Promise<Campaign> {
-    try {
-      const res = await fetch(`/api/autonoma/campaigns/${encodeURIComponent(campaignId)}`, {
+async updateCampaign(
+  campaignId: string,
+  updates: Partial<Campaign>
+): Promise<Campaign> {
+  try {
+    const res = await fetch(
+      `/api/autonoma/campaigns/${encodeURIComponent(campaignId)}`,
+      {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.data) {
-          this.updateLocalCampaignCache(json.data);
-          return json.data;
-        }
       }
-    } catch (err) {
-      console.warn(`[AutonomaDataService] Failed to update campaign ${campaignId}:`, err);
+    );
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok || !json?.success || !json?.data) {
+      throw new Error(
+        json?.error ||
+        `Campaign update failed with HTTP ${res.status}`
+      );
     }
 
-    // Fallback local update
-    const current = await this.loadCampaign(campaignId);
-    const updated = { ...(current || {}), ...updates, id: campaignId } as Campaign;
-    this.updateLocalCampaignCache(updated);
-    return updated;
+    this.updateLocalCampaignCache(json.data);
+
+    return json.data;
+  } catch (err: any) {
+    console.error(
+      `[AutonomaDataService] AUTHORITATIVE update failed for ${campaignId}:`,
+      err
+    );
+
+    throw new Error(
+      err?.message ||
+      `Campaign ${campaignId} could not be updated in the operational database.`
+    );
   }
+}
 
   /**
    * Loads all assets, optionally filtered by campaignId
@@ -120,13 +202,17 @@ class AutonomaDataService {
       const res = await fetch(`/api/autonoma/assets${query}`);
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.success && Array.isArray(json.data)) {
+          const serverAssets: SocialAsset[] = json.data;
           try {
             if (!campaignId || campaignId === 'all') {
-              localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(json.data));
+              localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(serverAssets));
             }
           } catch {}
-          return json.data;
+          if (campaignId && campaignId !== 'all') {
+            return serverAssets.filter(a => a.campaignId === campaignId);
+          }
+          return serverAssets;
         }
       }
     } catch (err) {
@@ -164,51 +250,88 @@ class AutonomaDataService {
    * Persists a batch of assets (used by Campaign Director after synthesis)
    */
   async saveAssetsBatch(assets: SocialAsset[]): Promise<{ count: number }> {
-    try {
-      const res = await fetch('/api/autonoma/assets/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assets })
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success) {
-          this.prependLocalAssetsCache(assets);
-          return { count: json.count || assets.length };
-        }
-      }
-      throw new Error('Server batch save failed');
-    } catch (err) {
-      console.warn('[AutonomaDataService] Server batch save failed, caching locally:', err);
-      this.prependLocalAssetsCache(assets);
-      return { count: assets.length };
-    }
+  if (!Array.isArray(assets) || assets.length === 0) {
+    return { count: 0 };
   }
 
+  try {
+    const res = await fetch('/api/autonoma/assets/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assets })
+    });
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok || !json?.success) {
+      throw new Error(
+        json?.error ||
+        `Asset batch persistence failed with HTTP ${res.status}`
+      );
+    }
+
+    const persistedCount = Number(json.count ?? 0);
+
+    if (persistedCount !== assets.length) {
+      throw new Error(
+        `Database persisted ${persistedCount} of ${assets.length} assets.`
+      );
+    }
+
+    // Cache ONLY after authoritative persistence succeeds.
+    this.prependLocalAssetsCache(assets);
+
+    return { count: persistedCount };
+  } catch (err: any) {
+    console.error(
+      '[AutonomaDataService] AUTHORITATIVE asset batch save failed:',
+      err
+    );
+
+    throw new Error(
+      err?.message ||
+      'Campaign assets could not be saved to the operational database.'
+    );
+  }
+}
   /**
    * Updates a single asset (e.g. status changes, generated media)
    */
   async updateAsset(asset: SocialAsset): Promise<SocialAsset> {
-    try {
-      const res = await fetch(`/api/autonoma/assets/${encodeURIComponent(asset.id)}`, {
+  try {
+    const res = await fetch(
+      `/api/autonoma/assets/${encodeURIComponent(asset.id)}`,
+      {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(asset)
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.data) {
-          this.updateLocalAssetCache(json.data);
-          return json.data;
-        }
       }
-    } catch (err) {
-      console.warn(`[AutonomaDataService] Server updateAsset failed for ${asset.id}:`, err);
+    );
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok || !json?.success || !json?.data) {
+      throw new Error(
+        json?.error ||
+        `Asset update failed with HTTP ${res.status}`
+      );
     }
 
-    this.updateLocalAssetCache(asset);
-    return asset;
+    this.updateLocalAssetCache(json.data);
+
+    return json.data;
+  } catch (err: any) {
+    console.error(
+      `[AutonomaDataService] AUTHORITATIVE asset update failed for ${asset.id}:`,
+      err
+    );
+
+    throw new Error(
+      err?.message ||
+      `Asset ${asset.id} could not be updated in the operational database.`
+    );
   }
+}
 
   /**
    * Saves a media generation record
@@ -369,13 +492,14 @@ class AutonomaDataService {
   }
 
   /**
-   * Triggers two-way synchronization between local durable store and Google Sheets
+   * Triggers synchronization between authoritative server store and Google Sheets
    */
   async syncGoogleSheets(): Promise<{ success: boolean; message: string; stats?: any }> {
     try {
       const res = await fetch('/api/autonoma/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
       });
       return await res.json();
     } catch (err: any) {

@@ -17,6 +17,7 @@ import {
   Filter
 } from 'lucide-react';
 import { Campaign } from '../types/campaign';
+import { ApexLogo } from './ApexLogo';
 
 export type AppNavTab = 
   | 'todays_production' 
@@ -87,12 +88,12 @@ export const Header: React.FC<HeaderProps> = ({
     <>
       {/* Top Application Bar */}
       <header className="sticky top-0 z-40 bg-white/85 backdrop-blur-xl border-b border-black/[0.06] text-[#1D1D1F]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
           {/* Left: Brand Identity & Mobile Menu Toggle */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 shrink">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 -ml-2 text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors"
+              className="lg:hidden p-2 -ml-1 text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors shrink-0"
               aria-label="Toggle Navigation"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -100,21 +101,19 @@ export const Header: React.FC<HeaderProps> = ({
 
             <div 
               onClick={() => setActiveTab('todays_production')}
-              className="flex items-center space-x-3 cursor-pointer group"
+              className="flex items-center space-x-2 sm:space-x-3 cursor-pointer group min-w-0"
             >
-              <div className="w-8 h-8 rounded-xl bg-[#FF4500] text-white flex items-center justify-center font-bold text-sm shadow-sm transition-transform group-hover:scale-105">
-                /\
-              </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="font-semibold text-sm tracking-tight text-[#1D1D1F]">
+              <ApexLogo variant="mark" size="md" className="transition-transform group-hover:scale-105 shrink-0" />
+              <div className="min-w-0">
+                <div className="flex items-center space-x-1.5 sm:space-x-2">
+                  <span className="font-semibold text-xs sm:text-sm tracking-tight text-[#1D1D1F] truncate">
                     Apex Autonoma
                   </span>
-                  <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-black/[0.04] text-[#6E6E73]">
+                  <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-black/[0.04] text-[#6E6E73] shrink-0">
                     Pro Ops
                   </span>
                 </div>
-                <p className="text-[11px] text-[#86868B] hidden sm:block">
+                <p className="text-[11px] text-[#86868B] hidden md:block truncate">
                   Social Intelligence & Production Studio
                 </p>
               </div>
@@ -242,16 +241,18 @@ export const Header: React.FC<HeaderProps> = ({
 
             <button
               onClick={onOpenAiGenerator}
-              className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm active:scale-95"
+              className="flex items-center space-x-1.5 px-2.5 sm:px-3.5 py-1.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm active:scale-95 shrink-0"
+              title="Create a new campaign"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Create campaign</span>
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Create campaign</span>
+              <span className="sm:hidden">Create</span>
             </button>
 
             <button
               onClick={onOpenSettings}
               title="Settings & Integrations"
-              className="p-2 text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors active:scale-95"
+              className="p-2 text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors active:scale-95 shrink-0"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -260,16 +261,16 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Mobile Slide-down Navigation */}
         {mobileMenuOpen && (
-          <div className="lg:hidden border-t border-black/[0.06] bg-white p-4 space-y-4 shadow-lg animate-in slide-in-from-top-2 duration-200">
+          <div className="lg:hidden border-t border-black/[0.06] bg-white p-4 space-y-4 shadow-xl max-h-[85vh] overflow-y-auto animate-in slide-in-from-top-2 duration-200">
             {/* Mobile Campaign Filter */}
-            <div className="space-y-1 pb-2 border-b border-black/[0.04]">
+            <div className="space-y-1 pb-3 border-b border-black/[0.04]">
               <label className="text-[11px] font-semibold text-[#86868B] block">
                 ACTIVE CAMPAIGN
               </label>
               <select
                 value={activeCampaignFilter}
                 onChange={(e) => onSelectCampaignFilter(e.target.value)}
-                className="w-full text-xs bg-[#F5F5F7] text-[#1D1D1F] font-medium py-2 px-3 rounded-xl border-0"
+                className="w-full text-xs bg-[#F5F5F7] text-[#1D1D1F] font-medium py-2.5 px-3 rounded-xl border-0 focus:ring-2 focus:ring-[#FF4500]/20 cursor-pointer"
               >
                 <option value="all">All Campaigns ({assetCount} assets)</option>
                 {campaigns.map((c) => (
@@ -282,10 +283,10 @@ export const Header: React.FC<HeaderProps> = ({
 
             {navGroups.map((group) => (
               <div key={group.group} className="space-y-1">
-                <span className="text-[11px] font-semibold text-[#86868B] tracking-wider px-2">
+                <span className="text-[11px] font-semibold text-[#86868B] tracking-wider px-2 block">
                   {group.group}
                 </span>
-                <div className="grid grid-cols-2 gap-1 pt-1">
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
                   {group.items.map((item) => {
                     const Icon = item.icon;
                     const isActive = activeTab === item.id;
@@ -296,16 +297,16 @@ export const Header: React.FC<HeaderProps> = ({
                           setActiveTab(item.id);
                           setMobileMenuOpen(false);
                         }}
-                        className={`flex items-center space-x-2 px-3 py-2 rounded-xl text-xs transition-colors ${
+                        className={`flex items-center space-x-2 px-3 py-2.5 min-h-[44px] rounded-xl text-xs transition-colors ${
                           isActive
                             ? 'bg-orange-50 text-[#FF4500] font-medium'
                             : 'text-[#6E6E73] hover:bg-black/[0.03] hover:text-[#1D1D1F]'
                         }`}
                       >
-                        <Icon className="w-4 h-4" />
-                        <span>{item.label}</span>
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{item.label}</span>
                         {item.count !== null && (
-                          <span className="text-[10px] ml-auto opacity-70">
+                          <span className="text-[10px] ml-auto opacity-70 shrink-0 font-mono">
                             {item.count}
                           </span>
                         )}
@@ -315,6 +316,20 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               </div>
             ))}
+
+            {/* Mobile Export Action */}
+            <div className="pt-2 border-t border-black/[0.04]">
+              <button
+                onClick={() => {
+                  onExportCsv();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-center space-x-2 py-2.5 px-3 bg-[#F5F5F7] hover:bg-black/[0.05] text-xs font-medium text-[#1D1D1F] rounded-xl transition-colors min-h-[44px]"
+              >
+                <Download className="w-4 h-4 text-[#6E6E73]" />
+                <span>Export Content Sheet to CSV</span>
+              </button>
+            </div>
           </div>
         )}
       </header>

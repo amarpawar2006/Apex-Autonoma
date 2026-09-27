@@ -15,6 +15,7 @@ import { autonomaDataService } from './services/autonomaDataService';
 
 // Component Views
 import { Header, AppNavTab } from './components/Header';
+import { ApexLogo } from './components/ApexLogo';
 import { ContentMasterSheetView } from './components/ContentMasterSheetView';
 import { TodaysProductionView } from './components/TodaysProductionView';
 import { CampaignsView } from './components/CampaignsView';
@@ -243,21 +244,21 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-5 sm:py-8">
         {/* Active Campaign Filter Banner if filtered */}
         {activeCampaignFilter !== 'all' && activeTab !== 'campaigns' && (
-          <div className="mb-6 p-3 bg-white rounded-2xl border border-black/[0.06] shadow-sm flex items-center justify-between text-xs animate-in fade-in duration-200">
-            <div className="flex items-center space-x-2">
-              <span className="w-2 h-2 rounded-full bg-[#FF4500]" />
-              <span className="text-[#6E6E73]">Filtering view by campaign:</span>
-              <strong className="text-[#1D1D1F]">
+          <div className="mb-6 p-3 sm:p-3.5 bg-white rounded-2xl border border-black/[0.06] shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs animate-in fade-in duration-200">
+            <div className="flex items-center space-x-2 min-w-0">
+              <span className="w-2 h-2 rounded-full bg-[#FF4500] shrink-0" />
+              <span className="text-[#6E6E73] shrink-0">Filtering by:</span>
+              <strong className="text-[#1D1D1F] truncate">
                 {campaigns.find(c => c.id === activeCampaignFilter)?.name || activeCampaignFilter}
               </strong>
-              <span className="text-[#86868B]">({filteredAssets.length} assets)</span>
+              <span className="text-[#86868B] shrink-0">({filteredAssets.length} assets)</span>
             </div>
             <button
               onClick={() => setActiveCampaignFilter('all')}
-              className="text-[#FF4500] hover:text-[#EA3E00] font-medium hover:underline text-xs"
+              className="text-[#FF4500] hover:text-[#EA3E00] font-medium hover:underline text-xs self-start sm:self-auto shrink-0"
             >
               Show all campaigns
             </button>
@@ -350,11 +351,9 @@ export default function App() {
 
       {/* Refined Apple Footer */}
       <footer className="border-t border-black/[0.06] bg-white py-6 text-xs text-[#86868B]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center space-x-2.5">
-            <span className="w-5 h-5 rounded-md bg-[#FF4500] text-white font-bold text-[10px] flex items-center justify-center">
-              /\
-            </span>
+            <ApexLogo variant="mark" size="sm" />
             <span className="text-[#1D1D1F] font-semibold tracking-tight">Apex Autonoma</span>
             <span className="text-[#86868B]">·</span>
             <span>Experience & Systems Engineered</span>

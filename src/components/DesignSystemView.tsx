@@ -47,7 +47,7 @@ export const DesignSystemView: React.FC = () => {
       </div>
 
       {/* Apple-style Segmented Sub-Navigation */}
-      <div className="bg-white p-1.5 rounded-2xl border border-black/[0.06] shadow-sm flex flex-wrap gap-1">
+      <div className="bg-white p-1.5 rounded-2xl border border-black/[0.06] shadow-sm flex flex-nowrap overflow-x-auto no-scrollbar sm:flex-wrap gap-1 w-full max-w-full">
         {[
           { id: 'overview', label: 'Overview & Rules', icon: Layers },
           { id: 'typography', label: 'Typography', icon: Type },
@@ -63,7 +63,7 @@ export const DesignSystemView: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => setActiveSection(tab.id as any)}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs rounded-xl transition-all font-medium ${
+              className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs rounded-xl transition-all font-medium shrink-0 min-h-[38px] ${
                 isActive
                   ? 'bg-orange-50 text-[#FF4500]'
                   : 'text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.02]'

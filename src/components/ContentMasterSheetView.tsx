@@ -54,6 +54,7 @@ export const ContentMasterSheetView: React.FC<ContentMasterSheetViewProps> = ({
   const [copiedTsv, setCopiedTsv] = useState<boolean>(false);
   const [showAppsScriptModal, setShowAppsScriptModal] = useState<boolean>(false);
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
+  const [mobileDisplayMode, setMobileDisplayMode] = useState<'cards' | 'table'>('cards');
 
   // Filtered Assets
   const filteredAssets = assets.filter((asset) => {
@@ -310,14 +311,156 @@ export const ContentMasterSheetView: React.FC<ContentMasterSheetViewProps> = ({
               </select>
             </div>
 
+            {/* Mobile View Mode Switcher */}
+            <div className="flex md:hidden items-center justify-between w-full pt-2 border-t border-black/[0.04]">
+              <span className="text-[11px] text-[#86868B]">
+                Showing {filteredAssets.length} of {assets.length}
+              </span>
+              <div className="p-0.5 bg-black/[0.04] rounded-xl flex items-center space-x-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setMobileDisplayMode('cards')}
+                  className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                    mobileDisplayMode === 'cards'
+                      ? 'bg-white text-[#1D1D1F] shadow-xs'
+                      : 'text-[#6E6E73]'
+                  }`}
+                >
+                  Cards
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileDisplayMode('table')}
+                  className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                    mobileDisplayMode === 'table'
+                      ? 'bg-white text-[#1D1D1F] shadow-xs'
+                      : 'text-[#6E6E73]'
+                  }`}
+                >
+                  Table
+                </button>
+              </div>
+            </div>
+
             <span className="text-[#86868B] text-xs hidden lg:inline-block px-1">
               {filteredAssets.length} of {assets.length}
             </span>
           </div>
 
+          {/* Mobile Responsive Cards (Active on < md when mobileDisplayMode === 'cards') */}
+          <div className={`md:hidden space-y-3 ${mobileDisplayMode === 'cards' ? 'block' : 'hidden'}`}>
+            {filteredAssets.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-black/[0.06] p-8 text-center text-xs text-[#86868B]">
+                No matching content assets found.
+              </div>
+            ) : (
+              filteredAssets.map((asset) => {
+                const prodState = getProductionStateInfo(asset.productionStatus);
+                const isApproved = asset.productionStatus === 'APPROVED';
+                const isReady = asset.productionStatus === 'READY';
+                const isGenerating = asset.productionStatus === 'GENERATING';
+
+                return (
+                  <div
+                    key={asset.id}
+                    onClick={() => onSelectAsset(asset)}
+                    className="bg-white rounded-2xl p-4 border border-black/[0.06] shadow-sm space-y-3 cursor-pointer hover:border-black/[0.12] transition-colors"
+                  >
+                    {/* Card Top: Code, Platform, Format, Approval */}
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <span className="font-mono font-semibold text-[#FF4500] text-[11px]">
+                          {asset.assetCode}
+                        </span>
+                        <span className="capitalize font-medium text-[#1D1D1F] flex items-center space-x-1">
+                          {getFormatIcon(asset.format)}
+                          <span>{asset.platform}</span>
+                        </span>
+                        <span className="text-[#86868B] text-[11px]">
+                          · {getFormatBadge(asset.format)}
+                        </span>
+                      </div>
+
+                      {/* Approval selector */}
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={asset.status}
+                          onChange={(e) => onUpdateStatus(asset.id, e.target.value as PostStatus)}
+                          className={`text-[10px] font-medium px-2 py-0.5 rounded-lg border-0 cursor-pointer ${
+                            asset.status === 'approved' || asset.status === 'scheduled' || asset.status === 'published'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : asset.status === 'in_review'
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-black/[0.04] text-[#6E6E73]'
+                          }`}
+                        >
+                          <option value="draft">Draft</option>
+                          <option value="in_review">In review</option>
+                          <option value="approved">Approved</option>
+                          <option value="scheduled">Scheduled</option>
+                          <option value="published">Published</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Title & Hook */}
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-semibold text-[#1D1D1F] tracking-tight">
+                        {asset.title}
+                      </h4>
+                      <p className="text-xs text-[#6E6E73] italic line-clamp-2">
+                        "{asset.hook}"
+                      </p>
+                    </div>
+
+                    {/* Schedule & Media State */}
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-black/[0.04] text-xs">
+                      <div className="flex items-center space-x-1.5 text-[11px] text-[#86868B]">
+                        <Clock className="w-3 h-3 text-[#FF4500]" />
+                        <span>{asset.targetDate}</span>
+                        <span>·</span>
+                        <span>{asset.postTimeIST || '6:30 PM'}</span>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
+                        <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-medium ${prodState.pill}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${prodState.dot}`} />
+                          <span>{prodState.label}</span>
+                        </span>
+
+                        <button
+                          onClick={() => onOpenProductionModal(asset)}
+                          disabled={isGenerating}
+                          className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shadow-xs active:scale-95 ${
+                            isApproved
+                              ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              : isReady
+                              ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                              : 'bg-[#FF4500] hover:bg-[#EA3E00] text-white'
+                          }`}
+                        >
+                          <span>
+                            {isApproved
+                              ? 'Ready'
+                              : isReady
+                              ? 'Review'
+                              : 'Produce'}
+                          </span>
+                          <ArrowUpRight className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
           {/* Database Spreadsheet Table */}
-          <div className="bg-white rounded-2xl border border-black/[0.06] shadow-[0_2px_12px_rgba(0,0,0,0.03)] overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className={`bg-white rounded-2xl border border-black/[0.06] shadow-[0_2px_12px_rgba(0,0,0,0.03)] overflow-hidden w-full max-w-full ${
+            mobileDisplayMode === 'table' ? 'block' : 'hidden md:block'
+          }`}>
+            <div className="overflow-x-auto w-full">
               <table className="w-full text-left text-xs whitespace-nowrap">
                 <thead className="bg-[#FBFBFD] border-b border-black/[0.06] text-[#86868B] sticky top-0 font-medium">
                   <tr>

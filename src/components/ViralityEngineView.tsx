@@ -25,7 +25,7 @@ export const ViralityEngineView: React.FC = () => {
   return (
     <div className="space-y-6 pb-20">
       {/* Editorial Header */}
-      <div className="bg-white rounded-3xl border border-black/[0.06] p-6 sm:p-8 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+      <div className="bg-white rounded-3xl border border-black/[0.06] p-4 sm:p-8 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="space-y-1">
             <div className="flex items-center space-x-2 text-xs text-[#86868B]">
@@ -42,14 +42,14 @@ export const ViralityEngineView: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center space-x-3 text-xs self-start lg:self-center">
-            <div className="p-4 bg-[#FBFBFD] rounded-2xl border border-black/[0.04] text-right">
-              <div className="text-[11px] text-[#86868B]">Estimated Month 1 Reach</div>
-              <div className="text-xl font-semibold text-[#FF4500] mt-0.5">542,000+</div>
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-3 text-xs w-full sm:w-auto">
+            <div className="p-3 sm:p-4 bg-[#FBFBFD] rounded-2xl border border-black/[0.04] text-left sm:text-right">
+              <div className="text-[10px] sm:text-[11px] text-[#86868B]">Estimated Reach</div>
+              <div className="text-lg sm:text-xl font-semibold text-[#FF4500] mt-0.5">542,000+</div>
             </div>
-            <div className="p-4 bg-[#FBFBFD] rounded-2xl border border-black/[0.04] text-right">
-              <div className="text-[11px] text-[#86868B]">Expected Inquiries</div>
-              <div className="text-xl font-semibold text-emerald-600 mt-0.5">180+ leads</div>
+            <div className="p-3 sm:p-4 bg-[#FBFBFD] rounded-2xl border border-black/[0.04] text-left sm:text-right">
+              <div className="text-[10px] sm:text-[11px] text-[#86868B]">Expected Leads</div>
+              <div className="text-lg sm:text-xl font-semibold text-emerald-600 mt-0.5">180+ leads</div>
             </div>
           </div>
         </div>

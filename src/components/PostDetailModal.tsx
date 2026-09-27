@@ -40,8 +40,8 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-md overflow-y-auto">
-      <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-7 space-y-6 max-h-[90vh] overflow-y-auto text-[#1D1D1F] animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
+      <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-4 sm:p-7 space-y-6 max-h-[92vh] overflow-y-auto text-[#1D1D1F] animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-black/[0.06]">
           <div className="flex items-center space-x-2 text-xs">
@@ -134,26 +134,26 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="pt-4 border-t border-black/[0.06] flex flex-wrap items-center justify-between gap-3">
+        <div className="pt-4 border-t border-black/[0.06] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <button
             onClick={() => {
               onClose();
               onOpenStudioWithAsset(asset.id);
             }}
-            className="px-3.5 py-2 bg-white hover:bg-neutral-50 text-[#1D1D1F] border border-black/[0.08] text-xs font-medium rounded-xl shadow-sm transition-colors flex items-center space-x-1.5"
+            className="w-full sm:w-auto justify-center px-3.5 py-2.5 bg-white hover:bg-neutral-50 text-[#1D1D1F] border border-black/[0.08] text-xs font-medium rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 min-h-[40px]"
           >
             <Layers className="w-3.5 h-3.5" />
             <span>Open in Studio</span>
           </button>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 w-full sm:w-auto">
             {onOpenProductionModal && (
               <button
                 onClick={() => {
                   onClose();
                   onOpenProductionModal(asset);
                 }}
-                className="px-4 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-sm transition-all flex items-center space-x-1.5 active:scale-95"
+                className="flex-1 sm:flex-none justify-center px-4 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-xs transition-all flex items-center space-x-1.5 active:scale-95 min-h-[40px]"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Production modal</span>
@@ -162,7 +162,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
 
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-[#1D1D1F] text-xs font-medium rounded-xl transition-colors"
+              className="flex-1 sm:flex-none justify-center px-4 py-2.5 bg-black/[0.04] hover:bg-black/[0.08] text-[#1D1D1F] text-xs font-medium rounded-xl transition-colors min-h-[40px]"
             >
               Close
             </button>

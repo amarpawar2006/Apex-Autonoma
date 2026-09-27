@@ -154,8 +154,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-md overflow-y-auto">
-      <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-7 space-y-6 max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200 text-[#1D1D1F]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
+      <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-4 sm:p-7 space-y-6 max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200 text-[#1D1D1F]">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-black/[0.06]">
           <div className="flex items-center space-x-2.5">
@@ -296,7 +296,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
             <button
               type="button"
               onClick={handleCopyCode}
-              className="px-3 py-1.5 bg-[#14161B] hover:bg-black text-white font-medium rounded-xl text-xs flex items-center space-x-1.5 transition-colors shadow-2xs ml-auto"
+              className="px-3 py-1.5 bg-[#14161B] hover:bg-black text-white font-medium rounded-xl text-xs flex items-center space-x-1.5 transition-colors shadow-2xs sm:ml-auto"
             >
               {codeCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
               <span>{codeCopied ? 'Connector code copied!' : 'Copy Apps Script code'}</span>

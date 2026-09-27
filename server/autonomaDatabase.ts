@@ -282,35 +282,96 @@ export class AutonomaDatabaseManager {
   }
 
   private persistToDisk(storeToSave?: AutonomaDatabaseStore): void {
-    try {
-      const data = storeToSave || this.store;
-      const dir = path.dirname(DB_FILE_PATH);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
-    } catch (err) {
-      console.error('[Autonoma DB] Failed to persist database to disk:', err);
+  const data = storeToSave || this.store;
+  const dir = path.dirname(DB_FILE_PATH);
+
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
+
+    fs.writeFileSync(
+      DB_FILE_PATH,
+      JSON.stringify(data, null, 2),
+      'utf-8'
+    );
+  } catch (err: any) {
+    console.error(
+      '[Autonoma DB] CRITICAL: Failed to persist database to disk:',
+      err
+    );
+
+    // Do not allow the API to report success when persistence failed.
+    throw new Error(
+      `Operational database write failed: ${
+        err?.message || 'Unknown filesystem error'
+      }`
+    );
+  }
+}
+
+  /**
+   * Resolves the single canonical Google Sheets Web App URL with strict priority:
+   * 1. Currently saved application setting in this.store
+   * 2. Environment variable fallback only when no saved setting exists
+   * Normalizes whitespace and strips trailing slashes.
+   */
+  public getGoogleSheetsUrl(): string {
+    let url = (this.store.googleSheetsUrl || '').trim();
+    if (!url) {
+      const envUrl = (
+        process.env.GOOGLE_APPS_SCRIPT_URL ||
+        process.env.GOOGLE_SHEETS_WEBAPP_URL ||
+        process.env.VITE_SHEETS_WEBHOOK_URL ||
+        ''
+      ).trim();
+      if (envUrl) {
+        url = envUrl;
+      }
+    }
+    return url.replace(/\/+$/, '');
   }
 
-  public getGoogleSheetsUrl(): string {
-    return this.store.googleSheetsUrl || process.env.GOOGLE_APPS_SCRIPT_URL || process.env.GOOGLE_SHEETS_WEBAPP_URL || '';
+  /**
+   * Validates that the configured or provided URL ends in /exec
+   * without exposing secrets in logs.
+   */
+  public validateGoogleSheetsUrl(targetUrl?: string): { valid: boolean; error?: string; url: string } {
+    const candidate = (targetUrl !== undefined ? targetUrl : this.getGoogleSheetsUrl()).trim().replace(/\/+$/, '');
+    if (!candidate) {
+      return { valid: false, error: 'Google Sheets Web App URL is not configured.', url: '' };
+    }
+    if (!candidate.endsWith('/exec')) {
+      return {
+        valid: false,
+        error: 'Google Sheets Web App URL must end with /exec (Apps Script Web App deployment endpoint).',
+        url: candidate
+      };
+    }
+    return { valid: true, url: candidate };
   }
 
   public setGoogleSheetsUrl(url: string): void {
-    this.store.googleSheetsUrl = url.trim();
+    const normalized = (url || '').trim().replace(/\/+$/, '');
+    this.store.googleSheetsUrl = normalized;
     this.persistToDisk();
   }
 
   /**
-   * Helper to dispatch an action to the Google Apps Script Web App
+   * Canonical helper to dispatch actions to the Google Apps Script Web App.
+   * All server routes and write-through operations use this exact method.
    */
   public async callAppsScript<T = any>(action: string, payload: Record<string, any> = {}): Promise<AppsScriptResponse<T>> {
-    const url = this.getGoogleSheetsUrl();
-    if (!url) {
-      return { success: false, error: 'Google Sheets Web App URL not configured', code: 'NO_WEBAPP_URL' };
+    const validation = this.validateGoogleSheetsUrl();
+    if (!validation.valid) {
+      return {
+        success: false,
+        error: validation.error || 'Google Sheets Web App URL not configured',
+        code: 'NO_WEBAPP_URL'
+      };
     }
+
+    const url = validation.url;
 
     try {
       const res = await fetch(url, {
@@ -331,6 +392,7 @@ export class AutonomaDatabaseManager {
       const json = await res.json();
       return json as AppsScriptResponse<T>;
     } catch (err: any) {
+      // Do not log sensitive URLs or secrets
       console.warn(`[Autonoma DB] Apps Script action ${action} failed:`, err?.message || err);
       return {
         success: false,
@@ -367,12 +429,22 @@ export class AutonomaDatabaseManager {
       status: campaign.status
     });
 
-    // Sync to Google Sheets if connected
-    if (this.getGoogleSheetsUrl()) {
-      this.callAppsScript(idx >= 0 ? 'UPDATE_CAMPAIGN' : 'CREATE_CAMPAIGN', { campaign }).catch(e => {
-        console.warn('[Autonoma DB] Background sync campaign to Google Sheets failed:', e);
-      });
-    }
+// Write-through to Google Sheets when connected.
+// Do not report full persistence success if Sheets rejects the record.
+if (this.getGoogleSheetsUrl()) {
+  const sheetsResult = await this.callAppsScript(
+    idx >= 0 ? 'UPDATE_CAMPAIGN' : 'CREATE_CAMPAIGN',
+    { campaign }
+  );
+
+  if (!sheetsResult.success) {
+    throw new Error(
+      `Campaign saved locally but Google Sheets write failed: ${
+        sheetsResult.error || 'Unknown Google Sheets error'
+      }`
+    );
+  }
+}
 
     return { success: true, data: campaign };
   }
@@ -408,11 +480,16 @@ export class AutonomaDatabaseManager {
       format: asset.format
     });
 
-    // Sync to Google Sheets
+    // Write-through to Google Sheets when connected
     if (this.getGoogleSheetsUrl()) {
-      this.callAppsScript(idx >= 0 ? 'UPDATE_ASSET' : 'CREATE_ASSET', { asset }).catch(e => {
-        console.warn('[Autonoma DB] Background sync asset to Google Sheets failed:', e);
-      });
+      const sheetsResult = await this.callAppsScript(idx >= 0 ? 'UPDATE_ASSET' : 'CREATE_ASSET', { asset });
+      if (!sheetsResult.success) {
+        throw new Error(
+          `Asset saved locally but Google Sheets write failed: ${
+            sheetsResult.error || 'Unknown Google Sheets error'
+          }`
+        );
+      }
     }
 
     return { success: true, data: asset };
@@ -437,12 +514,21 @@ export class AutonomaDatabaseManager {
       campaignId: assets[0]?.campaignId
     });
 
-    // Batch sync to Google Sheets
-    if (this.getGoogleSheetsUrl()) {
-      this.callAppsScript('BATCH_SAVE_ASSETS', { assets }).catch(e => {
-        console.warn('[Autonoma DB] Background batch sync assets to Google Sheets failed:', e);
-      });
-    }
+  // Write-through batch to Google Sheets when connected.
+if (this.getGoogleSheetsUrl()) {
+  const sheetsResult = await this.callAppsScript(
+    'BATCH_SAVE_ASSETS',
+    { assets }
+  );
+
+  if (!sheetsResult.success) {
+    throw new Error(
+      `Assets saved locally but Google Sheets batch write failed: ${
+        sheetsResult.error || 'Unknown Google Sheets error'
+      }`
+    );
+  }
+}
 
     return { success: true, count: assets.length };
   }
@@ -601,11 +687,16 @@ export class AutonomaDatabaseManager {
 
   /**
    * Initializes all 8 tables on the connected Google Sheet
+  /**
+   * Initializes all 8 tables on the connected Google Sheet
    */
   public async initGoogleSheet(targetUrl?: string): Promise<{ success: boolean; message: string; data?: any }> {
-    const url = targetUrl || this.getGoogleSheetsUrl();
-    if (!url) {
-      return { success: false, message: 'Google Sheets URL is missing.' };
+    if (targetUrl && typeof targetUrl === 'string' && targetUrl.trim()) {
+      this.setGoogleSheetsUrl(targetUrl.trim());
+    }
+    const validation = this.validateGoogleSheetsUrl();
+    if (!validation.valid) {
+      return { success: false, message: validation.error || 'Google Sheets URL is missing.' };
     }
 
     const res = await this.callAppsScript('INIT_DATABASE', {});
@@ -622,12 +713,12 @@ export class AutonomaDatabaseManager {
   }
 
   /**
-   * Two-way sync: pushes local store to Google Sheet or pulls updates
+   * Two-way sync: pushes authoritative server store to Google Sheet
    */
   public async syncWithGoogleSheets(): Promise<{ success: boolean; message: string; stats?: any }> {
-    const url = this.getGoogleSheetsUrl();
-    if (!url) {
-      return { success: false, message: 'Google Sheets Web App URL is not configured in Settings.' };
+    const validation = this.validateGoogleSheetsUrl();
+    if (!validation.valid) {
+      return { success: false, message: validation.error || 'Google Sheets Web App URL is not configured in Settings.' };
     }
 
     const testRes = await this.callAppsScript('PING', {});
@@ -636,9 +727,16 @@ export class AutonomaDatabaseManager {
     }
 
     // Push local campaigns and assets to Google Sheet in batch
-    await this.callAppsScript('BATCH_SAVE_ASSETS', { assets: this.store.assets });
+    const batchRes = await this.callAppsScript('BATCH_SAVE_ASSETS', { assets: this.store.assets });
+    if (!batchRes.success) {
+      return { success: false, message: `Batch assets sync failed: ${batchRes.error || 'Unknown error'}` };
+    }
+
     for (const c of this.store.campaigns) {
-      await this.callAppsScript('CREATE_CAMPAIGN', { campaign: c });
+      const campRes = await this.callAppsScript('CREATE_CAMPAIGN', { campaign: c });
+      if (!campRes.success) {
+        return { success: false, message: `Campaign sync failed for ${c.campaignId}: ${campRes.error || 'Unknown error'}` };
+      }
     }
 
     this.store.lastSyncAt = new Date().toISOString();
@@ -651,6 +749,139 @@ export class AutonomaDatabaseManager {
         campaigns: this.store.campaigns.length,
         assets: this.store.assets.length,
         syncedAt: this.store.lastSyncAt
+      }
+    };
+  }
+
+  /**
+   * Atomic Campaign Commit Endpoint Implementation:
+   * A. Validate campaign
+   * B. Validate assets array
+   * C. Upsert campaign into authoritative store
+   * D. Upsert ALL assets into authoritative store
+   * E. Write/upsert campaign to Google Sheets
+   * F. Batch upsert assets to Google Sheets
+   * G. Verify returned success
+   * H. Only then return success to client
+   */
+  public async commitCampaign(
+    campaignData: any,
+    assetsData: any[]
+  ): Promise<{
+    campaign: Campaign;
+    assetCount: number;
+    persistence: { server: true; googleSheets: true };
+  }> {
+    // A. Validate campaign
+    if (!campaignData || typeof campaignData !== 'object') {
+      throw new Error('Invalid campaign: campaign payload is required.');
+    }
+    const campId = campaignData.id || campaignData.campaignId;
+    if (!campId || typeof campId !== 'string') {
+      throw new Error('Invalid campaign: missing campaign ID.');
+    }
+    if (!campaignData.name || typeof campaignData.name !== 'string') {
+      throw new Error('Invalid campaign: missing campaign name.');
+    }
+
+    // B. Validate assets array
+    if (!Array.isArray(assetsData)) {
+      throw new Error('Invalid assets: assets payload must be an array.');
+    }
+
+    const campRow: DbCampaignRow = campaignData.campaignId
+      ? campaignData
+      : campaignToDbRow(campaignData);
+
+    const assetRows: DbAssetRow[] = assetsData.map((a: any) => {
+      const row = a.assetId ? a : assetToDbRow(a);
+      row.campaignId = campRow.campaignId;
+      if (!row.assetId) {
+        throw new Error('Invalid asset: missing asset ID.');
+      }
+      return row;
+    });
+
+    // C. Upsert campaign into authoritative store
+    const cIdx = this.store.campaigns.findIndex(c => c.campaignId === campRow.campaignId);
+    if (cIdx >= 0) {
+      this.store.campaigns[cIdx] = {
+        ...this.store.campaigns[cIdx],
+        ...campRow,
+        updatedAt: new Date().toISOString()
+      };
+    } else {
+      this.store.campaigns.unshift(campRow);
+    }
+
+    // D. Upsert ALL assets into authoritative store
+    for (const aRow of assetRows) {
+      const aIdx = this.store.assets.findIndex(a => a.assetId === aRow.assetId);
+      if (aIdx >= 0) {
+        this.store.assets[aIdx] = {
+          ...this.store.assets[aIdx],
+          ...aRow,
+          updatedAt: new Date().toISOString()
+        };
+      } else {
+        this.store.assets.unshift(aRow);
+      }
+    }
+
+    // Persist to authoritative local disk
+    this.persistToDisk();
+
+    // Verify Google Sheets configuration
+    const validation = this.validateGoogleSheetsUrl();
+    if (!validation.valid) {
+      throw new Error(`Google Sheets write-through failed: ${validation.error}`);
+    }
+
+    // E. Write/upsert campaign to Google Sheets
+    const campSheetRes = await this.callAppsScript(
+      cIdx >= 0 ? 'UPDATE_CAMPAIGN' : 'CREATE_CAMPAIGN',
+      { campaign: campRow }
+    );
+    if (!campSheetRes.success) {
+      throw new Error(
+        `Campaign saved locally but Google Sheets write failed: ${
+          campSheetRes.error || 'Unknown Google Sheets error'
+        }`
+      );
+    }
+
+    // F. Batch upsert assets to Google Sheets
+    if (assetRows.length > 0) {
+      const assetsSheetRes = await this.callAppsScript('BATCH_SAVE_ASSETS', {
+        assets: assetRows
+      });
+      if (!assetsSheetRes.success) {
+        throw new Error(
+          `Assets saved locally but Google Sheets batch write failed: ${
+            assetsSheetRes.error || 'Unknown Google Sheets error'
+          }`
+        );
+      }
+    }
+
+    // G. Verify returned success & small persistence health log (no sensitive credentials)
+    console.log(
+      `[PERSISTENCE] ${campRow.campaignId} committed: ${assetRows.length} assets, server=true, sheets=true`
+    );
+
+    this.logActivity('CAMPAIGN', campRow.campaignId, 'COMMIT_CAMPAIGN_AND_ASSETS', {
+      assetCount: assetRows.length,
+      serverPersistence: true,
+      sheetsPersistence: true
+    });
+
+    // H. Only then return success to client
+    return {
+      campaign: dbRowToCampaign(campRow),
+      assetCount: assetRows.length,
+      persistence: {
+        server: true,
+        googleSheets: true
       }
     };
   }

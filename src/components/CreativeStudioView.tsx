@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { SocialAsset, PostStatus } from '../types/campaign';
 import { APEX_COMPANY_DATA } from '../data/apexCompanyData';
+import { ApexLogo } from './ApexLogo';
 
 interface CreativeStudioViewProps {
   assets: SocialAsset[];
@@ -170,7 +171,7 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
       {/* Main Studio Viewport Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Visual Viewport Canvas */}
-        <div className="lg:col-span-7 bg-white rounded-3xl border border-black/[0.06] shadow-sm p-6 sm:p-8 flex flex-col items-center justify-center min-h-[580px]">
+        <div className="lg:col-span-7 bg-white rounded-3xl border border-black/[0.06] shadow-sm p-4 sm:p-8 flex flex-col items-center justify-center min-h-[480px] sm:min-h-[580px] overflow-hidden">
           {/* Format Indicator */}
           <div className="w-full max-w-sm flex items-center justify-between text-xs text-[#86868B] mb-4">
             <span className="flex items-center space-x-1.5 font-medium text-[#1D1D1F]">
@@ -184,7 +185,7 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
 
           {/* VIEWPORT 1: 9:16 VERTICAL VIDEO REEL SIMULATOR (Preserving authentic AES-DS output) */}
           {isVideo ? (
-            <div className="relative w-full max-w-[320px] aspect-[9/16] bg-zinc-950 rounded-2xl shadow-2xl overflow-hidden flex flex-col justify-between p-4 group border border-black/[0.2]">
+            <div className="relative w-full max-w-[280px] sm:max-w-[320px] aspect-[9/16] bg-zinc-950 rounded-2xl shadow-2xl overflow-hidden flex flex-col justify-between p-4 group border border-black/[0.2]">
               <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:12px_12px] pointer-events-none"></div>
 
               {/* Reel Top Bar */}
@@ -200,7 +201,7 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
                 <div className="text-[10px] font-mono uppercase tracking-widest text-[#FF4500] font-bold">
                   SCENE {currentSceneIndex + 1} · {currentScene?.visualFocus}
                 </div>
-                <h3 className="text-lg font-bold font-mono text-white leading-tight">
+                <h3 className="text-base sm:text-lg font-bold font-mono text-white leading-tight">
                   "{currentScene?.hookText}"
                 </h3>
                 <div className="p-2.5 bg-black/70 border-l-2 border-[#FF4500] text-left text-[11px] font-mono text-white/90">
@@ -212,9 +213,7 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
               {/* Reel Bottom */}
               <div className="relative z-10 space-y-2 text-white">
                 <div className="flex items-center space-x-2">
-                  <div className="w-6 h-6 rounded-full bg-[#FF4500] text-black font-black text-[10px] flex items-center justify-center font-mono">
-                    /\
-                  </div>
+                  <ApexLogo variant="mark" size="sm" className="bg-white rounded p-0.5 shrink-0" />
                   <div>
                     <div className="text-xs font-bold font-mono">Apex Engineering</div>
                     <div className="text-[10px] text-white/60">Commerce Systems Architecture</div>

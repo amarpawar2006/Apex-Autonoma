@@ -204,20 +204,20 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
               >
                 {/* Top Row: Code, Status, Platforms, and Dates */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center space-x-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs font-semibold text-[#86868B] tracking-tight bg-black/[0.04] px-2 py-0.5 rounded-md">
                       {camp.campaignCode}
                     </span>
                     {getStatusBadge(camp.status)}
                     <span className="text-xs text-[#86868B]">·</span>
                     <span className="text-xs text-[#86868B] flex items-center">
-                      <Calendar className="w-3.5 h-3.5 mr-1" />
-                      {camp.startDate} to {camp.endDate}
+                      <Calendar className="w-3.5 h-3.5 mr-1 shrink-0" />
+                      <span>{camp.startDate} to {camp.endDate}</span>
                     </span>
                   </div>
 
                   {/* Platforms */}
-                  <div className="flex items-center space-x-1.5">
+                  <div className="flex items-center space-x-1.5 shrink-0">
                     {camp.platforms.map((p) => getPlatformIcon(p))}
                   </div>
                 </div>
@@ -237,8 +237,8 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
 
                 {/* Progress Breakdown Bar */}
                 <div className="space-y-2 pt-2">
-                  <div className="flex items-center justify-between text-xs text-[#6E6E73]">
-                    <div className="flex items-center space-x-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[#6E6E73]">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                       <span className="font-medium text-[#1D1D1F]">{metrics.total} Assets</span>
                       <span>·</span>
                       <span className="text-amber-600 font-medium">{metrics.needsMedia} Need media</span>
@@ -248,7 +248,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                       <span className="text-emerald-600 font-medium">{metrics.approved} Approved</span>
                     </div>
 
-                    <div className="flex items-center space-x-2 text-[11px]">
+                    <div className="flex items-center space-x-2 text-[11px] shrink-0">
                       <span>Est. Reach: <strong className="text-[#1D1D1F]">{metrics.totalReach.toLocaleString()}</strong></span>
                       <span>·</span>
                       <span>Virality: <strong className="text-[#FF4500]">{metrics.averageVirality}/100</strong></span>
@@ -276,11 +276,11 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                 </div>
 
                 {/* Bottom Row: Actions */}
-                <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.04]">
-                  <div className="flex items-center space-x-2">
+                <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-black/[0.04]">
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                     <button
                       onClick={() => onSelectCampaign(camp)}
-                      className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-[#F5F5F7] hover:bg-black/[0.06] text-[#1D1D1F] text-xs font-medium rounded-xl transition-colors"
+                      className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-[#F5F5F7] hover:bg-black/[0.06] text-[#1D1D1F] text-xs font-medium rounded-xl transition-colors min-h-[38px]"
                     >
                       <Eye className="w-3.5 h-3.5 text-[#6E6E73]" />
                       <span>Campaign Strategy</span>
@@ -288,7 +288,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
 
                     <button
                       onClick={() => onFilterByCampaign(camp.id)}
-                      className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-[#F5F5F7] hover:bg-black/[0.06] text-[#1D1D1F] text-xs font-medium rounded-xl transition-colors"
+                      className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-[#F5F5F7] hover:bg-black/[0.06] text-[#1D1D1F] text-xs font-medium rounded-xl transition-colors min-h-[38px]"
                     >
                       <FileSpreadsheet className="w-3.5 h-3.5 text-[#6E6E73]" />
                       <span>View in Content Sheet</span>

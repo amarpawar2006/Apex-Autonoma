@@ -129,19 +129,19 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
               </span>
             </div>
 
-            <h1 className="text-3xl font-semibold tracking-tight text-[#1D1D1F]">
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#1D1D1F] break-words">
               {campaign.name}
             </h1>
-            <p className="text-sm text-[#6E6E73] max-w-3xl leading-relaxed">
+            <p className="text-xs sm:text-sm text-[#6E6E73] max-w-3xl leading-relaxed">
               {campaign.brief}
             </p>
           </div>
 
           {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto self-start lg:self-auto">
             <button
               onClick={() => onNavigateToMasterSheet(campaign.id)}
-              className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-white hover:bg-black/[0.03] border border-black/[0.08] text-xs font-medium text-[#1D1D1F] rounded-xl shadow-sm transition-all"
+              className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-white hover:bg-black/[0.03] border border-black/[0.08] text-xs font-medium text-[#1D1D1F] rounded-xl shadow-sm transition-all min-h-[38px]"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-[#6E6E73]" />
               <span>Open in Master Sheet</span>
@@ -149,7 +149,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
 
             <button
               onClick={() => onOpenCreateAsset(campaign.id)}
-              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-sm transition-all active:scale-95"
+              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-sm transition-all active:scale-95 min-h-[38px]"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Create Asset</span>
@@ -159,8 +159,8 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
       </div>
 
       {/* Metrics Row (Apple Style) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-white rounded-2xl border border-black/[0.06] p-5 space-y-1 shadow-sm">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-white rounded-2xl border border-black/[0.06] p-4 sm:p-5 space-y-1 shadow-sm">
           <span className="text-xs font-medium text-[#86868B]">Deliverables</span>
           <div className="text-2xl font-semibold tracking-tight text-[#1D1D1F]">
             {metrics.total}

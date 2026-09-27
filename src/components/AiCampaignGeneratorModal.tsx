@@ -84,6 +84,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   const [loadingStep, setLoadingStep] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [createdResult, setCreatedResult] = useState<{ campaign: Campaign; assets: SocialAsset[] } | null>(null);
+  const [pendingCommitResult, setPendingCommitResult] = useState<{ campaign: Campaign; assets: SocialAsset[] } | null>(null);
 
   if (!isOpen) return null;
 
@@ -112,10 +113,9 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
     setIsLoading(true);
     setError(null);
-    setLoadingStep('Analyzing business objective & market friction…');
 
     const step1 = setTimeout(() => {
-      setLoadingStep('Synthesizing content pillars, format mix & narrative sequence…');
+      setLoadingStep('Synthesizing content pillars, format mix & calibrated narrative sequence…');
     }, 1500);
 
     const step2 = setTimeout(() => {
@@ -123,41 +123,48 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
     }, 3000);
 
     try {
-      // 1. FIRST: Receive complete campaign intelligence from Gemini
-      const result = await createAutonomaCampaign({
-        brief: brief.trim(),
-        platforms: selectedPlatforms,
-        autoPlatforms: letAutonomaDecidePlatforms,
-        formats: selectedFormats,
-        autoFormats: letAutonomaDecideFormats,
-        duration,
-        startDate: duration === 'custom' ? customStartDate : undefined,
-        endDate: duration === 'custom' ? customEndDate : undefined,
-        languages: [language],
-        advancedOptions: {
-          targetAudience: targetAudience.trim() || undefined,
-          primaryCta: primaryCta.trim() || undefined,
-          productsEmphasized: productsEmphasized.trim() || undefined,
-          assetCount: typeof customAssetCount === 'number' && customAssetCount > 0 ? customAssetCount : undefined,
-          postingFrequency: postingFrequency.trim() || undefined,
-          tone: tone.trim() || undefined,
-        }
-      });
+      // 1. FIRST: Synthesize campaign intelligence via Gemini (or reuse pending if retrying commit)
+      let result = pendingCommitResult;
+      if (!result) {
+        setLoadingStep('Analyzing business objective & market friction…');
+        result = await createAutonomaCampaign({
+          brief: brief.trim(),
+          platforms: selectedPlatforms,
+          autoPlatforms: letAutonomaDecidePlatforms,
+          formats: selectedFormats,
+          autoFormats: letAutonomaDecideFormats,
+          duration,
+          startDate: duration === 'custom' ? customStartDate : undefined,
+          endDate: duration === 'custom' ? customEndDate : undefined,
+          languages: [language],
+          advancedOptions: {
+            targetAudience: targetAudience.trim() || undefined,
+            primaryCta: primaryCta.trim() || undefined,
+            productsEmphasized: productsEmphasized.trim() || undefined,
+            assetCount: typeof customAssetCount === 'number' && customAssetCount > 0 ? customAssetCount : undefined,
+            postingFrequency: postingFrequency.trim() || undefined,
+            tone: tone.trim() || undefined,
+          }
+        });
+        setPendingCommitResult(result);
+      }
 
-      // 2. THEN: Persist CAMPAIGN to durable operational database & Google Sheets
-      setLoadingStep('Persisting campaign record to durable operational database…');
-      await autonomaDataService.saveCampaign(result.campaign);
+      // 2. SAVING CAMPAIGN... Atomic write to authoritative server database & Google Sheets write-through
+      setLoadingStep('SAVING CAMPAIGN... Committing campaign and deliverables to database and Google Sheets…');
+      const commitRes = await autonomaDataService.commitCampaign(result.campaign, result.assets);
 
-      // 3. THEN: Persist all generated ASSETS in a batch
-      setLoadingStep(`Persisting all ${result.assets.length} deliverables to durable database in batch…`);
-      await autonomaDataService.saveAssetsBatch(result.assets);
+      // 3. ONLY AFTER BOTH SUCCEED: Update parent React state, clear pending cache, and show CAMPAIGN SAVED
+      setPendingCommitResult(null);
+      const persistedResult = {
+        campaign: commitRes.campaign,
+        assets: commitRes.assets
+      };
 
-      // 4. ONLY AFTER SUCCESS: Pass new campaign & assets to parent state and show CAMPAIGN SAVED
-      onCampaignCreated(result);
-      setCreatedResult(result);
+      onCampaignCreated(persistedResult);
+      setCreatedResult(persistedResult);
     } catch (err: any) {
-      console.error('Campaign creation and persistence failed:', err);
-      setError(err?.message || 'Could not synthesize or persist campaign strategy. Please retry.');
+      console.error('[Campaign Director] Campaign creation and persistence failed:', err);
+      setError(err?.message || 'Campaign could not be saved to the operational database and Google Sheets.');
     } finally {
       clearTimeout(step1);
       clearTimeout(step2);
@@ -168,6 +175,8 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
   const handleResetAndClose = () => {
     setCreatedResult(null);
+    setPendingCommitResult(null);
+    setError(null);
     onClose();
   };
 
@@ -198,8 +207,8 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-md overflow-y-auto">
-      <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-7 sm:p-8 space-y-6 max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
+      <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-4 sm:p-7 space-y-6 max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
         
         {/* If Campaign was just created, show Apple-style summary confirmation */}
         {createdResult ? (
@@ -622,9 +631,12 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
             {/* Error Message */}
             {error && (
-              <div className="bg-red-50 text-red-700 text-xs p-3.5 rounded-2xl border border-red-100 flex items-center space-x-2">
-                <span className="font-semibold">Notice:</span>
-                <span>{error}</span>
+              <div className="bg-red-50 text-red-700 text-xs p-3.5 rounded-2xl border border-red-200 flex flex-col space-y-1">
+                <div className="flex items-center space-x-2 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-red-600" />
+                  <span>CAMPAIGN NOT SAVED</span>
+                </div>
+                <div className="text-[11px] text-red-600 pl-4">{error}</div>
               </div>
             )}
 
@@ -642,17 +654,17 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
             )}
 
             {/* Action Bar */}
-            <div className="flex items-center justify-between pt-4 border-t border-black/[0.06]">
-              <div className="text-[11px] text-[#86868B]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-black/[0.06]">
+              <div className="text-[11px] text-[#86868B] hidden sm:block">
                 Creates first-class Campaign entity · Preserves existing assets
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
                 <button
                   type="button"
                   onClick={onClose}
                   disabled={isLoading}
-                  className="px-4 py-2 text-xs font-medium text-[#6E6E73] hover:text-[#1D1D1F] transition-colors"
+                  className="flex-1 sm:flex-none px-4 py-2.5 text-xs font-medium text-[#6E6E73] hover:text-[#1D1D1F] transition-colors rounded-xl min-h-[40px]"
                 >
                   Cancel
                 </button>
@@ -661,10 +673,10 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                   type="button"
                   onClick={handleCreateCampaign}
                   disabled={isLoading || !brief.trim()}
-                  className="inline-flex items-center space-x-2 px-5 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-2 px-5 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50 min-h-[40px]"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Create Campaign</span>
+                  <span>{pendingCommitResult ? 'Retry Saving Campaign' : 'Create Campaign'}</span>
                 </button>
               </div>
             </div>

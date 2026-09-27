@@ -26,6 +26,7 @@ import {
   ArrowUpRight
 } from 'lucide-react';
 import { SocialAsset, ProductionStatus, CarouselSlide, VideoScene } from '../types/campaign';
+import { ApexLogo } from './ApexLogo';
 import {
   generateAssetImage,
   generateAssetVideo,
@@ -332,11 +333,9 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
       <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl w-full max-w-5xl my-4 text-[#1D1D1F] flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Top Header Deck */}
-        <div className="px-6 py-4 border-b border-black/[0.06] flex items-center justify-between gap-4 bg-white sticky top-0 z-10">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-black/[0.06] flex items-center justify-between gap-4 bg-white sticky top-0 z-10">
           <div className="flex items-center space-x-3 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-[#FF4500] text-white flex items-center justify-center font-bold text-xs shadow-sm flex-shrink-0">
-              /\
-            </div>
+            <ApexLogo variant="mark" size="sm" className="shrink-0" />
             <div className="min-w-0">
               <div className="flex items-center space-x-2 text-xs">
                 <span className="font-mono font-semibold text-[#FF4500]">
@@ -402,8 +401,8 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
         </div>
 
         {/* Apple Segmented View Switcher */}
-        <div className="px-6 py-2.5 bg-[#FBFBFD] border-b border-black/[0.06] flex items-center justify-between gap-4">
-          <div className="p-1 bg-black/[0.04] rounded-xl flex items-center space-x-1 text-xs">
+        <div className="px-4 sm:px-6 py-2.5 bg-[#FBFBFD] border-b border-black/[0.06] flex items-center justify-between gap-4 overflow-x-auto no-scrollbar w-full max-w-full">
+          <div className="p-1 bg-black/[0.04] rounded-xl flex items-center space-x-1 text-xs shrink-0">
             <button
               onClick={() => setActiveTab('preview')}
               className={`px-3.5 py-1.5 rounded-lg font-medium transition-all ${
@@ -973,28 +972,28 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
         </div>
 
         {/* Modal Bottom Operational Footer */}
-        <div className="px-6 py-4 border-t border-black/[0.06] bg-[#FBFBFD] flex flex-wrap items-center justify-between gap-3 sticky bottom-0">
+        <div className="px-4 sm:px-6 py-3.5 border-t border-black/[0.06] bg-[#FBFBFD] flex flex-col sm:flex-row sm:items-center justify-between gap-3 sticky bottom-0">
           <div className="flex items-center space-x-2 text-xs text-[#86868B]">
             <span>Asset Status:</span>
             <span className="font-medium text-[#1D1D1F] capitalize">{productionStatus.toLowerCase().replace('_', ' ')}</span>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto">
             {/* Primary Download Button */}
             {isCarousel ? (
               <button
                 onClick={handleDownloadAllSlides}
-                className="px-4 py-2 bg-white hover:bg-neutral-50 text-[#1D1D1F] border border-black/[0.08] text-xs font-medium rounded-xl shadow-sm transition-all flex items-center space-x-1.5"
+                className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-white hover:bg-neutral-50 text-[#1D1D1F] border border-black/[0.08] text-xs font-medium rounded-xl shadow-xs transition-all flex items-center space-x-1.5 min-h-[40px]"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5 shrink-0" />
                 <span>Download slides</span>
               </button>
             ) : (
               <button
                 onClick={handleDownloadSingle}
-                className="px-4 py-2 bg-white hover:bg-neutral-50 text-[#1D1D1F] border border-black/[0.08] text-xs font-medium rounded-xl shadow-sm transition-all flex items-center space-x-1.5"
+                className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-white hover:bg-neutral-50 text-[#1D1D1F] border border-black/[0.08] text-xs font-medium rounded-xl shadow-xs transition-all flex items-center space-x-1.5 min-h-[40px]"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5 shrink-0" />
                 <span>Download file</span>
               </button>
             )}
@@ -1002,13 +1001,13 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
             {/* Approve Button */}
             <button
               onClick={handleApprove}
-              className={`px-4 py-2 rounded-xl text-xs font-medium transition-all shadow-sm flex items-center space-x-1.5 ${
+              className={`flex-1 sm:flex-none justify-center px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all shadow-xs flex items-center space-x-1.5 min-h-[40px] ${
                 isApproved
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                   : 'bg-white hover:bg-neutral-50 text-[#1D1D1F] border border-black/[0.08]'
               }`}
             >
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
               <span>{isApproved ? 'Approved' : 'Approve asset'}</span>
             </button>
 
@@ -1017,18 +1016,18 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
               <button
                 onClick={handleGenerateVideo}
                 disabled={isGenerating}
-                className="px-4 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-sm transition-all flex items-center space-x-1.5 active:scale-95"
+                className="flex-1 sm:flex-none justify-center px-4 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-xs transition-all flex items-center space-x-1.5 active:scale-95 min-h-[40px]"
               >
-                <Video className="w-3.5 h-3.5" />
+                <Video className="w-3.5 h-3.5 shrink-0" />
                 <span>{isGenerating ? 'Calling Veo…' : 'Generate video'}</span>
               </button>
             ) : (
               <button
                 onClick={handleGenerateImage}
                 disabled={isGenerating}
-                className="px-4 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-sm transition-all flex items-center space-x-1.5 active:scale-95"
+                className="flex-1 sm:flex-none justify-center px-4 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-xs transition-all flex items-center space-x-1.5 active:scale-95 min-h-[40px]"
               >
-                <Sparkles className="w-3.5 h-3.5" />
+                <Sparkles className="w-3.5 h-3.5 shrink-0" />
                 <span>{isGenerating ? 'Synthesizing…' : generatedImageUrl ? 'Regenerate image' : 'Generate image'}</span>
               </button>
             )}

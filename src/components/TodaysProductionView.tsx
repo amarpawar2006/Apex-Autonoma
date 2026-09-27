@@ -257,7 +257,7 @@ export const TodaysProductionView: React.FC<TodaysProductionViewProps> = ({
                 <div
                   key={asset.id}
                   onClick={() => onOpenProductionModal(asset)}
-                  className="group bg-white rounded-2xl p-6 sm:p-7 border border-black/[0.06] shadow-[0_2px_12px_rgba(0,0,0,0.03)] hover:shadow-md transition-all duration-200 cursor-pointer space-y-5"
+                  className="group bg-white rounded-2xl p-4 sm:p-7 border border-black/[0.06] shadow-[0_2px_12px_rgba(0,0,0,0.03)] hover:shadow-md transition-all duration-200 cursor-pointer space-y-4 sm:space-y-5"
                 >
                   {/* Top Bar: Platform & Scheduled Time */}
                   <div className="flex items-center justify-between text-xs">
@@ -279,7 +279,7 @@ export const TodaysProductionView: React.FC<TodaysProductionViewProps> = ({
 
                   {/* Middle: Headline Title & Metadata */}
                   <div className="space-y-1.5">
-                    <h3 className="text-lg sm:text-xl font-semibold text-[#1D1D1F] tracking-tight leading-snug group-hover:text-[#FF4500] transition-colors">
+                    <h3 className="text-lg sm:text-xl font-semibold text-[#1D1D1F] tracking-tight leading-snug group-hover:text-[#FF4500] transition-colors break-words">
                       {asset.title}
                     </h3>
                     <p className="text-xs text-[#86868B] flex flex-wrap items-center gap-2 font-normal">
@@ -300,7 +300,7 @@ export const TodaysProductionView: React.FC<TodaysProductionViewProps> = ({
                   {/* Bottom: Hierarchy Matrix & Primary CTA */}
                   <div className="pt-2 border-t border-black/[0.04] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     {/* Status Matrix */}
-                    <div className="grid grid-cols-3 gap-4 sm:gap-8 text-xs">
+                    <div className="grid grid-cols-3 gap-2 sm:gap-8 text-xs">
                       <div>
                         <span className="block text-[#86868B] text-[11px]">Content</span>
                         <span className="font-medium text-emerald-600 flex items-center space-x-1 mt-0.5">
@@ -325,11 +325,11 @@ export const TodaysProductionView: React.FC<TodaysProductionViewProps> = ({
                     </div>
 
                     {/* Primary Row Action */}
-                    <div className="flex items-center space-x-2 self-end sm:self-center" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center space-x-2 w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => onOpenProductionModal(asset)}
                         disabled={isGenerating}
-                        className={`inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-medium transition-all shadow-sm active:scale-95 ${
+                        className={`w-full sm:w-auto justify-center inline-flex items-center space-x-1.5 px-4 py-2.5 rounded-xl text-xs font-medium transition-all shadow-sm active:scale-95 ${
                           isApproved
                             ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
                             : isReady

@@ -99,6 +99,33 @@ async function startServer() {
     }
   });
 
+  // Atomic Campaign Commit: Campaign + all Assets + Server DB + Google Sheets
+  app.post('/api/autonoma/campaigns/commit', async (req: Request, res: Response) => {
+    try {
+      const { campaign, assets } = req.body || {};
+      if (!campaign) {
+        return res.status(400).json({ success: false, error: 'Campaign payload is required.' });
+      }
+      if (!Array.isArray(assets)) {
+        return res.status(400).json({ success: false, error: 'Assets array is required.' });
+      }
+
+      const result = await autonomaDb.commitCampaign(campaign, assets);
+      res.json({
+        success: true,
+        campaign: result.campaign,
+        assetCount: result.assetCount,
+        persistence: result.persistence
+      });
+    } catch (err: any) {
+      console.error('[API /campaigns/commit] Error:', err?.message || err);
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Failed to atomically commit campaign and assets to database and Google Sheets'
+      });
+    }
+  });
+
   // 2. Assets Endpoints
   app.get('/api/autonoma/assets', (req: Request, res: Response) => {
     try {
@@ -227,49 +254,35 @@ async function startServer() {
   app.post('/api/autonoma/test-connection', async (req: Request, res: Response) => {
     try {
       const { url } = req.body;
-      const targetUrl = url || autonomaDb.getGoogleSheetsUrl();
-      if (!targetUrl) {
+      if (url && typeof url === 'string' && url.trim()) {
+        autonomaDb.setGoogleSheetsUrl(url.trim());
+      }
+      const validation = autonomaDb.validateGoogleSheetsUrl();
+      if (!validation.valid) {
         return res.status(400).json({
           success: false,
-          error: 'No Google Sheets Web App URL provided or configured.'
+          error: validation.error || 'No Google Sheets Web App URL provided or configured.'
         });
       }
 
       const startTime = Date.now();
-      const testRes = await fetch(targetUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'PING' }),
-        redirect: 'follow'
-      });
+      const testRes = await autonomaDb.callAppsScript('PING', {});
       const latencyMs = Date.now() - startTime;
 
-      if (!testRes.ok) {
+      if (!testRes.success) {
         return res.status(400).json({
           success: false,
-          error: `Google Apps Script returned HTTP ${testRes.status}: ${testRes.statusText}`,
+          error: testRes.error || 'Apps script responded with error status',
           latencyMs
         });
       }
 
-      const json = await testRes.json();
-      if (json && json.success) {
-        if (url) {
-          autonomaDb.setGoogleSheetsUrl(url);
-        }
-        return res.json({
-          success: true,
-          latencyMs,
-          message: 'Connection verified! Google Sheets Web App is responsive and authenticated.',
-          details: json.data
-        });
-      } else {
-        return res.status(400).json({
-          success: false,
-          error: json?.error || 'Apps script responded with error status',
-          latencyMs
-        });
-      }
+      return res.json({
+        success: true,
+        latencyMs,
+        message: 'Connection verified! Google Sheets Web App is responsive and authenticated.',
+        details: testRes.data
+      });
     } catch (err: any) {
       res.status(500).json({
         success: false,
@@ -289,7 +302,7 @@ async function startServer() {
     }
   });
 
-  // 7. Full Synchronization
+  // 7. Full Synchronization (Pushes authoritative server store to Google Sheets)
   app.post('/api/autonoma/sync', async (_req: Request, res: Response) => {
     try {
       const result = await autonomaDb.syncWithGoogleSheets();
