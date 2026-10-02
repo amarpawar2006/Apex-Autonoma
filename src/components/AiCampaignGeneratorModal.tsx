@@ -26,7 +26,7 @@ import {
   Target
 } from 'lucide-react';
 import { Platform, ContentFormat, Campaign, SocialAsset } from '../types/campaign';
-import { createAutonomaCampaign } from '../services/campaignService';
+import { calculateOptimalAssetCount, createAutonomaCampaign } from '../services/campaignService';
 import { autonomaDataService } from '../services/autonomaDataService';
 import { improveBriefWithAI, ImproveBriefResponse } from '../services/geminiService';
 
@@ -120,7 +120,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   );
 
   // Language options
-  const [language, setLanguage] = useState<string>('English');
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['English']);
   const [customLanguage, setCustomLanguage] = useState<string>('');
   const [languageStyle, setLanguageStyle] = useState<string>('Natural');
 
@@ -157,6 +157,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
       setBrief('');
       setPrimaryGoal('More enquiries/leads');
       setSecondaryGoals([]);
+      setSelectedLanguages(['English']);
       setCustomLanguage('');
       setLanguageStyle('Natural');
       setCustomPlatform('');
@@ -313,9 +314,30 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
         effectivePlatformList.push(customPlatform.trim());
       }
 
-      const effectiveLang = language === 'Other / Custom Language' && customLanguage.trim()
-        ? customLanguage.trim()
-        : language;
+      const effectiveLanguages = selectedLanguages
+        .filter((lang) => lang !== 'Other / Custom Language')
+        .map((lang) => lang.trim())
+        .filter(Boolean);
+      if (selectedLanguages.includes('Other / Custom Language') && customLanguage.trim()) {
+        effectiveLanguages.push(customLanguage.trim());
+      }
+      if (effectiveLanguages.length === 0) effectiveLanguages.push('English');
+
+      const customDaysSpan = duration === 'custom'
+        ? Math.max(1, Math.round((new Date(customEndDate).getTime() - new Date(customStartDate).getTime()) / 86400000))
+        : duration === 'single' ? 1 : duration === '3_days' ? 3 : duration === '30_days' ? 30 : 7;
+      const conceptCountEstimate = calculateOptimalAssetCount(
+        duration,
+        Math.max(1, effectivePlatformList.length),
+        customDaysSpan,
+        typeof customAssetCount === 'number' && customAssetCount > 0 ? customAssetCount : undefined,
+        Math.max(1, effectiveLanguages.length)
+      );
+      const estimatedDeliverables = conceptCountEstimate * Math.max(1, effectivePlatformList.length) * Math.max(1, effectiveLanguages.length);
+      if (estimatedDeliverables > 36) {
+        setError(`This setup would create ${estimatedDeliverables} deliverables (${conceptCountEstimate} concepts × ${effectivePlatformList.length} platforms × ${effectiveLanguages.length} languages). Reduce the concept count, platforms, or languages to 36 or fewer for one reliable generation run.`);
+        return;
+      }
 
       const now = new Date();
       const campaignCodeSuffix = Math.floor(100 + Math.random() * 900);
@@ -334,8 +356,8 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
         duration,
         startDate: duration === 'custom' ? customStartDate : undefined,
         endDate: duration === 'custom' ? customEndDate : undefined,
-        languages: [effectiveLang],
-        customLanguage: language === 'Other / Custom Language' ? customLanguage.trim() : undefined,
+        languages: effectiveLanguages,
+        customLanguage: selectedLanguages.includes('Other / Custom Language') ? customLanguage.trim() : undefined,
         customPlatform: hasCustomPlatform && customPlatform.trim() ? customPlatform.trim() : undefined,
         languageStyle,
         additionalInstructions: additionalInstructions.trim() || undefined,
@@ -348,7 +370,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
           assetCount: typeof customAssetCount === 'number' && customAssetCount > 0 ? customAssetCount : undefined,
           postingFrequency: postingFrequency.trim() || undefined,
           tone: tone.trim() || undefined,
-          customLanguage: language === 'Other / Custom Language' ? customLanguage.trim() : undefined,
+          customLanguage: selectedLanguages.includes('Other / Custom Language') ? customLanguage.trim() : undefined,
           customPlatform: hasCustomPlatform && customPlatform.trim() ? customPlatform.trim() : undefined,
           languageStyle,
           additionalInstructions: additionalInstructions.trim() || undefined,
@@ -368,7 +390,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
         lastGenerationAttemptAt: now.toISOString(),
         platforms: effectivePlatformList,
         formats: selectedFormats,
-        languages: [effectiveLang],
+        languages: effectiveLanguages,
         startDate: duration === 'custom' && customStartDate ? customStartDate : now.toISOString().split('T')[0],
         endDate: duration === 'custom' && customEndDate ? customEndDate : new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0],
         createdAt: activeCampaignShellRef.current?.createdAt || now.toISOString(),
@@ -434,6 +456,28 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
         setIsLoading(false);
         setLoadingStep('');
       }
+    }
+  };
+
+  const handleRetrySynthesis = async () => {
+    const shell = activeCampaignShellRef.current;
+    if (!shell?.id) {
+      await handleCreateCampaign();
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    setLoadingStep('Retrying campaign synthesis using the saved campaign shell…');
+    try {
+      const result = await autonomaDataService.retryCampaignGeneration(shell.id);
+      activeCampaignShellRef.current = null;
+      onCampaignCreated(result);
+      setCreatedResult(result);
+    } catch (err: any) {
+      setError(err?.message || 'Campaign synthesis retry failed. Your saved campaign remains intact.');
+    } finally {
+      setIsLoading(false);
+      setLoadingStep('');
     }
   };
 
@@ -1101,10 +1145,14 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                       <button
                         key={lang}
                         type="button"
-                        onClick={() => setLanguage(lang)}
+                        onClick={() => setSelectedLanguages((prev) => {
+                          const isSelected = prev.includes(lang);
+                          if (isSelected && prev.length === 1) return prev;
+                          return isSelected ? prev.filter((item) => item !== lang) : [...prev, lang];
+                        })}
                         disabled={isLoading}
                         className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                          language === lang
+                          selectedLanguages.includes(lang)
                             ? 'bg-[#FF4500] text-white shadow-sm'
                             : 'bg-[#F5F5F7] text-[#6E6E73] hover:text-[#1D1D1F]'
                         }`}
@@ -1115,7 +1163,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                   </div>
 
                   {/* Other / Custom Language Free-Text Input */}
-                  {language === 'Other / Custom Language' && (
+                  {selectedLanguages.includes('Other / Custom Language') && (
                     <div className="pt-1.5 animate-in fade-in duration-150">
                       <input
                         type="text"
@@ -1126,6 +1174,9 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                       />
                     </div>
                   )}
+                  <div className="text-[11px] text-[#6E6E73] bg-[#F5F5F7] rounded-xl px-3 py-2">
+                    Selected: <strong>{selectedLanguages.filter(l => l !== 'Other / Custom Language').join(', ')}{selectedLanguages.includes('Other / Custom Language') && customLanguage.trim() ? `${selectedLanguages.length > 1 ? ', ' : ''}${customLanguage.trim()}` : ''}</strong>. Each concept will be localized separately for every selected language and platform.
+                  </div>
                 </div>
 
                 {/* Language Style (Register) Selection */}
@@ -1213,7 +1264,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
                       <div className="space-y-1">
                         <label className="text-[#86868B] font-medium block">
-                          Asset count override (optional)
+                          Concept count override (optional)
                         </label>
                         <input
                           type="number"
@@ -1221,9 +1272,10 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                           max={8}
                           value={customAssetCount}
                           onChange={(e) => setCustomAssetCount(e.target.value ? Number(e.target.value) : '')}
-                          placeholder="Auto (1–6 based on duration)"
+                          placeholder="Auto concepts based on duration"
                           className="w-full bg-[#F5F5F7] px-3.5 py-2 rounded-xl text-xs text-[#1D1D1F] placeholder-[#86868B] border-0 focus:outline-none"
                         />
+                        <p className="text-[10px] text-[#86868B]">This is the number of campaign ideas. Autonoma creates a platform-native version in every selected language for every selected platform.</p>
                       </div>
 
                       <div className="space-y-1 sm:col-span-2">
@@ -1266,7 +1318,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                 <div className="pt-1 flex items-center space-x-2">
                   <button
                     type="button"
-                    onClick={handleCreateCampaign}
+                    onClick={handleRetrySynthesis}
                     disabled={isLoading}
                     className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50"
                   >

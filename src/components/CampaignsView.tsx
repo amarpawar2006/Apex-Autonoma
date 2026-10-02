@@ -36,6 +36,7 @@ interface CampaignsViewProps {
   onFilterByCampaign: (campaignId: string) => void;
   onUpdateCampaignStatus: (campaignId: string, status: CampaignStatus) => void;
   onArchiveCampaign?: (campaignId: string) => Promise<void> | void;
+  onRetryGeneration?: (campaignId: string) => Promise<any>;
 }
 
 export const CampaignsView: React.FC<CampaignsViewProps> = ({
@@ -46,11 +47,14 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   onFilterByCampaign,
   onUpdateCampaignStatus,
   onArchiveCampaign,
+  onRetryGeneration,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | CampaignStatus>('ALL');
   const [archiveTarget, setArchiveTarget] = useState<{ campaign: Campaign; assetCount: number } | null>(null);
   const [isArchiving, setIsArchiving] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   // Active campaigns (exclude archived by default from active list)
   const activeCampaigns = useMemo(() => {
@@ -70,6 +74,19 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
     }
     return true;
   });
+
+  const handleRetry = async (campaignId: string) => {
+    if (!onRetryGeneration || retryingId) return;
+    setRetryError(null);
+    setRetryingId(campaignId);
+    try {
+      await onRetryGeneration(campaignId);
+    } catch (err: any) {
+      setRetryError(err?.message || 'Campaign generation retry failed.');
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   const getStatusBadge = (status: CampaignStatus) => {
     switch (status) {
@@ -193,6 +210,10 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
 
       {/* Campaigns Grid / List */}
       <div className="grid grid-cols-1 gap-5">
+        {retryError && (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">{retryError}</div>
+        )}
+
         {filteredCampaigns.length === 0 ? (
           <div className="bg-white rounded-3xl border border-black/[0.06] p-12 text-center space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-orange-50 text-[#FF4500] flex items-center justify-center mx-auto">
@@ -230,6 +251,16 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                       {camp.campaignCode}
                     </span>
                     {getStatusBadge(camp.status)}
+                    {camp.generationStatus === 'GENERATING' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200/60">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Generating
+                      </span>
+                    )}
+                    {camp.generationStatus === 'GENERATION_FAILED' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-200/70">
+                        <AlertCircle className="w-3 h-3" /> Generation failed
+                      </span>
+                    )}
                     <span className="text-xs text-[#86868B]">·</span>
                     <span className="text-xs text-[#86868B] flex items-center">
                       <Calendar className="w-3.5 h-3.5 mr-1 shrink-0" />
@@ -322,6 +353,17 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                   </div>
 
                   <div className="flex items-center space-x-2">
+                    {camp.generationStatus === 'GENERATION_FAILED' && onRetryGeneration && (
+                      <button
+                        onClick={() => handleRetry(camp.id)}
+                        disabled={retryingId === camp.id}
+                        title={camp.lastGenerationError || 'Retry campaign generation'}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        {retryingId === camp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                        <span>Retry AI</span>
+                      </button>
+                    )}
                     {camp.status === 'ACTIVE' ? (
                       <button
                         onClick={() => onUpdateCampaignStatus(camp.id, 'PAUSED')}
