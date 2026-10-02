@@ -111,6 +111,10 @@ export interface SocialAsset {
   targetDate: string; // YYYY-MM-DD
   postTimeIST: string; // e.g. 11:30 AM
   platform: Platform;
+  /** Language used for this concrete platform-specific deliverable. */
+  language?: string;
+  /** Parent concept number when one concept is adapted across languages/platforms. */
+  conceptIndex?: number;
   secondaryPlatforms?: Platform[];
   format: ContentFormat;
   stream: ContentStream;
@@ -156,7 +160,7 @@ export interface SocialAsset {
   
   // Design system tags
   designSystemVerified: boolean;
-  colorScheme: 'carbon_orange' | 'clean_white' | 'slate_electric' | 'mono_dark';
+  colorScheme: 'carbon_orange' | 'clean_white' | 'slate_electric' | 'mono_dark' | 'brand_custom';
 }
 
 export interface AnnualQuarterPlan {

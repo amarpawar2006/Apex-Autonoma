@@ -10,6 +10,7 @@ export interface DbCampaignRow {
   brief: string;
   objective: string;
   status: string; // 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED'
+  assetCount?: number;
   startDate: string;
   endDate: string;
   platforms: string; // Comma-separated or JSON
@@ -43,6 +44,8 @@ export interface DbAssetRow {
   strategicPurpose: string;
   angle: string;
   platform: string;
+  language?: string;
+  conceptIndex?: number;
   format: string;
   contentStream: string;
   speciesCode: string;
