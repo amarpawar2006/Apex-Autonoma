@@ -12,6 +12,7 @@ import {
 } from '../types/campaign';
 import { INITIAL_CAMPAIGNS, SEED_ASSETS } from '../data/initialCampaigns';
 import { generateApexCampaignWithAI, synthesizeFullCampaignWithAI } from './geminiService';
+import { calculateDynamicSchedule } from './schedulingEngine';
 
 export const STORAGE_KEY_CAMPAIGNS = 'apex_autonoma_campaigns_v2';
 export const STORAGE_KEY_ASSETS = 'apex_autonoma_assets_v2';
@@ -460,9 +461,22 @@ export async function createAutonomaCampaign(
         strategy
       };
 
+      const scheduledSlots = calculateDynamicSchedule(
+        startDateStr,
+        daysSpan,
+        aiSynthesis.assets.map((item, i) => ({
+          platform: (item.platform?.toLowerCase() as Platform) || finalPlatforms[0] || 'instagram',
+          format: (item.format?.toLowerCase() as ContentFormat) || finalFormats[i % finalFormats.length] || 'static_poster',
+          conceptIndex: item.conceptIndex || 1
+        })),
+        options.companyContext?.companyTimezone || 'Asia/Kolkata'
+      );
+
       const generatedAssets: SocialAsset[] = aiSynthesis.assets.map((item, idx) => {
+        const slot = scheduledSlots[idx] || scheduledSlots[0];
         const postDate = new Date(now.getTime() + (idx * Math.max(1, Math.floor(daysSpan / aiSynthesis.assets.length)) * 86400000));
-        const targetDate = postDate.toISOString().split('T')[0];
+        const targetDate = slot?.targetDate || postDate.toISOString().split('T')[0];
+        const postTimeIST = slot?.postTime || (idx % 2 === 0 ? '09:45 AM' : '04:15 PM');
         const assetCode = `APEX-2026-C${campaignCodeSuffix}-${String(idx + 1).padStart(3, '0')}`;
         
         // Normalize platform/language against the deterministic delivery matrix used by the server.
@@ -484,7 +498,7 @@ export async function createAutonomaCampaign(
           strategicPurpose: item.strategicPurpose,
           angle: item.angle,
           targetDate: targetDate,
-          postTimeIST: idx % 2 === 0 ? '11:30 AM' : '04:45 PM',
+          postTimeIST: postTimeIST,
           platform: platform,
           language: item.language || fallbackLanguage,
           conceptIndex: item.conceptIndex || fallbackConceptIndex,
@@ -500,8 +514,8 @@ export async function createAutonomaCampaign(
             ? item.hashtags 
             : [campaignName.replace(/[^a-zA-Z0-9]/g, ''), 'Strategy', 'Growth'],
           callToAction: item.CTA || advancedOptions?.primaryCta || "Visit website or comment to learn more",
-          viralityScore: 0,
-          viralityRationale: item.viralityRationale || 'Resonance driven by problem-first audience alignment.',
+          viralityScore: slot?.aiContentScoreEstimated || 88,
+          viralityRationale: slot?.recommendedReason || item.viralityRationale || 'AI Recommended: Optimal engagement window and audience alignment.',
           targetReach: 0,
           estimatedImpressions: 0,
           expectedLeads: 0,

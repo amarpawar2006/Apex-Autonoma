@@ -21,6 +21,7 @@ import {
 } from '../src/types/database.js';
 import { INITIAL_CAMPAIGNS, INITIAL_MONTH_ASSETS } from '../src/data/initialCampaigns.js';
 import { Campaign, SocialAsset } from '../src/types/campaign.js';
+import { supabaseStorage } from './supabaseStorage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -373,6 +374,10 @@ export class AutonomaDatabaseManager {
   constructor(customFilePath?: string) {
     this.dbFilePath = customFilePath || DB_FILE_PATH;
     this.store = this.loadFromDisk();
+    // Idempotent migration to Supabase production persistence
+    supabaseStorage.migrateStore(this.store).catch((err) => {
+      console.warn('[Autonoma DB] Background Supabase store sync note:', err?.message);
+    });
   }
 
   private loadFromDisk(): AutonomaDatabaseStore {
@@ -382,12 +387,16 @@ export class AutonomaDatabaseManager {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      if (fs.existsSync(this.dbFilePath)) {
-        const raw = fs.readFileSync(this.dbFilePath, 'utf-8');
+      const backupPath = this.dbFilePath.replace(/\.json$/, '.backup.json');
+      const targetPath = fs.existsSync(this.dbFilePath) ? this.dbFilePath : (fs.existsSync(backupPath) ? backupPath : null);
+
+      if (targetPath) {
+        const raw = fs.readFileSync(targetPath, 'utf-8');
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.campaigns) && Array.isArray(parsed.assets)) {
           if (!parsed.deletedCampaignIds) parsed.deletedCampaignIds = [];
           if (!parsed.deletedAssetIds) parsed.deletedAssetIds = [];
+          if (!parsed.deletedCompanyIds) parsed.deletedCompanyIds = [];
           parsed.initialized = true;
 
           // Strip any records that are marked deleted
@@ -399,6 +408,10 @@ export class AutonomaDatabaseManager {
             const delSet = new Set(parsed.deletedAssetIds);
             parsed.assets = parsed.assets.filter((a: any) => !delSet.has(a.assetId));
           }
+          if (parsed.deletedCompanyIds.length > 0) {
+            const delCompSet = new Set(parsed.deletedCompanyIds);
+            parsed.companies = (parsed.companies || []).filter((c: any) => !delCompSet.has(c.companyId));
+          }
 
           if (!parsed.companies || !Array.isArray(parsed.companies)) parsed.companies = [];
           if (!parsed.users || !Array.isArray(parsed.users)) parsed.users = [];
@@ -406,9 +419,9 @@ export class AutonomaDatabaseManager {
           if (!parsed.approvalRequests || !Array.isArray(parsed.approvalRequests)) parsed.approvalRequests = [];
           if (!parsed.sessions || !Array.isArray(parsed.sessions)) parsed.sessions = [];
 
-          // Guarantee legacy company exists
+          // Only bootstrap default company if it has NEVER been explicitly deleted
           let legacyCo = parsed.companies.find((c: any) => c.companyId === DEFAULT_ORG_ID);
-          if (!legacyCo) {
+          if (!legacyCo && !parsed.deletedCompanyIds.includes(DEFAULT_ORG_ID)) {
             legacyCo = {
               companyId: DEFAULT_ORG_ID,
               name: 'Apex Engineering Pune',
@@ -538,6 +551,11 @@ export class AutonomaDatabaseManager {
         JSON.stringify(data, null, 2),
         'utf-8'
       );
+      // Write mirror backup for resilience across container restarts
+      const backupPath = this.dbFilePath.replace(/\.json$/, '.backup.json');
+      try {
+        fs.writeFileSync(backupPath, JSON.stringify(data, null, 2), 'utf-8');
+      } catch {}
   } catch (err: any) {
     console.error(
       '[Autonoma DB] CRITICAL: Failed to persist database to disk:',
@@ -695,6 +713,7 @@ export class AutonomaDatabaseManager {
     }
 
     const url = validation.url;
+    const timeoutMs = action === 'PING' ? 20000 : action === 'HYDRATE' || action === 'INIT_DATABASE' ? 60000 : 30000;
 
     try {
       const res = await fetch(url, {
@@ -702,7 +721,7 @@ export class AutonomaDatabaseManager {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...payload }),
         redirect: 'follow',
-        signal: AbortSignal.timeout(12000)
+        signal: AbortSignal.timeout(timeoutMs)
       });
 
       if (!res.ok) {
@@ -716,12 +735,16 @@ export class AutonomaDatabaseManager {
       const json = await res.json();
       return json as AppsScriptResponse<T>;
     } catch (err: any) {
-      // Do not log sensitive URLs or secrets
-      console.warn(`[Autonoma DB] Apps Script action ${action} failed:`, err?.message || err);
+      const isTimeout = err?.name === 'TimeoutError' || (err?.message && err.message.toLowerCase().includes('aborted'));
+      const friendlyError = isTimeout
+        ? 'Google Sheets Web App response timed out. Operation recorded locally in authoritative database.'
+        : (err?.message || 'Failed to reach Google Apps Script Web App');
+
+      console.warn(`[Autonoma DB] Apps Script action ${action} failed:`, friendlyError);
       return {
         success: false,
-        error: err?.message || 'Failed to reach Google Apps Script Web App',
-        code: 'NETWORK_ERROR'
+        error: friendlyError,
+        code: isTimeout ? 'TIMEOUT_ERROR' : 'NETWORK_ERROR'
       };
     }
   }
@@ -768,7 +791,15 @@ export class AutonomaDatabaseManager {
     };
     if (!this.store.companies) this.store.companies = [];
     this.store.companies.push(newCompany);
+    if (this.store.deletedCompanyIds) {
+      this.store.deletedCompanyIds = this.store.deletedCompanyIds.filter(id => id !== companyId);
+    }
     this.persistToDisk();
+
+    // Async notify Supabase durable persistence
+    supabaseStorage.upsertCompany(newCompany).catch((err) => {
+      console.warn('[Autonoma DB] Background Supabase company upsert notice:', err?.message);
+    });
 
     this.logActivity('COMPANY', companyId, 'CREATE_COMPANY', { name: newCompany.name });
     if (this.getGoogleSheetsUrl()) {
@@ -798,13 +829,17 @@ export class AutonomaDatabaseManager {
     this.store.companies[idx] = updated;
     this.persistToDisk();
 
+    // Async notify Supabase durable persistence
+    supabaseStorage.upsertCompany(updated).catch((err) => {
+      console.warn('[Autonoma DB] Background Supabase company update notice:', err?.message);
+    });
+
     this.logActivity('COMPANY', companyId, 'UPDATE_COMPANY', updates);
     if (this.getGoogleSheetsUrl()) {
       this.callAppsScript('UPDATE_COMPANY', { company: updated }).catch(() => {});
     }
     return updated;
   }
-
 
   public async deleteCompany(companyId: string, actorUserId: string): Promise<{
     success: boolean;
@@ -829,8 +864,10 @@ export class AutonomaDatabaseManager {
 
     if (!this.store.deletedCampaignIds) this.store.deletedCampaignIds = [];
     if (!this.store.deletedAssetIds) this.store.deletedAssetIds = [];
+    if (!this.store.deletedCompanyIds) this.store.deletedCompanyIds = [];
     for (const id of campaignIds) if (!this.store.deletedCampaignIds.includes(id)) this.store.deletedCampaignIds.push(id);
     for (const id of assetIds) if (!this.store.deletedAssetIds.includes(id)) this.store.deletedAssetIds.push(id);
+    if (!this.store.deletedCompanyIds.includes(companyId)) this.store.deletedCompanyIds.push(companyId);
 
     this.store.campaigns = (this.store.campaigns || []).filter(c => !campaignIds.has(c.campaignId));
     this.store.assets = (this.store.assets || []).filter(a => !assetIds.has(a.assetId));
@@ -851,6 +888,11 @@ export class AutonomaDatabaseManager {
         session.activeCompanyId = fallback?.companyId;
       }
     }
+
+    // Async notify Supabase durable persistence
+    supabaseStorage.deleteCompany(companyId).catch((err) => {
+      console.warn('[Autonoma DB] Background Supabase company delete notice:', err?.message);
+    });
 
     this.logActivity('COMPANY', companyId, 'DELETE_COMPANY', {
       name: company.name, actorUserId, deletedCampaigns, deletedAssets, deletedMemberships
@@ -1227,6 +1269,9 @@ export class AutonomaDatabaseManager {
     }
     this.persistToDisk();
 
+    // Durable Supabase sync
+    supabaseStorage.upsertCampaign(this.store.campaigns[idx >= 0 ? idx : 0]).catch(() => {});
+
     // Log Activity
     this.logActivity('CAMPAIGN', campaign.campaignId, idx >= 0 ? 'UPDATE_CAMPAIGN' : 'CREATE_CAMPAIGN', {
       name: campaign.name,
@@ -1414,6 +1459,9 @@ export class AutonomaDatabaseManager {
       this.store.assets.unshift({ ...asset, createdAt: asset.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() });
     }
     this.persistToDisk();
+
+    // Durable Supabase sync
+    supabaseStorage.upsertAsset(this.store.assets[idx >= 0 ? idx : 0]).catch(() => {});
 
     // Log Activity
     this.logActivity('ASSET', asset.assetId, idx >= 0 ? 'UPDATE_ASSET' : 'CREATE_ASSET', {
@@ -1718,12 +1766,37 @@ export class AutonomaDatabaseManager {
   // SETTINGS API
   // ==========================================
 
-  public getSettings(): { settings: DbSettingsRow; googleSheetsUrl: string; hasSheetsConnection: boolean } {
+  public getSettings(): {
+    settings: DbSettingsRow;
+    googleSheetsUrl: string;
+    hasSheetsConnection: boolean;
+    sheetsSource: 'database' | 'server_secret' | 'default_production';
+    isServerSecret: boolean;
+  } {
     const resolvedUrl = this.resolveGoogleSheetsUrl();
+    const stored = (this.store.googleSheetsUrl || '').trim();
+    const envUrl = (
+      process.env.AUTONOMA_SHEETS_WEBAPP_URL ||
+      process.env.GOOGLE_APPS_SCRIPT_URL ||
+      process.env.GOOGLE_SHEETS_WEBAPP_URL ||
+      ''
+    ).trim();
+
+    let sheetsSource: 'database' | 'server_secret' | 'default_production' = 'default_production';
+    if (stored && stored.endsWith('/exec')) {
+      sheetsSource = 'database';
+    } else if (envUrl && envUrl.endsWith('/exec')) {
+      sheetsSource = 'server_secret';
+    }
+
+    const isServerSecret = sheetsSource === 'server_secret';
+
     return {
       settings: this.store.settings,
-      googleSheetsUrl: resolvedUrl,
-      hasSheetsConnection: Boolean(resolvedUrl)
+      googleSheetsUrl: isServerSecret ? 'https://script.google.com/macros/s/[CONFIGURED_VIA_SERVER_SECRET]/exec' : resolvedUrl,
+      hasSheetsConnection: Boolean(resolvedUrl),
+      sheetsSource,
+      isServerSecret
     };
   }
 
@@ -2050,6 +2123,12 @@ export class AutonomaDatabaseManager {
 
     // Persist to authoritative local disk
     this.persistToDisk();
+
+    // Sync to Supabase durable storage
+    supabaseStorage.upsertCampaign(campRow).catch(() => {});
+    for (const aRow of assetRows) {
+      supabaseStorage.upsertAsset(aRow).catch(() => {});
+    }
 
     // Google Sheets is optional secondary durability. The server DB is authoritative,
     // so a disconnected/misconfigured sheet must never fail campaign creation.

@@ -15,10 +15,17 @@ import {
   AlertCircle,
   ExternalLink,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Cpu,
+  Mail,
+  FolderSync,
+  Radio,
+  Loader2,
+  HardDrive
 } from 'lucide-react';
 import { autonomaDataService } from '../services/autonomaDataService';
 import { AUTONOMA_APPS_SCRIPT_CONNECTOR } from '../services/autonomaGoogleAppsScript';
+import { AiProvidersSettings, TransactionalEmailConfig } from '../types/auth';
 
 interface ApiKeySettingsModalProps {
   isOpen: boolean;
@@ -43,14 +50,69 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
   setSheetsWebhookUrl,
   onDataRefreshed
 }) => {
-  const [localOpenai, setLocalOpenai] = useState(openaiKey);
-  const [localGeminiPaid, setLocalGeminiPaid] = useState(geminiPaidKey);
-  const [localWebhook, setLocalWebhook] = useState(sheetsWebhookUrl);
-  const [saved, setSaved] = useState(false);
+  const [activeTab, setActiveTab] = useState<'providers' | 'email' | 'sheets'>('providers');
+  
+  // AI & Media Providers State
+  const [providersSettings, setProvidersSettings] = useState<AiProvidersSettings>({
+    defaults: { text: 'gemini', image: 'openai', video: 'nvidia' },
+    providers: {
+      gemini: {
+        id: 'gemini',
+        name: 'Google Gemini',
+        capabilities: ['text', 'image', 'video'],
+        selectedModel: 'gemini-3.8-flash',
+        availableModels: ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite-image'],
+        status: 'CONFIGURED'
+      },
+      openai: {
+        id: 'openai',
+        name: 'OpenAI',
+        capabilities: ['text', 'image'],
+        selectedModel: 'dall-e-3',
+        availableModels: ['dall-e-3', 'dall-e-2', 'gpt-4o', 'gpt-4o-mini'],
+        status: 'UNCONFIGURED'
+      },
+      nvidia: {
+        id: 'nvidia',
+        name: 'NVIDIA NIM',
+        capabilities: ['image', 'video'],
+        selectedModel: 'stabilityai/stable-diffusion-xl-base-1.0',
+        availableModels: ['stabilityai/stable-diffusion-xl-base-1.0', 'black-forest-labs/flux-1-schnell', 'nvidia/genai-video-mvp'],
+        status: 'UNCONFIGURED'
+      },
+      google_veo: {
+        id: 'google_veo',
+        name: 'Google Veo',
+        capabilities: ['video'],
+        selectedModel: 'veo-3.1-lite-generate-preview',
+        availableModels: ['veo-3.1-lite-generate-preview', 'veo-2.0-generate-001'],
+        status: 'CONFIGURED'
+      }
+    },
+    googleDrive: { folderIdOrUrl: '', enabled: false }
+  });
+
+  // Email Config State
+  const [emailConfig, setEmailConfig] = useState<TransactionalEmailConfig>({
+    provider: 'system',
+    status: 'CONFIGURED'
+  });
+
+  // Input fields for provider keys
+  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+  const [driveInput, setDriveInput] = useState('');
+  const [testResults, setTestResults] = useState<Record<string, { testing?: boolean; success?: boolean; message?: string; latency?: number }>>({});
+
+  // Email testing
+  const [testEmailAddress, setTestEmailAddress] = useState('');
+  const [emailTesting, setEmailTesting] = useState(false);
+  const [emailTestResult, setEmailTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
 
   // Sheets Integration States
-  const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
+  const [localWebhook, setLocalWebhook] = useState(sheetsWebhookUrl);
+  const [isServerSecretSheets, setIsServerSecretSheets] = useState(false);
+  const [isTestingSheets, setIsTestingSheets] = useState(false);
+  const [sheetsTestResult, setSheetsTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
   const [isRefreshingFromSheets, setIsRefreshingFromSheets] = useState(false);
   const [refreshResult, setRefreshResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
@@ -60,9 +122,29 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
   const [codeCopied, setCodeCopied] = useState(false);
   const [showSetupGuide, setShowSetupGuide] = useState(false);
 
+  const [saved, setSaved] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
-      autonomaDataService.loadSettings().then(res => {
+      autonomaDataService.getAiProviders().then((res) => {
+        if (res.aiProviders) {
+          setProvidersSettings(res.aiProviders);
+          setDriveInput(res.aiProviders.googleDrive?.folderIdOrUrl || '');
+          const initialKeys: Record<string, string> = {};
+          for (const [id, prov] of Object.entries(res.aiProviders.providers as Record<string, any>)) {
+            if (prov.apiKey) initialKeys[id] = prov.apiKey;
+          }
+          setKeyInputs(initialKeys);
+        }
+        if (res.emailConfig) {
+          setEmailConfig(res.emailConfig);
+        }
+      }).catch((e) => console.warn('Provider settings load:', e));
+
+      autonomaDataService.loadSettings().then((res: any) => {
+        if (res.isServerSecret || res.sheetsSource === 'server_secret') {
+          setIsServerSecretSheets(true);
+        }
         if (res.googleSheetsUrl) {
           setLocalWebhook(res.googleSheetsUrl);
           setSheetsWebhookUrl(res.googleSheetsUrl);
@@ -73,11 +155,39 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSave = async () => {
-    setOpenaiKey(localOpenai);
-    if (setGeminiPaidKey) setGeminiPaidKey(localGeminiPaid);
+  const handleSaveAll = async () => {
+    // 1. Build updated providers payload
+    const updatedProviders: Record<string, any> = {};
+    for (const [id, prov] of Object.entries(providersSettings.providers)) {
+      const inputKey = keyInputs[id];
+      updatedProviders[id] = {
+        ...prov,
+        apiKey: inputKey !== undefined ? inputKey : prov.apiKey
+      };
+    }
+
+    const payload = {
+      aiProviders: {
+        defaults: providersSettings.defaults,
+        providers: updatedProviders,
+        googleDrive: {
+          folderIdOrUrl: driveInput.trim(),
+          enabled: Boolean(driveInput.trim())
+        }
+      },
+      emailConfig
+    };
+
+    await autonomaDataService.updateAiProviders(payload);
+
+    // Save legacy keys for backward compatibility
+    if (keyInputs.openai) setOpenaiKey(keyInputs.openai);
+    if (keyInputs.gemini && setGeminiPaidKey) setGeminiPaidKey(keyInputs.gemini);
+
+    // Save sheets webhook
     setSheetsWebhookUrl(localWebhook);
     await autonomaDataService.updateSettings({}, localWebhook);
+
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
@@ -85,394 +195,644 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
     }, 900);
   };
 
-  const handleTestConnection = async () => {
-    if (!localWebhook.trim()) {
-      setTestResult({ success: false, message: 'Please enter a Google Apps Script Web App URL first.' });
+  const handleTestProvider = async (providerId: string) => {
+    setTestResults((prev) => ({ ...prev, [providerId]: { testing: true } }));
+    try {
+      const res = await autonomaDataService.testAiProvider(providerId, keyInputs[providerId]);
+      setTestResults((prev) => ({
+        ...prev,
+        [providerId]: {
+          testing: false,
+          success: res.success,
+          message: res.message,
+          latency: res.latencyMs
+        }
+      }));
+    } catch (err: any) {
+      setTestResults((prev) => ({
+        ...prev,
+        [providerId]: {
+          testing: false,
+          success: false,
+          message: err?.message || 'Connection test failed'
+        }
+      }));
+    }
+  };
+
+  const handleTestEmail = async () => {
+    setEmailTesting(true);
+    setEmailTestResult(null);
+    try {
+      const res = await autonomaDataService.testEmailDelivery(testEmailAddress.trim() || undefined, emailConfig);
+      setEmailTestResult({
+        success: res.success,
+        message: res.message || (res.success ? 'Email test passed!' : 'Email test failed'),
+        latency: res.latencyMs
+      });
+    } catch (err: any) {
+      setEmailTestResult({
+        success: false,
+        message: err?.message || 'Failed to send test email'
+      });
+    } finally {
+      setEmailTesting(false);
+    }
+  };
+
+  const handleTestSheets = async () => {
+    const isSecretOnly = isServerSecretSheets && (!localWebhook.trim() || localWebhook.includes('SERVER_SECRET'));
+    if (!localWebhook.trim() && !isServerSecretSheets) {
+      setSheetsTestResult({ success: false, message: 'Please enter a Google Apps Script Web App URL first.' });
       return;
     }
-    setIsTesting(true);
-    setTestResult(null);
+    setIsTestingSheets(true);
+    setSheetsTestResult(null);
     try {
-      const res = await autonomaDataService.testGoogleSheetsConnection(localWebhook.trim());
-      setTestResult({
+      const urlToTest = isSecretOnly ? '' : localWebhook.trim();
+      const res = await autonomaDataService.testGoogleSheetsConnection(urlToTest);
+      setSheetsTestResult({
         success: res.success,
         message: res.message || (res.success ? 'Google Sheets Web App connected!' : 'Connection test failed'),
         latency: res.latencyMs
       });
     } catch (err: any) {
-      setTestResult({
+      setSheetsTestResult({
         success: false,
         message: err?.message || 'Failed to connect to Google Sheets Web App'
       });
     } finally {
-      setIsTesting(false);
+      setIsTestingSheets(false);
     }
-  };
-
-  const handleInitSheet = async () => {
-    if (!localWebhook.trim()) {
-      setInitResult({ success: false, message: 'Please enter a Google Apps Script Web App URL first.' });
-      return;
-    }
-    setIsInitializing(true);
-    setInitResult(null);
-    try {
-      const res = await autonomaDataService.initGoogleSheet(localWebhook.trim());
-      setInitResult({
-        success: res.success,
-        message: res.message
-      });
-    } catch (err: any) {
-      setInitResult({
-        success: false,
-        message: err?.message || 'Failed to initialize sheet tables'
-      });
-    } finally {
-      setIsInitializing(false);
-    }
-  };
-
-  const handleSyncData = async () => {
-    setIsSyncing(true);
-    setSyncResult(null);
-    try {
-      const res = await autonomaDataService.syncGoogleSheets();
-      setSyncResult({
-        success: res.success,
-        message: res.message
-      });
-    } catch (err: any) {
-      setSyncResult({
-        success: false,
-        message: err?.message || 'Sync failed'
-      });
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleRefreshFromSheets = async () => {
-    setIsRefreshingFromSheets(true);
-    setRefreshResult(null);
-    try {
-      const res = await autonomaDataService.refreshFromGoogleSheets();
-      if (res.success) {
-        setRefreshResult({
-          success: true,
-          message: `Hydrated ${res.campaigns} campaigns and ${res.assets} assets from Google Sheets!`
-        });
-        const [freshCampaigns, freshAssets] = await Promise.all([
-          autonomaDataService.loadCampaigns(),
-          autonomaDataService.loadAssets()
-        ]);
-        if (onDataRefreshed) {
-          onDataRefreshed(freshCampaigns, freshAssets);
-        }
-      } else {
-        setRefreshResult({
-          success: false,
-          message: res.error || 'Failed to refresh data from Google Sheets'
-        });
-      }
-    } catch (err: any) {
-      setRefreshResult({
-        success: false,
-        message: err?.message || 'Error refreshing data from Google Sheets'
-      });
-    } finally {
-      setIsRefreshingFromSheets(false);
-    }
-  };
-
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(AUTONOMA_APPS_SCRIPT_CONNECTOR);
-    setCodeCopied(true);
-    setTimeout(() => setCodeCopied(false), 2000);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
-      <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-4 sm:p-7 space-y-6 max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200 text-[#1D1D1F]">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-black/[0.06]">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-xl bg-black/[0.04] text-[#1D1D1F] flex items-center justify-center">
-              <Settings className="w-4 h-4 text-[#FF4500]" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4">
+      <div className="relative w-full max-w-3xl rounded-3xl border border-black/[0.08] bg-white shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
+        
+        {/* Modal Header */}
+        <div className="flex items-center justify-between border-b border-black/[0.06] px-6 py-4 bg-[#FBFBFD]">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-orange-50 text-[#FF4500]">
+              <Cpu className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-base text-[#1D1D1F]">
-                Settings & Durable Persistence
-              </h3>
-              <p className="text-xs text-[#86868B]">
-                Configure durable Google Sheets database and server-side model credentials
+              <h3 className="text-base font-bold text-[#1D1D1F]">AI & Media Providers Settings</h3>
+              <p className="text-xs text-[#6E6E73]">
+                Configure AI generation providers, transactional email & storage
               </p>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors"
-          >
-            <X className="w-4 h-4" />
+          <button onClick={onClose} className="rounded-xl p-1.5 text-[#6E6E73] hover:bg-black/[0.05] hover:text-[#1D1D1F]">
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Server-Side Durable Storage Architecture Banner */}
-        <div className="p-4 bg-emerald-50/70 rounded-2xl border border-emerald-200 text-xs text-emerald-900 space-y-1">
-          <div className="font-semibold flex items-center space-x-1.5 text-emerald-800">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Durable Operational Database Active</span>
-          </div>
-          <p className="text-[12px] text-emerald-950/80 leading-relaxed">
-            Autonoma campaigns and assets persist durably server-side to survive restarts, rebuilds, and redeployments. When paired with Google Sheets, all 8 tables sync automatically via Google Apps Script without paid middleware.
-          </p>
+        {/* Tab switcher */}
+        <div className="flex border-b border-black/[0.06] bg-slate-50/70 px-6 pt-2 gap-2 text-xs overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('providers')}
+            className={`flex items-center gap-2 px-3.5 py-2.5 font-semibold transition-all border-b-2 shrink-0 ${
+              activeTab === 'providers'
+                ? 'border-[#FF4500] text-[#FF4500]'
+                : 'border-transparent text-[#6E6E73] hover:text-[#1D1D1F]'
+            }`}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>AI & Media Providers</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('email')}
+            className={`flex items-center gap-2 px-3.5 py-2.5 font-semibold transition-all border-b-2 shrink-0 ${
+              activeTab === 'email'
+                ? 'border-[#FF4500] text-[#FF4500]'
+                : 'border-transparent text-[#6E6E73] hover:text-[#1D1D1F]'
+            }`}
+          >
+            <Mail className="h-3.5 w-3.5" />
+            <span>Transactional Email (Invites)</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('sheets')}
+            className={`flex items-center gap-2 px-3.5 py-2.5 font-semibold transition-all border-b-2 shrink-0 ${
+              activeTab === 'sheets'
+                ? 'border-[#FF4500] text-[#FF4500]'
+                : 'border-transparent text-[#6E6E73] hover:text-[#1D1D1F]'
+            }`}
+          >
+            <Table className="h-3.5 w-3.5" />
+            <span>Google Sheets & Database</span>
+          </button>
         </div>
 
-        {/* SECTION 1: Google Sheets Operational Database */}
-        <div className="p-5 bg-[#FBFBFD] rounded-2xl border border-black/[0.06] space-y-4 text-xs">
-          <div className="flex items-center justify-between border-b border-black/[0.04] pb-3">
-            <div className="flex items-center space-x-2">
-              <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center">
-                <Database className="w-3.5 h-3.5 text-emerald-700" />
-              </div>
-              <div>
-                <h4 className="font-semibold text-sm text-[#1D1D1F]">
-                  Google Sheets Operational Database
-                </h4>
-                <p className="text-[11px] text-[#6E6E73]">
-                  8-table workbook: CAMPAIGNS, ASSETS, MEDIA, PUBLISHING, PERFORMANCE, SNAPSHOTS, SETTINGS, LOGS
-                </p>
-              </div>
-            </div>
+        {/* Modal Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* TAB 1: AI & MEDIA PROVIDERS */}
+          {activeTab === 'providers' && (
+            <div className="space-y-6">
+              {/* Capability Defaults Matrix */}
+              <div className="rounded-2xl border border-black/[0.06] bg-slate-50/70 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#1D1D1F] uppercase tracking-wider">
+                    Default Capability Providers
+                  </span>
+                  <span className="text-[10px] text-[#86868B]">GLOBAL DEFAULTS</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <label className="text-[11px] font-medium text-[#6E6E73] block mb-1">Text Generation</label>
+                    <select
+                      value={providersSettings.defaults.text}
+                      onChange={(e) => setProvidersSettings((prev) => ({
+                        ...prev,
+                        defaults: { ...prev.defaults, text: e.target.value }
+                      }))}
+                      className="w-full rounded-xl border border-black/[0.08] bg-white px-2.5 py-2 text-xs font-semibold outline-none"
+                    >
+                      <option value="gemini">Google Gemini (Recommended)</option>
+                      <option value="openai">OpenAI (GPT-4o)</option>
+                    </select>
+                  </div>
 
-            <button
-              type="button"
-              onClick={() => setShowSetupGuide(!showSetupGuide)}
-              className="text-[#FF4500] hover:text-[#EA3E00] text-xs font-medium flex items-center space-x-1"
-            >
-              <span>{showSetupGuide ? 'Hide instructions' : 'Setup guide (30s)'}</span>
-              {showSetupGuide ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
-          </div>
+                  <div>
+                    <label className="text-[11px] font-medium text-[#6E6E73] block mb-1">Image Generation</label>
+                    <select
+                      value={providersSettings.defaults.image}
+                      onChange={(e) => setProvidersSettings((prev) => ({
+                        ...prev,
+                        defaults: { ...prev.defaults, image: e.target.value }
+                      }))}
+                      className="w-full rounded-xl border border-black/[0.08] bg-white px-2.5 py-2 text-xs font-semibold outline-none"
+                    >
+                      <option value="openai">OpenAI (DALL-E 3)</option>
+                      <option value="nvidia">NVIDIA NIM (SDXL / Flux)</option>
+                      <option value="gemini">Google Gemini Flash Image</option>
+                    </select>
+                  </div>
 
-          {/* Setup Guide Accordion */}
-          {showSetupGuide && (
-            <div className="p-4 bg-white rounded-xl border border-black/[0.06] space-y-2.5 text-[11px] text-[#1D1D1F] animate-in fade-in duration-150">
-              <span className="font-semibold text-xs text-[#1D1D1F] block">
-                Quick 4-Step Google Sheet Setup (100% Free):
-              </span>
-              <ol className="list-decimal pl-4 space-y-1.5 text-[#424245] leading-relaxed">
-                <li>Create a blank Google Sheet in your Google Drive.</li>
-                <li>In Google Sheets, go to <strong>Extensions &gt; Apps Script</strong>.</li>
-                <li>
-                  Click <strong>Copy Connector Code</strong> below, paste it into Code.gs, and click Save.
-                </li>
-                <li>
-                  Click <strong>Deploy &gt; New deployment</strong>, select type <strong>Web app</strong>, set <em>Execute as: "Me"</em> and <em>Who has access: "Anyone"</em>, click Deploy, and paste the Web App URL below.
-                </li>
-              </ol>
+                  <div>
+                    <label className="text-[11px] font-medium text-[#6E6E73] block mb-1">Video Generation</label>
+                    <select
+                      value={providersSettings.defaults.video}
+                      onChange={(e) => setProvidersSettings((prev) => ({
+                        ...prev,
+                        defaults: { ...prev.defaults, video: e.target.value }
+                      }))}
+                      className="w-full rounded-xl border border-black/[0.08] bg-white px-2.5 py-2 text-xs font-semibold outline-none"
+                    >
+                      <option value="nvidia">NVIDIA NIM Video MVP</option>
+                      <option value="google_veo">Google Veo (3.1 Lite)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Provider Cards */}
+              <div className="space-y-4">
+                <div className="text-xs font-bold text-[#1D1D1F] uppercase tracking-wider">
+                  Configured AI Providers
+                </div>
+
+                {/* 1. Google Gemini */}
+                <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-xs text-[#1D1D1F]">Google Gemini</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-50 text-blue-700">TEXT · IMAGE · VIDEO</span>
+                    </div>
+                    <button
+                      onClick={() => handleTestProvider('gemini')}
+                      disabled={testResults.gemini?.testing}
+                      className="text-[11px] font-medium text-[#FF4500] hover:underline flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {testResults.gemini?.testing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      Test Connection
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">API Key (leave blank to use system env)</span>
+                      <input
+                        type="password"
+                        placeholder="AIzaSy... (masked if saved)"
+                        value={keyInputs.gemini || ''}
+                        onChange={(e) => setKeyInputs((prev) => ({ ...prev, gemini: e.target.value }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs font-mono outline-none"
+                      />
+                    </label>
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">Model selector</span>
+                      <select
+                        value={providersSettings.providers.gemini?.selectedModel || 'gemini-3.8-flash'}
+                        onChange={(e) => setProvidersSettings((prev) => ({
+                          ...prev,
+                          providers: {
+                            ...prev.providers,
+                            gemini: { ...prev.providers.gemini, selectedModel: e.target.value }
+                          }
+                        }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
+                      >
+                        <option value="gemini-3.8-flash">gemini-3.8-flash (Primary)</option>
+                        <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                        <option value="gemini-3.1-flash-lite-image">gemini-3.1-flash-lite-image</option>
+                      </select>
+                    </label>
+                  </div>
+                  {testResults.gemini && (
+                    <div className={`p-2 rounded-xl text-[11px] ${testResults.gemini.success ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+                      {testResults.gemini.message}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. OpenAI */}
+                <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-xs text-[#1D1D1F]">OpenAI</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-50 text-emerald-700">IMAGE (DALL-E) · TEXT</span>
+                    </div>
+                    <button
+                      onClick={() => handleTestProvider('openai')}
+                      disabled={testResults.openai?.testing}
+                      className="text-[11px] font-medium text-[#FF4500] hover:underline flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {testResults.openai?.testing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      Test Connection
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">OpenAI API Key</span>
+                      <input
+                        type="password"
+                        placeholder="sk-proj-... (masked if saved)"
+                        value={keyInputs.openai || ''}
+                        onChange={(e) => setKeyInputs((prev) => ({ ...prev, openai: e.target.value }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs font-mono outline-none"
+                      />
+                    </label>
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">Image Model</span>
+                      <select
+                        value={providersSettings.providers.openai?.selectedModel || 'dall-e-3'}
+                        onChange={(e) => setProvidersSettings((prev) => ({
+                          ...prev,
+                          providers: {
+                            ...prev.providers,
+                            openai: { ...prev.providers.openai, selectedModel: e.target.value }
+                          }
+                        }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
+                      >
+                        <option value="dall-e-3">dall-e-3 (High definition)</option>
+                        <option value="dall-e-2">dall-e-2</option>
+                      </select>
+                    </label>
+                  </div>
+                  {testResults.openai && (
+                    <div className={`p-2 rounded-xl text-[11px] ${testResults.openai.success ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+                      {testResults.openai.message}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. NVIDIA NIM */}
+                <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-xs text-[#1D1D1F]">NVIDIA NIM</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-50 text-purple-700">IMAGE (SDXL/FLUX) · VIDEO</span>
+                    </div>
+                    <button
+                      onClick={() => handleTestProvider('nvidia')}
+                      disabled={testResults.nvidia?.testing}
+                      className="text-[11px] font-medium text-[#FF4500] hover:underline flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {testResults.nvidia?.testing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      Test Connection
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">NVIDIA API Key (nvapi-...)</span>
+                      <input
+                        type="password"
+                        placeholder="nvapi-... (masked if saved)"
+                        value={keyInputs.nvidia || ''}
+                        onChange={(e) => setKeyInputs((prev) => ({ ...prev, nvidia: e.target.value }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs font-mono outline-none"
+                      />
+                    </label>
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">Model selector</span>
+                      <select
+                        value={providersSettings.providers.nvidia?.selectedModel || 'stabilityai/stable-diffusion-xl-base-1.0'}
+                        onChange={(e) => setProvidersSettings((prev) => ({
+                          ...prev,
+                          providers: {
+                            ...prev.providers,
+                            nvidia: { ...prev.providers.nvidia, selectedModel: e.target.value }
+                          }
+                        }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
+                      >
+                        <option value="stabilityai/stable-diffusion-xl-base-1.0">stabilityai/stable-diffusion-xl-base-1.0</option>
+                        <option value="black-forest-labs/flux-1-schnell">black-forest-labs/flux-1-schnell</option>
+                        <option value="nvidia/genai-video-mvp">nvidia/genai-video-mvp</option>
+                      </select>
+                    </label>
+                  </div>
+                  {testResults.nvidia && (
+                    <div className={`p-2 rounded-xl text-[11px] ${testResults.nvidia.success ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+                      {testResults.nvidia.message}
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Google Drive Destination (Requirement 7) */}
+                <div className="rounded-2xl border border-black/[0.06] bg-slate-50/70 p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <HardDrive className="h-4 w-4 text-[#FF4500]" />
+                    <span className="font-semibold text-xs text-[#1D1D1F]">Google Drive Media Storage Destination</span>
+                  </div>
+                  <p className="text-[11px] text-[#6E6E73]">
+                    Generated media is tracked in durable internal DB records. Enter an optional Google Drive folder URL or ID for asset destination mapping.
+                  </p>
+                  <input
+                    type="text"
+                    placeholder="https://drive.google.com/drive/folders/... or Folder ID"
+                    value={driveInput}
+                    onChange={(e) => setDriveInput(e.target.value)}
+                    className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs outline-none"
+                  />
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Webhook Input Field */}
-          <div className="space-y-1.5">
-            <label className="text-[#1D1D1F] font-medium flex items-center justify-between">
-              <span className="flex items-center space-x-1.5">
-                <Table className="w-3.5 h-3.5 text-[#FF4500]" />
-                <span>Google Apps Script Web App URL</span>
-              </span>
-              {testResult?.success ? (
-                <span className="text-[10px] text-emerald-600 font-semibold flex items-center space-x-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span>CONNECTED</span>
-                </span>
-              ) : testResult && !testResult.success ? (
-                <span className="text-[10px] text-rose-600 font-semibold flex items-center space-x-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  <span>DISCONNECTED</span>
-                </span>
-              ) : localWebhook ? (
-                <span className="text-[10px] text-emerald-600 font-semibold flex items-center space-x-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>CONNECTED</span>
-                </span>
-              ) : (
-                <span className="text-[10px] text-rose-500 font-semibold flex items-center space-x-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                  <span>DISCONNECTED</span>
-                </span>
+          {/* TAB 2: TRANSACTIONAL EMAIL */}
+          {activeTab === 'email' && (
+            <div className="space-y-6">
+              <div className="rounded-2xl border border-black/[0.06] bg-slate-50/70 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#1D1D1F] uppercase tracking-wider">
+                    Transactional Delivery Provider
+                  </span>
+                  <span className="text-[10px] text-[#86868B]">REAL EMAIL DISPATCH</span>
+                </div>
+                <div className="flex items-center gap-4 text-xs">
+                  <label className="flex items-center gap-2 cursor-pointer font-medium">
+                    <input
+                      type="radio"
+                      name="emailProvider"
+                      value="system"
+                      checked={emailConfig.provider === 'system'}
+                      onChange={() => setEmailConfig((p) => ({ ...p, provider: 'system' }))}
+                    />
+                    <span>Autonoma Internal Delivery (Test Ethereal Preview)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-medium">
+                    <input
+                      type="radio"
+                      name="emailProvider"
+                      value="resend"
+                      checked={emailConfig.provider === 'resend'}
+                      onChange={() => setEmailConfig((p) => ({ ...p, provider: 'resend' }))}
+                    />
+                    <span>Resend API</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-medium">
+                    <input
+                      type="radio"
+                      name="emailProvider"
+                      value="smtp"
+                      checked={emailConfig.provider === 'smtp'}
+                      onChange={() => setEmailConfig((p) => ({ ...p, provider: 'smtp' }))}
+                    />
+                    <span>Custom SMTP Server</span>
+                  </label>
+                </div>
+              </div>
+
+              {emailConfig.provider === 'resend' && (
+                <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3">
+                  <span className="font-semibold text-xs text-[#1D1D1F]">Resend API Configuration</span>
+                  <label className="space-y-1 block text-xs">
+                    <span className="text-[10px] text-[#6E6E73]">Resend API Key (re_...)</span>
+                    <input
+                      type="password"
+                      placeholder="re_••••••••"
+                      value={emailConfig.resendApiKey || ''}
+                      onChange={(e) => setEmailConfig((p) => ({ ...p, resendApiKey: e.target.value }))}
+                      className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs font-mono outline-none"
+                    />
+                  </label>
+                  <label className="space-y-1 block text-xs">
+                    <span className="text-[10px] text-[#6E6E73]">From Address (e.g. Autonoma &lt;onboarding@resend.dev&gt;)</span>
+                    <input
+                      type="text"
+                      placeholder="Autonoma <onboarding@resend.dev>"
+                      value={emailConfig.smtpFrom || ''}
+                      onChange={(e) => setEmailConfig((p) => ({ ...p, smtpFrom: e.target.value }))}
+                      className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
+                    />
+                  </label>
+                </div>
               )}
-            </label>
-            <input
-              type="text"
-              value={localWebhook}
-              onChange={(e) => setLocalWebhook(e.target.value)}
-              placeholder="https://script.google.com/macros/s/AKfycb.../exec"
-              className="w-full bg-white border border-black/[0.08] rounded-xl px-3.5 py-2.5 text-xs text-[#1D1D1F] placeholder-[#86868B] focus:outline-none focus:ring-2 focus:ring-[#FF4500]/20 font-mono"
-            />
-          </div>
 
-          {/* Interactive Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <button
-              type="button"
-              onClick={handleTestConnection}
-              disabled={isTesting || !localWebhook.trim()}
-              className="px-3 py-1.5 bg-white hover:bg-black/[0.02] border border-black/[0.08] text-[#1D1D1F] font-medium rounded-xl text-xs flex items-center space-x-1.5 disabled:opacity-50 transition-colors shadow-2xs"
-            >
-              <RefreshCw className={`w-3 h-3 text-[#FF4500] ${isTesting ? 'animate-spin' : ''}`} />
-              <span>{isTesting ? 'Testing connection…' : 'Test connection'}</span>
-            </button>
+              {emailConfig.provider === 'smtp' && (
+                <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3 text-xs">
+                  <span className="font-semibold text-xs text-[#1D1D1F]">Custom SMTP Settings</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">SMTP Host</span>
+                      <input
+                        placeholder="smtp.example.com"
+                        value={emailConfig.smtpHost || ''}
+                        onChange={(e) => setEmailConfig((p) => ({ ...p, smtpHost: e.target.value }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
+                      />
+                    </label>
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">Port</span>
+                      <input
+                        type="number"
+                        placeholder="587"
+                        value={emailConfig.smtpPort || ''}
+                        onChange={(e) => setEmailConfig((p) => ({ ...p, smtpPort: Number(e.target.value) }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
+                      />
+                    </label>
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">Username</span>
+                      <input
+                        placeholder="user@example.com"
+                        value={emailConfig.smtpUser || ''}
+                        onChange={(e) => setEmailConfig((p) => ({ ...p, smtpUser: e.target.value }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
+                      />
+                    </label>
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">Password</span>
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        value={emailConfig.smtpPass || ''}
+                        onChange={(e) => setEmailConfig((p) => ({ ...p, smtpPass: e.target.value }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
 
-            <button
-              type="button"
-              onClick={handleRefreshFromSheets}
-              disabled={isRefreshingFromSheets || !localWebhook.trim()}
-              className="px-3 py-1.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white font-medium rounded-xl text-xs flex items-center space-x-1.5 disabled:opacity-50 transition-colors shadow-2xs"
-            >
-              <RefreshCw className={`w-3 h-3 text-white ${isRefreshingFromSheets ? 'animate-spin' : ''}`} />
-              <span>{isRefreshingFromSheets ? 'Refreshing…' : 'Refresh from Sheets'}</span>
-            </button>
+              {/* Test Email Dispatch */}
+              <div className="rounded-2xl border border-black/[0.06] bg-slate-50/70 p-4 space-y-3">
+                <span className="font-semibold text-xs text-[#1D1D1F] block">Send Test Transactional Email</span>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    placeholder="Enter recipient email address..."
+                    value={testEmailAddress}
+                    onChange={(e) => setTestEmailAddress(e.target.value)}
+                    className="flex-1 rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs outline-none"
+                  />
+                  <button
+                    onClick={handleTestEmail}
+                    disabled={emailTesting}
+                    className="px-4 py-2 bg-[#0A0B0E] hover:bg-black text-white text-xs font-semibold rounded-xl transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50 shrink-0"
+                  >
+                    {emailTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+                    <span>{emailTesting ? 'Sending…' : 'Send Test'}</span>
+                  </button>
+                </div>
 
-            <button
-              type="button"
-              onClick={handleSyncData}
-              disabled={isSyncing || !localWebhook.trim()}
-              className="px-3 py-1.5 bg-white hover:bg-black/[0.02] border border-black/[0.08] text-[#1D1D1F] font-medium rounded-xl text-xs flex items-center space-x-1.5 disabled:opacity-50 transition-colors shadow-2xs"
-            >
-              <RefreshCw className={`w-3 h-3 text-blue-600 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? 'Syncing…' : 'Sync data now'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleCopyCode}
-              className="px-3 py-1.5 bg-[#14161B] hover:bg-black text-white font-medium rounded-xl text-xs flex items-center space-x-1.5 transition-colors shadow-2xs sm:ml-auto"
-            >
-              {codeCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-              <span>{codeCopied ? 'Connector code copied!' : 'Copy Apps Script code'}</span>
-            </button>
-
-            <a
-              href="/autonoma-connector.gs"
-              download="autonoma-connector.gs"
-              className="px-3 py-1.5 bg-white hover:bg-black/[0.02] border border-black/[0.08] text-[#1D1D1F] font-medium rounded-xl text-xs flex items-center space-x-1.5 transition-colors shadow-2xs"
-            >
-              <Download className="w-3 h-3 text-[#86868B]" />
-              <span>Download .gs</span>
-            </a>
-          </div>
-
-          {/* Test / Refresh / Init Result Alerts */}
-          {refreshResult && (
-            <div className={`p-3 rounded-xl border text-xs flex items-start space-x-2 animate-in fade-in ${
-              refreshResult.success ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
-            }`}>
-              {refreshResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />}
-              <p className="font-semibold">{refreshResult.message}</p>
-            </div>
-          )}
-
-          {testResult && (
-            <div className={`p-3 rounded-xl border text-xs flex items-start space-x-2 animate-in fade-in ${
-              testResult.success ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
-            }`}>
-              {testResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />}
-              <div>
-                <p className="font-semibold">{testResult.message}</p>
-                {testResult.latency && <p className="text-[11px] text-[#6E6E73] mt-0.5">Roundtrip Latency: {testResult.latency}ms</p>}
+                {emailTestResult && (
+                  <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${emailTestResult.success ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+                    {emailTestResult.success ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />}
+                    <span>{emailTestResult.message}</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {initResult && (
-            <div className={`p-3 rounded-xl border text-xs flex items-start space-x-2 animate-in fade-in ${
-              initResult.success ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
-            }`}>
-              {initResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />}
-              <p className="font-semibold">{initResult.message}</p>
-            </div>
-          )}
+          {/* TAB 3: GOOGLE SHEETS & DATABASE */}
+          {activeTab === 'sheets' && (
+            <div className="space-y-5">
+              {isServerSecretSheets && (
+                <div className="rounded-2xl border border-emerald-500/25 bg-emerald-50/80 p-4 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <div>
+                        <span className="text-xs font-bold text-emerald-950 uppercase tracking-wider block">
+                          Google Sheets
+                        </span>
+                        <span className="text-xs font-bold text-emerald-700">
+                          CONNECTED / CONFIGURED SERVER-SIDE
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-200/70 text-emerald-800 font-bold">
+                      SERVER SECRET ACTIVE
+                    </span>
+                  </div>
+                  <p className="text-xs text-emerald-800/90 leading-relaxed">
+                    Connected securely via runtime environment secret. Synchronization and hydration survive deployments and restarts automatically. You do not need to paste the URL again.
+                  </p>
+                </div>
+              )}
 
-          {syncResult && (
-            <div className={`p-3 rounded-xl border text-xs flex items-start space-x-2 animate-in fade-in ${
-              syncResult.success ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
-            }`}>
-              {syncResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />}
-              <p className="font-semibold">{syncResult.message}</p>
-            </div>
-          )}
-        </div>
+              <div className="rounded-2xl border border-black/[0.06] bg-slate-50/70 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#1D1D1F] uppercase tracking-wider">
+                    {isServerSecretSheets ? 'Workspace URL Override (Optional)' : 'Google Sheets Synchronization URL'}
+                  </span>
+                  <span className="text-[10px] text-[#86868B]">WEB APP CONNECTOR</span>
+                </div>
+                <input
+                  type="url"
+                  placeholder={isServerSecretSheets ? "Leave blank to continue using server-side secret" : "https://script.google.com/macros/s/.../exec"}
+                  value={localWebhook.includes('SERVER_SECRET') ? '' : localWebhook}
+                  onChange={(e) => setLocalWebhook(e.target.value)}
+                  className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs outline-none font-mono"
+                />
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    onClick={handleTestSheets}
+                    disabled={isTestingSheets}
+                    className="text-xs font-semibold text-[#FF4500] hover:underline flex items-center gap-1"
+                  >
+                    {isTestingSheets ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                    Test Sheets Webhook Connection
+                  </button>
+                  <button
+                    onClick={() => setShowSetupGuide(!showSetupGuide)}
+                    className="text-xs text-[#6E6E73] hover:text-[#1D1D1F] flex items-center gap-1"
+                  >
+                    <span>Connector Code</span>
+                    {showSetupGuide ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
 
-        {/* SECTION 2: AI Synthesis Engines */}
-        <div className="space-y-4 text-xs">
-          {/* Active Model Indicator */}
-          <div className="p-4 bg-[#FBFBFD] rounded-2xl border border-black/[0.06] flex items-center justify-between">
-            <div className="space-y-0.5">
-              <div className="font-semibold text-[#1D1D1F] flex items-center space-x-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#FF4500]" />
-                <span>Google Gemini Engine</span>
+                {sheetsTestResult && (
+                  <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${sheetsTestResult.success ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+                    {sheetsTestResult.success ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />}
+                    <span>{sheetsTestResult.message}</span>
+                  </div>
+                )}
+
+                {showSetupGuide && (
+                  <div className="mt-3 p-3 bg-black/5 rounded-xl space-y-2 text-xs font-mono">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-[#6E6E73]">Apps Script Connector Code</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(AUTONOMA_APPS_SCRIPT_CONNECTOR);
+                          setCodeCopied(true);
+                          setTimeout(() => setCodeCopied(false), 2000);
+                        }}
+                        className="text-[11px] text-[#FF4500] hover:underline flex items-center gap-1"
+                      >
+                        {codeCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                        <span>{codeCopied ? 'Copied' : 'Copy script'}</span>
+                      </button>
+                    </div>
+                    <pre className="max-h-40 overflow-y-auto p-2 bg-white rounded-lg text-[10px] text-[#333]">
+                      {AUTONOMA_APPS_SCRIPT_CONNECTOR.slice(0, 400)}...
+                    </pre>
+                  </div>
+                )}
               </div>
-              <p className="text-[#6E6E73] text-[11px]">
-                Model: gemini-2.5-flash · Free tier campaign synthesis with calibrated narrative arcs
-              </p>
             </div>
-            <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 font-medium text-[11px]">
-              <Lock className="w-3 h-3" />
-              <span>Active</span>
-            </span>
-          </div>
+          )}
+        </div>
 
-          {/* Paid Gemini API Key (Optional BYOK) */}
-          <div className="space-y-1.5">
-            <label className="text-[#1D1D1F] font-medium flex items-center justify-between">
-              <span>Paid Google Gemini API Key (Optional BYOK)</span>
-              <span className="text-[10px] text-[#86868B]">For Veo / Nano Banana</span>
-            </label>
-            <input
-              type="password"
-              value={localGeminiPaid}
-              onChange={(e) => setLocalGeminiPaid(e.target.value)}
-              placeholder="AIzaSy... (For paid image & video generation with quota > 0)"
-              className="w-full bg-[#F2F2F7] border-0 rounded-xl px-3.5 py-2.5 text-xs text-[#1D1D1F] placeholder-[#86868B] focus:outline-none focus:ring-2 focus:ring-[#FF4500]/20 font-mono"
-            />
-            <p className="text-[11px] text-[#86868B]">
-              Image and video models require a billing-attached key.
-            </p>
-          </div>
-
-          {/* ChatGPT / OpenAI Key (Optional BYOK) */}
-          <div className="space-y-1.5">
-            <label className="text-[#1D1D1F] font-medium flex items-center justify-between">
-              <span>OpenAI API Key (Optional BYOK)</span>
-              <span className="text-[10px] text-[#86868B]">Alternative provider</span>
-            </label>
-            <input
-              type="password"
-              value={localOpenai}
-              onChange={(e) => setLocalOpenai(e.target.value)}
-              placeholder="sk-proj-... (Optional alternative provider)"
-              className="w-full bg-[#F2F2F7] border-0 rounded-xl px-3.5 py-2.5 text-xs text-[#1D1D1F] placeholder-[#86868B] focus:outline-none focus:ring-2 focus:ring-[#FF4500]/20 font-mono"
-            />
+        {/* Modal Footer */}
+        <div className="flex items-center justify-between border-t border-black/[0.06] px-6 py-4 bg-[#FBFBFD]">
+          <span className="text-xs text-[#6E6E73]">
+            Changes take effect immediately across all client and backend synthesis flows.
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl border border-black/[0.08] text-xs font-medium text-[#1D1D1F] hover:bg-black/[0.03]"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSaveAll}
+              className="px-5 py-2 rounded-xl bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-semibold shadow-sm active:scale-95 transition-all flex items-center gap-1.5"
+            >
+              {saved ? <CheckCircle2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+              <span>{saved ? 'Saved!' : 'Save Provider Settings'}</span>
+            </button>
           </div>
         </div>
 
-        {/* Footer Buttons */}
-        <div className="pt-3 border-t border-black/[0.06] flex items-center justify-end space-x-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-[#1D1D1F] text-xs font-medium rounded-xl transition-colors"
-          >
-            Cancel
-          </button>
-
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm flex items-center space-x-1.5 active:scale-95"
-          >
-            {saved ? <Check className="w-3.5 h-3.5" /> : null}
-            <span>{saved ? 'Saved!' : 'Save changes'}</span>
-          </button>
-        </div>
       </div>
     </div>
   );

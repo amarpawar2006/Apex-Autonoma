@@ -134,7 +134,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   const [primaryCta, setPrimaryCta] = useState<string>('');
   const [productsEmphasized, setProductsEmphasized] = useState<string>('');
   const [customAssetCount, setCustomAssetCount] = useState<number | ''>('');
-  const [postingFrequency, setPostingFrequency] = useState<string>('Daily at 11:30 AM IST');
+  const [postingFrequency, setPostingFrequency] = useState<string>('Dynamic Platform Peak Windows (IST)');
   const [tone, setTone] = useState<string>('Authoritative, pragmatic & conversion-focused');
   const [additionalInstructions, setAdditionalInstructions] = useState<string>('');
 

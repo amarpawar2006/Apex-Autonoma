@@ -1117,6 +1117,92 @@ class AutonomaDataService {
     if (!json.success) throw new Error(json.error || 'Failed to remove member');
   }
 
+  async resendMemberInvite(membershipId: string): Promise<{ success: boolean; data: Membership; emailDelivery: any }> {
+    const res = await fetch(`/api/company/members/${encodeURIComponent(membershipId)}/resend-invite`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to resend invitation email');
+    return json;
+  }
+
+  async analyzeBrandPdf(file: File): Promise<{
+    success: boolean;
+    suggestions: any;
+    extractedSummary?: string;
+    pageCount?: number;
+    rawTextSnippet?: string;
+  }> {
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const res = await fetch('/api/company/analyze-brand-pdf', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ pdfBase64: base64 })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to analyze brand guidelines PDF');
+    return json;
+  }
+
+  async getAiProviders(): Promise<{
+    success: boolean;
+    aiProviders: any;
+    emailConfig: any;
+  }> {
+    const res = await fetch('/api/ai/providers', { headers: this.getAuthHeaders() });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to load AI provider settings');
+    return json;
+  }
+
+  async updateAiProviders(updates: { aiProviders?: any; emailConfig?: any; googleDrive?: any }): Promise<any> {
+    const res = await fetch('/api/ai/providers', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(updates)
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to save provider settings');
+    return json;
+  }
+
+  async testAiProvider(providerId: string, apiKey?: string): Promise<{
+    success: boolean;
+    provider: string;
+    message: string;
+    latencyMs?: number;
+  }> {
+    const res = await fetch('/api/ai/providers/test', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ providerId, apiKey })
+    });
+    const json = await res.json();
+    return json;
+  }
+
+  async testEmailDelivery(targetEmail?: string, config?: any): Promise<{
+    success: boolean;
+    provider: string;
+    message: string;
+    latencyMs?: number;
+  }> {
+    const res = await fetch('/api/email/test', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ targetEmail, config })
+    });
+    const json = await res.json();
+    return json;
+  }
+
   async updateCompanySettings(name: string): Promise<Company> {
     const res = await fetch('/api/company/settings', {
       method: 'PUT',

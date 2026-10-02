@@ -35,6 +35,7 @@ import { AwaitingApprovalView } from './components/auth/AwaitingApprovalView';
 import { SuperAdminWorkspace } from './components/admin/SuperAdminWorkspace';
 import { CompanyManagementModal } from './components/admin/CompanyManagementModal';
 import { CompanySetupChecklist } from './components/CompanySetupChecklist';
+import { GuidedHelpCard } from './components/GuidedHelpCard';
 
 // Modals
 import { AiCampaignGeneratorModal } from './components/AiCampaignGeneratorModal';
@@ -79,6 +80,26 @@ export default function App() {
   // Modals state
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
+
+  // Guided Help state (Defaults to ON per Controlled Batch 1)
+  const [guidedHelpEnabled, setGuidedHelpEnabled] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('autonoma_guided_help');
+      return stored !== null ? stored === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleGuidedHelp = () => {
+    setGuidedHelpEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('autonoma_guided_help', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // API credentials & Webhooks
   const [openaiKey, setOpenaiKey] = useState<string>('');
@@ -533,10 +554,34 @@ export default function App() {
         onOpenSuperAdminWorkspace={() => setIsSuperAdminWorkspaceOpen(true)}
         availableCompanies={availableCompanies}
         onSwitchCompany={handleSwitchCompany}
+        guidedHelpEnabled={guidedHelpEnabled}
+        onToggleGuidedHelp={toggleGuidedHelp}
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-5 sm:py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-6">
+        {/* Contextual Guided Help across the App (Default ON per Controlled Batch 1) */}
+        <GuidedHelpCard
+          company={activeCompany}
+          campaigns={campaigns}
+          assets={assets}
+          onNavigate={(tab) => {
+            setActiveTab(tab);
+            if (tab !== 'campaigns') setViewingCampaign(null);
+          }}
+          onOpenCompanySetup={(tab) => {
+            setCompanyManagementInitialTab((tab as any) || 'ai_context');
+            setIsCompanyManagementOpen(true);
+          }}
+          onOpenAiGenerator={() => setIsAiModalOpen(true)}
+          guidedHelpEnabled={guidedHelpEnabled}
+          setGuidedHelpEnabled={(enabled) => {
+            setGuidedHelpEnabled(enabled);
+            try {
+              localStorage.setItem('autonoma_guided_help', String(enabled));
+            } catch {}
+          }}
+        />
         {/* Startup Connection Health Warning (Non-blocking) */}
         {sheetsHealth.checked && !sheetsHealth.connected && (
           <div className="mb-4 p-3 sm:p-3.5 bg-amber-50 rounded-2xl border border-amber-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-amber-900 animate-in fade-in duration-200">

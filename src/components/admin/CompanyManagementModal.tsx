@@ -23,7 +23,10 @@ import {
   Clock,
   Layers,
   Phone,
-  ArrowRight
+  ArrowRight,
+  Copy,
+  Send,
+  RefreshCw
 } from 'lucide-react';
 import { 
   Company, 
@@ -211,18 +214,27 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
     }
   };
 
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
+
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmail.trim()) return;
     setSaving(true);
     setError(null);
     try {
-      const added = await autonomaDataService.addCompanyMember(
+      const result: any = await autonomaDataService.addCompanyMember(
         newEmail.trim(),
         newName.trim() || newEmail.split('@')[0],
         newRole
       );
-      setSuccess(`Added ${added.userName || newEmail} as ${added.role}.`);
+      if (result?.emailDelivery?.success) {
+        setSuccess(`Invited ${newEmail}! Transactional invitation email sent successfully.`);
+      } else if (result?.emailDelivery?.error) {
+        setSuccess(`Member added! Delivery notice: ${result.emailDelivery.error}. Direct invite link available in list.`);
+      } else {
+        setSuccess(`Added ${newEmail} as ${newRole}.`);
+      }
       setNewEmail('');
       setNewName('');
       setNewRole('MEMBER');
@@ -232,6 +244,32 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleResendInvite = async (membershipId: string) => {
+    setResendingId(membershipId);
+    setError(null);
+    try {
+      const res = await autonomaDataService.resendMemberInvite(membershipId);
+      if (res.emailDelivery?.success) {
+        setSuccess('Transactional invitation email resent successfully!');
+      } else {
+        setError(`Email delivery failed: ${res.emailDelivery?.error || 'Could not dispatch email'}`);
+      }
+      await loadMembers();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to resend invite');
+    } finally {
+      setResendingId(null);
+    }
+  };
+
+  const handleCopyInviteLink = (mem: Membership) => {
+    const memId = mem.membershipId || mem.id || '';
+    const link = mem.inviteLink || `${window.location.origin}/?invite=${memId}&company=${activeCompany.companyId || activeCompany.id}`;
+    navigator.clipboard.writeText(link);
+    setCopiedInviteId(memId);
+    setTimeout(() => setCopiedInviteId(null), 2000);
   };
 
   const handleUpdateRole = async (membershipId: string, role: 'COMPANY_ADMIN' | 'MEMBER') => {
@@ -563,18 +601,18 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
   const isContextActive = summaryState?.isActive || activeCompany?.profile?.confirmedContext?.isActive;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="w-full max-w-3xl bg-[#14161B] border border-white/[0.1] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="w-full max-w-3xl bg-white border border-black/[0.08] rounded-3xl max-sm:h-full max-sm:rounded-none max-sm:max-w-none shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-white/[0.08] flex items-center justify-between bg-black/40">
+        <div className="px-6 py-4 border-b border-black/[0.06] flex items-center justify-between bg-[#FBFBFD]">
           <div className="flex items-center space-x-3">
             <div className="p-2 rounded-xl bg-[#FF4500]/20 text-[#FF4500]">
               <Building2 className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white flex items-center space-x-2">
+              <h3 className="text-base font-bold text-[#1D1D1F] flex items-center space-x-2">
                 <span>{activeCompany.name}</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-white/[0.06] text-[#86868B]">
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-black/[0.04] text-[#6E6E73]">
                   {currentUserRole}
                 </span>
                 {isContextActive && (
@@ -584,23 +622,23 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   </span>
                 )}
               </h3>
-              <p className="text-xs text-[#86868B]">Company profile, brand intelligence & access controls</p>
+              <p className="text-xs text-[#6E6E73]">Company profile, brand intelligence & access controls</p>
             </div>
           </div>
 
-          <button onClick={onClose} className="p-1.5 text-[#86868B] hover:text-white rounded-lg">
+          <button onClick={onClose} className="p-1.5 text-[#6E6E73] hover:text-[#1D1D1F] rounded-lg">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab switcher */}
-        <div className="px-6 pt-2.5 flex border-b border-white/[0.06] bg-black/20 text-xs gap-1 overflow-x-auto">
+        <div className="px-6 pt-2.5 flex border-b border-black/[0.06] bg-[#F5F5F7] text-xs gap-1 overflow-x-auto">
           <button
             onClick={() => setActiveTab('ai_context')}
             className={`pb-2.5 px-3.5 font-semibold transition-all border-b-2 flex items-center space-x-1.5 shrink-0 ${
               activeTab === 'ai_context'
-                ? 'border-[#FF4500] text-white'
-                : 'border-transparent text-[#86868B] hover:text-white'
+                ? 'border-[#FF4500] text-[#1D1D1F] font-bold'
+                : 'border-transparent text-[#6E6E73] hover:text-[#1D1D1F]'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5 text-[#FF4500]" />
@@ -614,8 +652,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
             onClick={() => setActiveTab('profile')}
             className={`pb-2.5 px-3.5 font-semibold transition-all border-b-2 flex items-center space-x-1.5 shrink-0 ${
               activeTab === 'profile'
-                ? 'border-[#FF4500] text-white'
-                : 'border-transparent text-[#86868B] hover:text-white'
+                ? 'border-[#FF4500] text-[#1D1D1F] font-bold'
+                : 'border-transparent text-[#6E6E73] hover:text-[#1D1D1F]'
             }`}
           >
             <Building2 className="w-3.5 h-3.5" />
@@ -626,8 +664,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
             onClick={() => setActiveTab('understanding')}
             className={`pb-2.5 px-3.5 font-semibold transition-all border-b-2 flex items-center space-x-1.5 shrink-0 ${
               activeTab === 'understanding'
-                ? 'border-[#FF4500] text-white'
-                : 'border-transparent text-[#86868B] hover:text-white'
+                ? 'border-[#FF4500] text-[#1D1D1F] font-bold'
+                : 'border-transparent text-[#6E6E73] hover:text-[#1D1D1F]'
             }`}
           >
             <ShieldCheck className={`w-3.5 h-3.5 ${isContextActive ? 'text-emerald-400' : 'text-[#86868B]'}`} />
@@ -641,8 +679,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
             onClick={() => setActiveTab('members')}
             className={`pb-2.5 px-3.5 font-semibold transition-all border-b-2 flex items-center space-x-1.5 shrink-0 ${
               activeTab === 'members'
-                ? 'border-[#FF4500] text-white'
-                : 'border-transparent text-[#86868B] hover:text-white'
+                ? 'border-[#FF4500] text-[#1D1D1F] font-bold'
+                : 'border-transparent text-[#6E6E73] hover:text-[#1D1D1F]'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
@@ -678,10 +716,10 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
           {activeTab === 'ai_context' && (
             <div className="space-y-5">
               {/* Header explanation */}
-              <div className="p-4 bg-black/40 border border-white/[0.06] rounded-xl space-y-2">
+              <div className="p-4 bg-[#F5F5F7] border border-black/[0.06] rounded-xl space-y-2">
                 <div className="flex items-center space-x-2">
                   <Sparkles className="w-4 h-4 text-[#FF4500]" />
-                  <h4 className="text-xs font-bold text-white">1. AI Strategic Context & Website-First Analysis</h4>
+                  <h4 className="text-xs font-bold text-[#1D1D1F]">1. AI Strategic Context & Website-First Analysis</h4>
                 </div>
                 <p className="text-xs text-[#86868B] leading-relaxed">
                   Start by providing your public website. Autonoma analyses your business evidence server-side (with strict request timeouts, size limits, and SSRF protection), treats retrieved text as objective evidence, and auto-fills missing company profile fields while preserving anything you've already entered.
@@ -689,9 +727,9 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
               </div>
 
               {/* Analyse Website Form */}
-              <div className="p-4 bg-[#0A0B0E] border border-white/[0.08] rounded-xl space-y-3">
+              <div className="p-4 bg-[#FBFBFD] border border-black/[0.08] rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-white">Company Website or Pasted Business Copy</span>
+                  <span className="text-xs font-semibold text-[#1D1D1F]">Company Website or Pasted Business Copy</span>
                   <div className="flex items-center space-x-2 text-[11px]">
                     <button
                       type="button"
@@ -722,7 +760,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={websiteUrlInput}
                       onChange={(e) => setWebsiteUrlInput(e.target.value)}
                       disabled={isAnalyzingWebsite || !isCompanyAdmin}
-                      className="flex-1 bg-[#14161B] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500]"
+                      className="flex-1 bg-white border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500]"
                     />
                     <button
                       type="button"
@@ -742,7 +780,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={pastedTextInput}
                       onChange={(e) => setPastedTextInput(e.target.value)}
                       disabled={isAnalyzingWebsite || !isCompanyAdmin}
-                      className="w-full bg-[#14161B] border border-white/[0.1] rounded-xl p-3 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500]"
+                      className="w-full bg-white border border-black/[0.08] rounded-xl p-3 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500]"
                     />
                     <div className="flex justify-end">
                       <button
@@ -790,10 +828,10 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
               </div>
 
               {/* Editable "What Autonoma Understands" Structured Section */}
-              <div className="space-y-4 pt-2 border-t border-white/[0.08]">
+              <div className="space-y-4 pt-2 border-t border-black/[0.08]">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
-                    <h4 className="text-xs font-bold text-white flex items-center space-x-2">
+                    <h4 className="text-xs font-bold text-[#1D1D1F] flex items-center space-x-2">
                       <span>What Autonoma Understands About Your Company</span>
                       {summaryState?.version ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#FF4500]/20 text-[#FF4500]">
@@ -816,7 +854,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 <div className="space-y-3 text-xs">
                   {/* 1. Organisation and Offering */}
                   <div>
-                    <label className="block text-[11px] font-semibold text-white mb-1">
+                    <label className="block text-[11px] font-semibold text-[#1D1D1F] mb-1">
                       1. Organisation and Offering
                     </label>
                     <textarea
@@ -825,13 +863,13 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={summaryState.organizationAndOffering}
                       onChange={(e) => setSummaryState({ ...summaryState, organizationAndOffering: e.target.value })}
                       placeholder="Summary of what the company is and what it provides..."
-                      className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl p-2.5 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   {/* 2. Audience */}
                   <div>
-                    <label className="block text-[11px] font-semibold text-white mb-1">
+                    <label className="block text-[11px] font-semibold text-[#1D1D1F] mb-1">
                       2. Target Audience
                     </label>
                     <textarea
@@ -840,13 +878,13 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={summaryState.audience}
                       onChange={(e) => setSummaryState({ ...summaryState, audience: e.target.value })}
                       placeholder="Identified customer personas, demographics and operators..."
-                      className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl p-2.5 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   {/* 3. Goals */}
                   <div>
-                    <label className="block text-[11px] font-semibold text-white mb-1">
+                    <label className="block text-[11px] font-semibold text-[#1D1D1F] mb-1">
                       3. Strategic Goals & Conversion Objectives
                     </label>
                     <input
@@ -855,14 +893,14 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={summaryState.goals}
                       onChange={(e) => setSummaryState({ ...summaryState, goals: e.target.value })}
                       placeholder="Identified outcomes (leads, registrations, education)..."
-                      className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* 4. Voice */}
                     <div>
-                      <label className="block text-[11px] font-semibold text-white mb-1">
+                      <label className="block text-[11px] font-semibold text-[#1D1D1F] mb-1">
                         4. Brand Voice & Tone
                       </label>
                       <input
@@ -871,13 +909,13 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                         value={summaryState.voice}
                         onChange={(e) => setSummaryState({ ...summaryState, voice: e.target.value })}
                         placeholder="e.g. Grounded, authoritative, welcoming"
-                        className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                        className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                       />
                     </div>
 
                     {/* 5. CTA */}
                     <div>
-                      <label className="block text-[11px] font-semibold text-white mb-1">
+                      <label className="block text-[11px] font-semibold text-[#1D1D1F] mb-1">
                         5. Preferred Contact CTA
                       </label>
                       <input
@@ -886,14 +924,14 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                         value={summaryState.cta}
                         onChange={(e) => setSummaryState({ ...summaryState, cta: e.target.value })}
                         placeholder="e.g. Book trial lesson, DM for schedule"
-                        className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                        className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                       />
                     </div>
                   </div>
 
                   {/* 6. Constraints */}
                   <div>
-                    <label className="block text-[11px] font-semibold text-white mb-1">
+                    <label className="block text-[11px] font-semibold text-[#1D1D1F] mb-1">
                       6. Strict Constraints & Topics to Avoid
                     </label>
                     <input
@@ -902,14 +940,14 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={summaryState.constraints}
                       onChange={(e) => setSummaryState({ ...summaryState, constraints: e.target.value })}
                       placeholder="e.g. Never mention discounts, unproven health claims, or third-party brands"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   {/* 7. Source URLs and Labelled Assumptions */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div>
-                      <label className="block text-[11px] font-semibold text-white mb-1">
+                      <label className="block text-[11px] font-semibold text-[#1D1D1F] mb-1">
                         Source Evidence URLs
                       </label>
                       <input
@@ -921,12 +959,12 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                           sourceUrls: e.target.value.split(',').map(s => s.trim()).filter(Boolean) 
                         })}
                         placeholder="https://..."
-                        className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white font-mono text-[11px] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                        className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] font-mono text-[11px] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-semibold text-white mb-1">
+                      <label className="block text-[11px] font-semibold text-[#1D1D1F] mb-1">
                         Clearly Labelled Assumptions
                       </label>
                       <input
@@ -938,18 +976,18 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                           assumptions: e.target.value.split(';').map(s => s.trim()).filter(Boolean) 
                         })}
                         placeholder="[Assumption] Target demographic inferred from..."
-                        className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                        className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                       />
                     </div>
                   </div>
                 </div>
 
                 {/* Bottom Navigation & Confirmation */}
-                <div className="pt-4 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="pt-4 border-t border-black/[0.08] flex flex-col sm:flex-row items-center justify-between gap-3">
                   <button
                     type="button"
                     onClick={() => setActiveTab('profile')}
-                    className="px-4 py-2 bg-white/[0.06] hover:bg-white/[0.1] text-white text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5 self-start sm:self-auto"
+                    className="px-4 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-white text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5 self-start sm:self-auto"
                   >
                     <span>Continue to Company Profile (Steps 2–5)</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -959,7 +997,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setActiveTab('understanding')}
-                      className="px-3.5 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-[#86868B] hover:text-white text-xs font-medium rounded-xl transition-all"
+                      className="px-3.5 py-2 bg-black/[0.04] hover:bg-black/[0.06] text-[#86868B] hover:text-white text-xs font-medium rounded-xl transition-all"
                     >
                       Review Summary →
                     </button>
@@ -986,7 +1024,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
           {/* ==================================================== */}
           {activeTab === 'profile' && (
             <form onSubmit={handleSaveProfile} className="space-y-4">
-              <div className="p-3 bg-black/30 border border-white/[0.06] rounded-xl text-xs text-[#86868B] flex items-center justify-between">
+              <div className="p-3 bg-black/30 border border-black/[0.06] rounded-xl text-xs text-[#86868B] flex items-center justify-between">
                 <span>Configure your core company profile fields below. All fields remain fully editable.</span>
                 <button
                   type="button"
@@ -999,14 +1037,14 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
 
               {/* SECTION 2: Organization Identity */}
               <div className="space-y-3 pt-1">
-                <h4 className="text-xs font-bold text-white tracking-wide uppercase flex items-center space-x-1.5">
+                <h4 className="text-xs font-bold text-[#1D1D1F] tracking-wide uppercase flex items-center space-x-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#FF4500]" />
                   <span>Step 2: Organization Identity</span>
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Company Name */}
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Company / Organisation Name <span className="text-[#FF4500]">*</span>
                     </label>
                     <input
@@ -1016,20 +1054,20 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={companyName}
                       onChange={(e) => setCompanyName(e.target.value)}
                       placeholder="e.g. Bombay Riding Club or Apex Engineering"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   {/* Organisation Type */}
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Organisation Type <span className="text-[#FF4500]">*</span>
                     </label>
                     <select
                       disabled={!isCompanyAdmin}
                       value={orgType}
                       onChange={(e) => setOrgType(e.target.value as OrganizationType)}
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     >
                       <option value="business">Business / Commercial Enterprise</option>
                       <option value="club_community">Club / Community / Association</option>
@@ -1042,8 +1080,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
               </div>
 
               {/* SECTION 3: Purpose & Offerings */}
-              <div className="space-y-3 pt-3 border-t border-white/[0.06]">
-                <h4 className="text-xs font-bold text-white tracking-wide uppercase flex items-center space-x-1.5">
+              <div className="space-y-3 pt-3 border-t border-black/[0.06]">
+                <h4 className="text-xs font-bold text-[#1D1D1F] tracking-wide uppercase flex items-center space-x-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#FF4500]" />
                   <span>Step 3: Purpose & Offerings</span>
                 </h4>
@@ -1051,7 +1089,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 {/* Short Description with AI "Improve Description" */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-white flex items-center space-x-1.5">
+                    <label className="text-xs font-semibold text-[#1D1D1F] flex items-center space-x-1.5">
                       <span>Core Business Purpose & Overview</span>
                       <span className="text-[#FF4500]">*</span>
                     </label>
@@ -1087,7 +1125,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="Provide a concise description of your core operations, value proposition, and purpose..."
-                    className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl p-3 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                    className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl p-3 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                   />
 
                   {descImproveError && (
@@ -1120,7 +1158,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                           </button>
                         </div>
                       </div>
-                      <p className="text-xs text-white/95 leading-relaxed bg-[#0A0B0E] p-2.5 rounded-lg border border-white/[0.04]">
+                      <p className="text-xs text-[#1D1D1F] leading-relaxed bg-[#FBFBFD] p-2.5 rounded-lg border border-black/[0.06]">
                         {descPreview}
                       </p>
                     </div>
@@ -1129,7 +1167,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
 
                 {/* Products / Services / Offers */}
                 <div>
-                  <label className="block text-xs font-semibold text-white mb-1.5">
+                  <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                     Products, Services, Activities or Core Offers
                   </label>
                   <input
@@ -1138,20 +1176,20 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                     value={offerings}
                     onChange={(e) => setOfferings(e.target.value)}
                     placeholder="e.g. Horse riding lessons, equestrian livery, trail rides, weekend clinics"
-                    className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                    className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                   />
                 </div>
               </div>
 
               {/* SECTION 4: Audience & Geography */}
-              <div className="space-y-3 pt-3 border-t border-white/[0.06]">
-                <h4 className="text-xs font-bold text-white tracking-wide uppercase flex items-center space-x-1.5">
+              <div className="space-y-3 pt-3 border-t border-black/[0.06]">
+                <h4 className="text-xs font-bold text-[#1D1D1F] tracking-wide uppercase flex items-center space-x-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#FF4500]" />
                   <span>Step 4: Audience & Geography</span>
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Main Target Audience <span className="text-[#FF4500]">*</span>
                     </label>
                     <input
@@ -1161,12 +1199,12 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={audience}
                       onChange={(e) => setAudience(e.target.value)}
                       placeholder="e.g. Young professionals, equestrian families"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Main Geography / Region
                     </label>
                     <input
@@ -1175,12 +1213,12 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={geography}
                       onChange={(e) => setGeography(e.target.value)}
                       placeholder="e.g. Pune, Western Maharashtra, India"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Business Positioning / Stance
                     </label>
                     <input
@@ -1189,22 +1227,22 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={positioning}
                       onChange={(e) => setPositioning(e.target.value)}
                       placeholder="e.g. Premier regional equestrian training facility"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
                 </div>
               </div>
 
               {/* SECTION 5: Growth Goal & Brand Settings */}
-              <div className="space-y-3 pt-3 border-t border-white/[0.06]">
-                <h4 className="text-xs font-bold text-white tracking-wide uppercase flex items-center space-x-1.5">
+              <div className="space-y-3 pt-3 border-t border-black/[0.06]">
+                <h4 className="text-xs font-bold text-[#1D1D1F] tracking-wide uppercase flex items-center space-x-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#FF4500]" />
                   <span>Step 5: Growth Goal & Brand Settings</span>
                 </h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Primary Goal <span className="text-[#FF4500]">*</span>
                     </label>
                     <input
@@ -1214,12 +1252,12 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={primaryGoal}
                       onChange={(e) => setPrimaryGoal(e.target.value)}
                       placeholder="e.g. Enrol new riders, member retention"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Preferred Language
                     </label>
                     <input
@@ -1228,12 +1266,12 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={preferredLanguage}
                       onChange={(e) => setPreferredLanguage(e.target.value)}
                       placeholder="English / Marathi / Hindi"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Timezone
                     </label>
                     <input
@@ -1242,15 +1280,15 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={timezone}
                       onChange={(e) => setTimezone(e.target.value)}
                       placeholder="Asia/Kolkata"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
                 </div>
 
                 {/* Website & Social Channels */}
-                <div className="p-3.5 bg-black/30 border border-white/[0.06] rounded-xl space-y-3">
+                <div className="p-3.5 bg-black/30 border border-black/[0.06] rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center space-x-1.5">
+                    <span className="text-xs font-bold text-[#1D1D1F] flex items-center space-x-1.5">
                       <Globe className="w-3.5 h-3.5 text-[#FF4500]" />
                       <span>Website & Social Profiles</span>
                     </span>
@@ -1269,7 +1307,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                           if (!websiteUrlInput) setWebsiteUrlInput(e.target.value);
                         }}
                         placeholder="https://example.com"
-                        className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                        className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                       />
                     </div>
 
@@ -1281,7 +1319,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                         value={socialInstagram}
                         onChange={(e) => setSocialInstagram(e.target.value)}
                         placeholder="@handle or full URL"
-                        className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                        className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                       />
                     </div>
 
@@ -1293,7 +1331,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                         value={socialLinkedin}
                         onChange={(e) => setSocialLinkedin(e.target.value)}
                         placeholder="https://linkedin.com/company/..."
-                        className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                        className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                       />
                     </div>
 
@@ -1305,7 +1343,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                         value={socialYoutube}
                         onChange={(e) => setSocialYoutube(e.target.value)}
                         placeholder="https://youtube.com/@channel"
-                        className="w-full bg-[#0A0B0E] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                        className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                       />
                     </div>
                   </div>
@@ -1314,7 +1352,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 {/* Destination CTA & Default WhatsApp Recipient */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Preferred CTA / Contact Destination
                     </label>
                     <input
@@ -1323,12 +1361,12 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={preferredCta}
                       onChange={(e) => setPreferredCta(e.target.value)}
                       placeholder="e.g. Visit our website, DM for trials, or WhatsApp us"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5 flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5 flex items-center justify-between">
                       <span className="flex items-center space-x-1.5">
                         <Phone className="w-3.5 h-3.5 text-emerald-400" />
                         <span>Default WhatsApp Recipient (Optional)</span>
@@ -1340,7 +1378,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={defaultWhatsAppRecipient}
                       onChange={(e) => setDefaultWhatsAppRecipient(e.target.value)}
                       placeholder="+91 98765 43210 (International format)"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60 font-mono"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60 font-mono"
                     />
                   </div>
                 </div>
@@ -1348,7 +1386,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 {/* Brand Voice and Topics to Avoid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Brand Voice & Personality
                     </label>
                     <input
@@ -1357,12 +1395,12 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={brandVoice}
                       onChange={(e) => setBrandVoice(e.target.value)}
                       placeholder="e.g. Welcoming, grounded, encouraging, premium without being elitist"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-white mb-1.5">
+                    <label className="block text-xs font-semibold text-[#1D1D1F] mb-1.5">
                       Claims / Topics to Avoid
                     </label>
                     <input
@@ -1371,14 +1409,14 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                       value={claimsAvoid}
                       onChange={(e) => setClaimsAvoid(e.target.value)}
                       placeholder="e.g. Unverified medical claims, exaggerated discounts, aggressive hype"
-                      className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
+                      className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-xl px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500] disabled:opacity-60"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Save & Navigation Action Bar */}
-              <div className="pt-4 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="pt-4 border-t border-black/[0.08] flex flex-col sm:flex-row items-center justify-between gap-3">
                 <span className="text-[11px] text-[#86868B]">
                   Required: Name, Organisation type, Description, Audience, Primary goal
                 </span>
@@ -1396,7 +1434,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveTab('understanding')}
-                    className="px-3.5 py-2 bg-white/[0.06] hover:bg-white/[0.1] text-white text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5"
+                    className="px-3.5 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-white text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5"
                   >
                     <span>Review Autonoma's Understanding</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -1412,11 +1450,11 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
           {activeTab === 'understanding' && (
             <div className="space-y-5">
               {/* Header */}
-              <div className="p-4 bg-gradient-to-r from-black/60 via-[#14161B] to-black/60 border border-white/[0.08] rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="p-4 bg-gradient-to-r from-black/60 via-[#14161B] to-black/60 border border-black/[0.08] rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center space-x-2">
                     <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <h4 className="text-xs font-bold text-white tracking-wide uppercase">
+                    <h4 className="text-xs font-bold text-[#1D1D1F] tracking-wide uppercase">
                       Autonoma's Understanding
                     </h4>
                     {isContextActive && (
@@ -1434,7 +1472,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveTab('profile')}
-                    className="px-3 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-white text-xs font-semibold rounded-xl transition-all border border-white/[0.08] flex items-center space-x-1.5"
+                    className="px-3 py-1.5 bg-black/[0.04] hover:bg-black/[0.08] text-white text-xs font-semibold rounded-xl transition-all border border-black/[0.08] flex items-center space-x-1.5"
                   >
                     <Building2 className="w-3.5 h-3.5" />
                     <span>Edit Profile</span>
@@ -1457,7 +1495,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
               {/* Clean Summary Cards Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 text-xs">
                 {/* 1. Business */}
-                <div className="p-3.5 rounded-xl bg-[#0A0B0E] border border-white/[0.08] space-y-1.5">
+                <div className="p-3.5 rounded-xl bg-[#FBFBFD] border border-black/[0.08] space-y-1.5">
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Business / Core Identity
                   </span>
@@ -1470,7 +1508,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 </div>
 
                 {/* 2. What You Offer */}
-                <div className="p-3.5 rounded-xl bg-[#0A0B0E] border border-white/[0.08] space-y-1.5">
+                <div className="p-3.5 rounded-xl bg-[#FBFBFD] border border-black/[0.08] space-y-1.5">
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     What You Offer
                   </span>
@@ -1480,7 +1518,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 </div>
 
                 {/* 3. Who You Serve */}
-                <div className="p-3.5 rounded-xl bg-[#0A0B0E] border border-white/[0.08] space-y-1.5">
+                <div className="p-3.5 rounded-xl bg-[#FBFBFD] border border-black/[0.08] space-y-1.5">
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Who You Serve
                   </span>
@@ -1490,7 +1528,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 </div>
 
                 {/* 4. Positioning */}
-                <div className="p-3.5 rounded-xl bg-[#0A0B0E] border border-white/[0.08] space-y-1.5">
+                <div className="p-3.5 rounded-xl bg-[#FBFBFD] border border-black/[0.08] space-y-1.5">
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Positioning
                   </span>
@@ -1500,7 +1538,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 </div>
 
                 {/* 5. Geography */}
-                <div className="p-3.5 rounded-xl bg-[#0A0B0E] border border-white/[0.08] space-y-1.5">
+                <div className="p-3.5 rounded-xl bg-[#FBFBFD] border border-black/[0.08] space-y-1.5">
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Geography
                   </span>
@@ -1510,7 +1548,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 </div>
 
                 {/* 6. Growth Focus */}
-                <div className="p-3.5 rounded-xl bg-[#0A0B0E] border border-white/[0.08] space-y-1.5">
+                <div className="p-3.5 rounded-xl bg-[#FBFBFD] border border-black/[0.08] space-y-1.5">
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Growth Focus
                   </span>
@@ -1520,7 +1558,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 </div>
 
                 {/* 7. Communication / Tone */}
-                <div className="md:col-span-2 p-3.5 rounded-xl bg-[#0A0B0E] border border-white/[0.08] space-y-2">
+                <div className="md:col-span-2 p-3.5 rounded-xl bg-[#FBFBFD] border border-black/[0.08] space-y-2">
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Communication, Brand Tone & Guardrails
                   </span>
@@ -1548,11 +1586,11 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
               </div>
 
               {/* Action Bar */}
-              <div className="pt-4 border-t border-white/[0.08] flex items-center justify-between">
+              <div className="pt-4 border-t border-black/[0.08] flex items-center justify-between">
                 <button
                   type="button"
                   onClick={() => setActiveTab('profile')}
-                  className="px-3.5 py-2 bg-white/[0.04] hover:bg-white/[0.08] text-white text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5"
+                  className="px-3.5 py-2 bg-black/[0.04] hover:bg-black/[0.06] text-white text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5"
                 >
                   <Building2 className="w-3.5 h-3.5" />
                   <span>Edit Profile Details</span>
@@ -1580,8 +1618,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
             <div className="space-y-5">
               {/* Add Member Form (Admins only) */}
               {isCompanyAdmin ? (
-                <form onSubmit={handleAddMember} className="p-4 bg-black/40 border border-white/[0.06] rounded-xl space-y-3">
-                  <h4 className="text-xs font-bold text-white flex items-center space-x-1.5">
+                <form onSubmit={handleAddMember} className="p-4 bg-[#F5F5F7] border border-black/[0.06] rounded-xl space-y-3">
+                  <h4 className="text-xs font-bold text-[#1D1D1F] flex items-center space-x-1.5">
                     <UserPlus className="w-3.5 h-3.5 text-[#FF4500]" />
                     <span>Invite Team Member</span>
                   </h4>
@@ -1594,7 +1632,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                         placeholder="Email address *"
                         value={newEmail}
                         onChange={(e) => setNewEmail(e.target.value)}
-                        className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-lg px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500]"
+                        className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-lg px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500]"
                       />
                     </div>
                     <div>
@@ -1603,14 +1641,14 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                         placeholder="Full Name"
                         value={newName}
                         onChange={(e) => setNewName(e.target.value)}
-                        className="w-full bg-[#0A0B0E] border border-white/[0.1] rounded-lg px-3 py-2 text-xs text-white placeholder-[#555] focus:outline-none focus:border-[#FF4500]"
+                        className="w-full bg-[#FBFBFD] border border-black/[0.08] rounded-lg px-3 py-2 text-xs text-[#1D1D1F] placeholder-[#8E8E93] focus:outline-none focus:border-[#FF4500]"
                       />
                     </div>
                     <div className="flex gap-2">
                       <select
                         value={newRole}
                         onChange={(e) => setNewRole(e.target.value as any)}
-                        className="bg-[#0A0B0E] border border-white/[0.1] rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-[#FF4500]"
+                        className="bg-[#FBFBFD] border border-black/[0.08] rounded-lg px-2.5 py-2 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#FF4500]"
                       >
                         <option value="MEMBER">Member</option>
                         <option value="COMPANY_ADMIN">Company Admin</option>
@@ -1627,7 +1665,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   </div>
                 </form>
               ) : (
-                <div className="p-3 bg-white/[0.02] border border-white/[0.04] rounded-xl text-xs text-[#86868B]">
+                <div className="p-3 bg-white/[0.02] border border-black/[0.06] rounded-xl text-xs text-[#86868B]">
                   Only Company Administrators can invite or modify team members.
                 </div>
               )}
@@ -1640,31 +1678,80 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 ) : members.length === 0 ? (
                   <div className="p-6 text-center text-xs text-[#86868B]">No members found.</div>
                 ) : (
-                  <div className="divide-y divide-white/[0.04] border border-white/[0.06] rounded-xl bg-black/20 overflow-hidden">
+                  <div className="divide-y divide-white/[0.04] border border-black/[0.06] rounded-xl bg-black/20 overflow-hidden">
                     {members.map((mem) => {
                       const isSelf = mem.userId === currentUser.userId || mem.userId === currentUser.id;
 
                       return (
-                        <div key={mem.membershipId || mem.id} className="p-3.5 flex items-center justify-between gap-3 text-xs">
-                          <div className="min-w-0 space-y-0.5">
+                        <div key={mem.membershipId || mem.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                          <div className="min-w-0 space-y-1">
                             <div className="flex items-center space-x-2">
-                              <span className="font-semibold text-white truncate">{mem.userName || 'Member'}</span>
+                              <span className="font-semibold text-[#1D1D1F] truncate">{mem.userName || 'Member'}</span>
                               {isSelf && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-white/[0.08] text-[#86868B]">
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-black/[0.06] text-[#86868B]">
                                   You
                                 </span>
                               )}
+                              {mem.inviteStatus === 'SENT' ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                  <span>Email Sent</span>
+                                </span>
+                              ) : mem.inviteStatus === 'FAILED' ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono bg-red-500/15 text-red-400 border border-red-500/25" title={mem.inviteError || 'Delivery failed'}>
+                                  <AlertCircle className="w-2.5 h-2.5" />
+                                  <span>Delivery Failed</span>
+                                </span>
+                              ) : null}
                             </div>
-                            <div className="font-mono text-[#86868B] text-[11px] truncate">{mem.userEmail}</div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[#86868B] text-[11px] truncate">{mem.userEmail}</span>
+                              {mem.inviteError && (
+                                <span className="text-[10px] text-red-400/90 truncate max-w-xs" title={mem.inviteError}>
+                                  ({mem.inviteError})
+                                </span>
+                              )}
+                            </div>
                           </div>
 
-                          <div className="flex items-center space-x-2 shrink-0">
+                          <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+                            {isCompanyAdmin && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyInviteLink(mem)}
+                                  title="Copy direct onboarding invite link"
+                                  className="p-1.5 rounded-lg border border-black/[0.08] hover:bg-black/[0.04] text-[#86868B] hover:text-white transition-colors"
+                                >
+                                  {copiedInviteId === (mem.membershipId || mem.id) ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleResendInvite(mem.membershipId || mem.id || '')}
+                                  disabled={resendingId === (mem.membershipId || mem.id)}
+                                  title="Resend transactional invitation email"
+                                  className="p-1.5 rounded-lg border border-black/[0.08] hover:bg-black/[0.04] text-[#86868B] hover:text-[#FF4500] transition-colors disabled:opacity-50"
+                                >
+                                  {resendingId === (mem.membershipId || mem.id) ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#FF4500]" />
+                                  ) : (
+                                    <Send className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </>
+                            )}
+
                             {isCompanyAdmin && !isSelf ? (
                               <>
                                 <select
                                   value={mem.role}
                                   onChange={(e) => handleUpdateRole(mem.membershipId || mem.id || '', e.target.value as any)}
-                                  className="bg-[#0A0B0E] border border-white/[0.08] rounded-lg px-2 py-1 text-[11px] font-mono text-white"
+                                  className="bg-[#FBFBFD] border border-black/[0.08] rounded-lg px-2 py-1 text-[11px] font-mono text-white"
                                 >
                                   <option value="MEMBER">Member</option>
                                   <option value="COMPANY_ADMIN">Company Admin</option>
@@ -1680,7 +1767,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                               </>
                             ) : (
                               <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${
-                                mem.role === 'COMPANY_ADMIN' ? 'bg-blue-500/20 text-blue-400' : 'bg-white/[0.06] text-[#86868B]'
+                                mem.role === 'COMPANY_ADMIN' ? 'bg-blue-500/20 text-blue-400' : 'bg-black/[0.04] text-[#86868B]'
                               }`}>
                                 {mem.role}
                               </span>

@@ -17,6 +17,11 @@ import {
   INITIAL_SUPER_ADMIN_EMAIL
 } from './server/autonomaDatabase.js';
 import { CompanyProfile, CompanyUnderstoodSummary } from './src/types/auth.js';
+import { Campaign, SocialAsset, Platform, ContentFormat, ContentStream, SpeciesCode } from './src/types/campaign.js';
+import { emailService } from './server/emailService.js';
+import { aiProviderService } from './server/aiProviderService.js';
+import { analyzeBrandGuidelinesPdf } from './server/brandPdfService.js';
+import { generateDynamicSchedule } from './server/schedulingEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -229,7 +234,20 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
   const isProd = process.env.NODE_ENV === 'production';
 
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '25mb' }));
+
+  // Hydrate AI Provider and Email Services from persisted settings
+  try {
+    const currentSettings = autonomaDb.getSettings()?.settings;
+    if (currentSettings?.aiProvidersJson) {
+      aiProviderService.updateSettings(JSON.parse(currentSettings.aiProvidersJson));
+    }
+    if (currentSettings?.emailConfigJson) {
+      emailService.setConfig(JSON.parse(currentSettings.emailConfigJson));
+    }
+  } catch (hydrateErr: any) {
+    console.warn('[Server Startup] Provider settings hydration notice:', hydrateErr?.message);
+  }
 
   // Lightweight Liveness Endpoint independent of Gemini and Sheets (instant 200 OK for Cloud Run / k8s probes)
   app.get(['/healthz', '/live', '/api/live'], (_req: Request, res: Response) => {
@@ -980,7 +998,11 @@ async function startServer() {
       return {
         ...m,
         userName: u?.name || 'Unknown',
-        userEmail: u?.email || ''
+        userEmail: u?.email || '',
+        inviteStatus: m.inviteStatus || 'SENT',
+        inviteSentAt: m.inviteSentAt || m.assignedAt,
+        inviteError: m.inviteError || null,
+        inviteLink: m.inviteLink || null
       };
     });
     res.json({ success: true, count: enriched.length, data: enriched });
@@ -1009,9 +1031,95 @@ async function startServer() {
         await autonomaDb.saveUser(user);
       }
       const membership = await autonomaDb.createMembership(user.userId, activeCompany.companyId, role, caller.userId);
-      res.json({ success: true, data: { ...membership, userName: user.name, userEmail: user.email } });
+
+      // Generate direct onboarding invitation link
+      const origin = req.headers.origin || `${req.protocol}://${req.get('host')}`;
+      const inviteLink = `${origin}/?invite=${membership.membershipId}&company=${activeCompany.companyId}`;
+
+      // Dispatch real transactional invite email (Resend / SMTP / System)
+      const delivery = await emailService.sendWorkspaceInvite({
+        toEmail: user.email,
+        toName: user.name,
+        companyName: activeCompany.name,
+        inviterName: caller.name || caller.email,
+        role: role as any,
+        inviteLink
+      });
+
+      const updated = await autonomaDb.updateMembership(membership.membershipId, {
+        inviteStatus: delivery.success ? 'SENT' : 'FAILED',
+        inviteSentAt: new Date().toISOString(),
+        inviteError: delivery.error || undefined,
+        inviteLink
+      });
+
+      res.json({
+        success: true,
+        data: {
+          ...updated,
+          userName: user.name,
+          userEmail: user.email,
+          inviteStatus: delivery.success ? 'SENT' : 'FAILED',
+          inviteSentAt: new Date().toISOString(),
+          inviteError: delivery.error || null,
+          inviteLink
+        },
+        emailDelivery: delivery
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'Failed to add member' });
+    }
+  });
+
+  // Resend invitation email to an existing member
+  app.post('/api/company/members/:id/resend-invite', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const activeCompany = (req as any).activeCompany;
+      const caller = (req as any).user;
+      const mem = autonomaDb.getMembership(req.params.id);
+      if (!mem || mem.companyId !== activeCompany.companyId) {
+        return res.status(404).json({ success: false, error: 'Membership not found in this company' });
+      }
+
+      const user = autonomaDb.getUser(mem.userId);
+      if (!user) {
+        return res.status(404).json({ success: false, error: 'User record not found' });
+      }
+
+      const origin = req.headers.origin || `${req.protocol}://${req.get('host')}`;
+      const inviteLink = `${origin}/?invite=${mem.membershipId}&company=${activeCompany.companyId}`;
+
+      const delivery = await emailService.sendWorkspaceInvite({
+        toEmail: user.email,
+        toName: user.name,
+        companyName: activeCompany.name,
+        inviterName: caller.name || caller.email,
+        role: mem.role as any,
+        inviteLink
+      });
+
+      const updated = await autonomaDb.updateMembership(mem.membershipId, {
+        inviteStatus: delivery.success ? 'SENT' : 'FAILED',
+        inviteSentAt: new Date().toISOString(),
+        inviteError: delivery.error || undefined,
+        inviteLink
+      });
+
+      res.json({
+        success: true,
+        data: {
+          ...updated,
+          userName: user.name,
+          userEmail: user.email,
+          inviteStatus: delivery.success ? 'SENT' : 'FAILED',
+          inviteSentAt: new Date().toISOString(),
+          inviteError: delivery.error || null,
+          inviteLink
+        },
+        emailDelivery: delivery
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to resend invite' });
     }
   });
 
@@ -1585,6 +1693,123 @@ Generate a JSON object strictly adhering to the schema.`;
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'Failed to confirm company context' });
+    }
+  });
+
+  // ==========================================
+  // BRAND GUIDELINES PDF INGESTION
+  // Safe extraction, AI suggestions, user review before save
+  // ==========================================
+  app.post('/api/company/analyze-brand-pdf', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
+    try {
+      const { pdfBase64 } = req.body || {};
+      if (!pdfBase64 || typeof pdfBase64 !== 'string') {
+        return res.status(400).json({ success: false, error: 'A PDF document payload is required.' });
+      }
+
+      const cleanBase64 = pdfBase64.replace(/^data:application\/pdf;base64,/, '');
+      const buffer = Buffer.from(cleanBase64, 'base64');
+
+      const apiKey = process.env.GEMINI_API_KEY || aiProviderService.getRawProviderKey('gemini');
+      if (!apiKey) {
+        return res.status(500).json({
+          success: false,
+          error: 'Server GEMINI_API_KEY is not configured for PDF document analysis.'
+        });
+      }
+
+      const result = await analyzeBrandGuidelinesPdf(buffer, apiKey);
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: result.error || 'Failed to analyze brand guidelines PDF.'
+        });
+      }
+
+      res.json({
+        success: true,
+        suggestions: result.suggestions,
+        extractedSummary: result.extractedSummary,
+        pageCount: result.pageCount,
+        rawTextSnippet: result.rawTextSnippet
+      });
+    } catch (err: any) {
+      console.error('[Brand PDF] Extraction error:', err);
+      res.status(500).json({ success: false, error: err?.message || 'Error processing brand guidelines document' });
+    }
+  });
+
+  // ==========================================
+  // AI & MEDIA PROVIDER SETTINGS API
+  // Multi-provider configuration (Gemini, OpenAI, NVIDIA, Veo)
+  // ==========================================
+  app.get('/api/ai/providers', authenticateUser, (_req: Request, res: Response) => {
+    try {
+      const aiProviders = aiProviderService.getSettings(false);
+      const emailConfig = emailService.getConfig();
+      res.json({
+        success: true,
+        aiProviders,
+        emailConfig
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to retrieve AI provider configuration' });
+    }
+  });
+
+  app.post('/api/ai/providers', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const { aiProviders, emailConfig, googleDrive } = req.body || {};
+      if (aiProviders) {
+        aiProviderService.updateSettings(aiProviders);
+      }
+      if (googleDrive) {
+        aiProviderService.updateSettings({ googleDrive });
+      }
+      if (emailConfig) {
+        emailService.setConfig(emailConfig);
+      }
+
+      // Persist to database store
+      await autonomaDb.updateSettings({
+        aiProvidersJson: JSON.stringify(aiProviderService.getSettings(true)),
+        emailConfigJson: JSON.stringify(emailService.getRawConfig())
+      });
+
+      res.json({
+        success: true,
+        aiProviders: aiProviderService.getSettings(false),
+        emailConfig: emailService.getConfig()
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to save provider settings' });
+    }
+  });
+
+  app.post('/api/ai/providers/test', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const { providerId, apiKey } = req.body || {};
+      if (!providerId) {
+        return res.status(400).json({ success: false, error: 'providerId is required' });
+      }
+      const result = await aiProviderService.testProviderConnection(providerId, apiKey);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Connection test encountered an error' });
+    }
+  });
+
+  app.post('/api/email/test', authenticateUser, async (req: Request, res: Response) => {
+    try {
+      const caller = (req as any).user;
+      const { targetEmail = caller?.email, config } = req.body || {};
+      if (!targetEmail) {
+        return res.status(400).json({ success: false, error: 'targetEmail is required' });
+      }
+      const result = await emailService.testConnection(targetEmail, config);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Email delivery test failed' });
     }
   });
 
@@ -2310,7 +2535,7 @@ Instructions:
             language
           }))
         )
-      );
+      ).flat();
       const deliveryMatrixText = deliveryMatrix
         .map((item, idx) => `${idx + 1}. Concept ${item.conceptIndex} | ${item.platform} | ${item.language}`)
         .join('\n');
@@ -2388,6 +2613,12 @@ Your task is to generate a comprehensive, strategic social media campaign driven
 ${companyContextBlock}
 
 STRICT MANDATORY DIRECTIVES (PREVENT PRODUCT MISMATCH):
+YOU MUST GENERATE CONTENT FOR THIS EXACT COMPANY AND DOMAIN ONLY (${compName} - ${compProfile?.organizationType || 'business'}).
+DO NOT INVENT UNRELATED PRODUCTS OR SERVICES.
+IF THE COMPANY DOES CNC MACHINING, DO NOT GENERATE SOFTWARE/CLOUD CONTENT.
+IF THE COMPANY DOES B2B SAAS, DO NOT GENERATE MANUFACTURING HARDWARE CONTENT.
+ALL GENERATED CAMPAIGN HOOKS, ASSET TITLES, CAPTIONS, HASHTAGS, AND CTAs MUST MATCH ${compName}'s ACTUAL BUSINESS (${compProfile?.description || compProfile?.offerings || 'stated offerings'}).
+
 1. The campaign strategy, content pillars, audience targeting, and EVERY single deliverable MUST be directly about the product, service, or offering explicitly requested in the CAMPAIGN BRIEF.
 2. DO NOT inject unrelated offers, such as WhatsApp order taking, payment reconciliation, or checkout links, unless the brief explicitly specifies them.
 3. DO NOT invent prices, false claims, discounts, or features not stated in the brief.
@@ -2701,7 +2932,7 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
       }
       const deliveryMatrix = Array.from({ length: conceptCount }, (_, conceptIdx) =>
         platforms.flatMap((platform) => languages.map((language) => ({ conceptIndex: conceptIdx + 1, platform, language })))
-      );
+      ).flat();
       const deliveryMatrixText = deliveryMatrix.map((item, idx) => `${idx + 1}. Concept ${item.conceptIndex} | ${item.platform} | ${item.language}`).join('\n');
       const comp = autonomaDb.getCompany(activeCompanyId);
       const compProfile: any = comp?.profile || activeCompany?.profile;
@@ -2762,6 +2993,13 @@ ${deliveryMatrixText}
 
 ${companyContextBlock}
 
+MANDATORY DOMAIN FIDELITY DIRECTIVE:
+YOU MUST GENERATE CONTENT FOR THIS EXACT COMPANY AND DOMAIN ONLY (${activeCompany.name}).
+DO NOT INVENT UNRELATED PRODUCTS OR SERVICES.
+IF THE COMPANY DOES CNC MACHINING, DO NOT GENERATE SOFTWARE/CLOUD CONTENT.
+IF THE COMPANY DOES B2B SAAS, DO NOT GENERATE MANUFACTURING HARDWARE CONTENT.
+ALL GENERATED CAMPAIGN HOOKS, ASSET TITLES, CAPTIONS, HASHTAGS, AND CTAs MUST MATCH ${activeCompany.name}'s ACTUAL BUSINESS.
+
 Produce exactly ${deliveryCount} high-converting deliverables without generic "Part X" titles. For every delivery matrix row, keep the strategic concept consistent across variants but rewrite it natively for the platform and naturally in the target language. Reddit must not look like an Instagram caption; LinkedIn must be professional and insight-led. Include conceptIndex, platform, language, format, title, hook, caption, hashtags, CTA, carouselSlides/reelScript when relevant, posterVisualPrompt and virality metadata for every asset.
 Generate a JSON object strictly matching the schema with campaignName, coreInsight, valueProposition, targetAudience, buyerPersonas, contentPillars, postingSequence, and assets array.`;
 
@@ -2786,9 +3024,23 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
       const parsedData = JSON.parse(responseText);
 
       const now = new Date();
+      const startDateStr = now.toISOString().split('T')[0];
+      const scheduledSlots = generateDynamicSchedule(
+        startDateStr,
+        daysSpan,
+        (parsedData.assets || []).map((item: any, i: number) => ({
+          platform: (item.platform?.toLowerCase() as Platform) || deliveryMatrix[i]?.platform || platforms[0],
+          format: (item.format?.toLowerCase() as ContentFormat) || formats[i % formats.length],
+          conceptIndex: item.conceptIndex || deliveryMatrix[i]?.conceptIndex || 1
+        })),
+        { companyTimezone: (activeCompany?.profile as any)?.timezone || 'Asia/Kolkata' }
+      );
+
       const generatedAssets: SocialAsset[] = (parsedData.assets || []).map((item: any, idx: number) => {
+        const slot = scheduledSlots[idx] || scheduledSlots[0];
         const postDate = new Date(now.getTime() + (idx * Math.max(1, Math.floor(daysSpan / (parsedData.assets?.length || 1))) * 86400000));
-        const targetDate = postDate.toISOString().split('T')[0];
+        const targetDate = slot?.targetDate || postDate.toISOString().split('T')[0];
+        const postTimeIST = slot?.postTime || (idx % 2 === 0 ? '09:45 AM' : '04:15 PM');
         const assetCode = `APEX-2026-C${existingRow.campaignId.replace(/[^0-9]/g, '').slice(-3) || '101'}-${String(idx + 1).padStart(3, '0')}`;
         const matrixItem = deliveryMatrix[idx];
         const platform = (item.platform?.toLowerCase() as Platform) || (matrixItem?.platform as Platform) || platforms[0];
@@ -2803,7 +3055,7 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
           strategicPurpose: item.strategicPurpose,
           angle: item.angle,
           targetDate,
-          postTimeIST: idx % 2 === 0 ? '11:30 AM' : '04:45 PM',
+          postTimeIST,
           platform,
           language: item.language || matrixItem?.language || languages[0] || 'English',
           conceptIndex: item.conceptIndex || matrixItem?.conceptIndex || 1,
@@ -2817,8 +3069,8 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
           caption: item.caption,
           hashtags: Array.isArray(item.hashtags) ? item.hashtags : [existingCampaign.name.replace(/[^a-zA-Z0-9]/g, ''), 'Growth'],
           callToAction: item.CTA || "Contact to learn more",
-          viralityScore: item.viralityScore || 90,
-          viralityRationale: item.viralityRationale || 'Resonance driven by problem-first audience alignment.',
+          viralityScore: slot?.aiContentScoreEstimated || item.viralityScore || 90,
+          viralityRationale: slot?.recommendedReason || item.viralityRationale || 'AI Recommended: Optimal engagement window and audience alignment.',
           targetReach: item.targetReach || 30000,
           estimatedImpressions: item.estimatedImpressions || 42000,
           expectedLeads: item.expectedLeads || 15,
@@ -3077,19 +3329,27 @@ STRICT GUARDRAILS:
   });
 
   // 1. REAL SERVER-SIDE IMAGE GENERATION ENDPOINT
-  // Cost/Quota Protected: only called when user clicks GENERATE on an individual asset
+  // Uses selected image provider (OpenAI DALL-E, NVIDIA NIM, or Gemini) and injects Company Brand System
   app.post('/api/media/generate-image', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
     try {
-      const apiKey = req.body.customApiKey || process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({
-          success: false,
-          error: 'MISSING_API_KEY',
-          message: 'Server-side GEMINI_API_KEY is not configured.'
-        });
-      }
+      const activeCompany = (req as any).activeCompany;
+      const comp = activeCompany ? autonomaDb.getCompany(activeCompany.companyId) : null;
+      const compProfile: any = comp?.profile || activeCompany?.profile;
+      const brandDesignSystem = compProfile?.brandDesignSystem;
 
-      const { prompt, aspectRatio = '3:4', assetCode = 'ASSET' } = req.body;
+      const { 
+        prompt, 
+        aspectRatio = '3:4', 
+        assetCode = 'ASSET',
+        providerId,
+        modelName,
+        platform,
+        language,
+        objective,
+        assetId,
+        campaignId
+      } = req.body || {};
+
       if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
         return res.status(400).json({
           success: false,
@@ -3098,113 +3358,71 @@ STRICT GUARDRAILS:
         });
       }
 
-      // Map aspect ratio to valid Google GenAI values: "1:1", "3:4", "4:3", "9:16", "16:9"
-      let validRatio = '3:4';
-      if (aspectRatio === '1:1') validRatio = '1:1';
-      else if (aspectRatio === '9:16') validRatio = '9:16';
-      else if (aspectRatio === '16:9') validRatio = '16:9';
-      else if (aspectRatio === '4:3') validRatio = '4:3';
-      else validRatio = '3:4'; // 4:5 vertical carousel/poster maps best to 3:4
+      const result = await aiProviderService.generateImage({
+        prompt,
+        aspectRatio,
+        assetCode,
+        brandDesignSystem,
+        providerId,
+        modelName,
+        platform,
+        language,
+        objective
+      }, publicMediaDir);
 
-      const targetModel = 'gemini-3.1-flash-lite-image';
-      console.log(`[Media Gen] Requesting image with model ${targetModel} for ${assetCode}...`);
-
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build'
-          }
-        }
-      });
-
-      const response = await ai.models.generateContent({
-        model: targetModel,
-        contents: prompt.trim(),
-        config: {
-          imageConfig: {
-            aspectRatio: validRatio as any
-          }
-        }
-      });
-
-      // Extract image part
-      let base64Data: string | null = null;
-      let mimeType = 'image/png';
-      const parts = response.candidates?.[0]?.content?.parts || [];
-      for (const part of parts) {
-        if (part.inlineData && part.inlineData.data) {
-          base64Data = part.inlineData.data;
-          mimeType = part.inlineData.mimeType || 'image/png';
-          break;
-        }
+      if (!result.success) {
+        return res.status(result.isBillingRequired ? 429 : 500).json(result);
       }
 
-      if (!base64Data) {
-        return res.status(500).json({
-          success: false,
-          model: targetModel,
-          error: 'NO_IMAGE_DATA',
-          message: 'The model did not return image data in the response parts.'
+      // Persist internal DB media metadata record
+      if (assetId) {
+        await autonomaDb.saveMediaRecord({
+          mediaId: `med_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`,
+          assetId,
+          campaignId: campaignId || '',
+          type: 'IMAGE',
+          model: result.model,
+          prompt,
+          version: '1',
+          fileUrl: result.fileUrl || '',
+          thumbnailUrl: result.fileUrl || '',
+          generationStatus: 'GENERATED',
+          approvalStatus: 'PENDING_APPROVAL',
+          createdAt: new Date().toISOString()
         });
       }
 
-      // Store image to disk in public/generated-media
-      const safeCode = (assetCode || 'asset').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const filename = `${safeCode}-${Date.now()}.png`;
-      const filePath = path.join(publicMediaDir, filename);
-      fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
-
-      const fileUrl = `/generated-media/${filename}`;
-      const dataUrl = `data:${mimeType};base64,${base64Data}`;
-
-      console.log(`[Media Gen] Successfully generated and stored image: ${filename}`);
-
-      return res.json({
-        success: true,
-        model: targetModel,
-        fileUrl,
-        dataUrl,
-        filename,
-        aspectRatio: validRatio
-      });
+      return res.json(result);
     } catch (error: any) {
-      console.warn('[Media Gen] Image generation response info:', error?.status || 'ERR', error?.message || error);
-      const isBillingRequired = 
-        error?.status === 429 || 
-        error?.message?.includes('quota') || 
-        error?.message?.includes('RESOURCE_EXHAUSTED') ||
-        error?.message?.includes('billing') ||
-        error?.message?.includes('limit: 0');
-
-      const userMessage = isBillingRequired
-        ? 'Google AI Studio free tier limits quota for image models (gemini-3.1-flash-lite-image) to 0. A billing-enabled API key or BYOK is required for direct pixel synthesis. You can copy the production prompt for Google AI Studio Web, use the deterministic AES-DS design, or configure a paid API key in Settings.'
-        : (error?.message || 'Failed to generate image via Google Gemini API.');
-
-      return res.status(error?.status === 429 ? 429 : 500).json({
+      console.warn('[Media Gen] Error in image generation handler:', error?.message);
+      return res.status(500).json({
         success: false,
-        model: 'gemini-3.1-flash-lite-image',
-        error: userMessage,
-        rawError: error?.message,
-        isBillingRequired
+        error: error?.message || 'Failed to generate image',
+        rawError: error?.message
       });
     }
   });
 
-  // 2. REAL SERVER-SIDE VIDEO GENERATION ENDPOINT (VEO 3.1)
-  // Invokes Google veo-3.1-lite-generate-preview if supported, or reports exact quota/billing status
+  // 2. REAL SERVER-SIDE VIDEO GENERATION ENDPOINT
+  // Supports NVIDIA video generation MVP and Google Veo with Company Brand System injection
   app.post('/api/media/generate-video', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
     try {
-      const apiKey = req.body.customApiKey || process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({
-          success: false,
-          error: 'MISSING_API_KEY',
-          message: 'Server-side GEMINI_API_KEY is not configured.'
-        });
-      }
+      const activeCompany = (req as any).activeCompany;
+      const comp = activeCompany ? autonomaDb.getCompany(activeCompany.companyId) : null;
+      const compProfile: any = comp?.profile || activeCompany?.profile;
+      const brandDesignSystem = compProfile?.brandDesignSystem;
 
-      const { prompt, aspectRatio = '9:16' } = req.body;
+      const { 
+        prompt, 
+        aspectRatio = '9:16', 
+        assetCode = 'ASSET',
+        providerId,
+        modelName,
+        platform,
+        assetId,
+        campaignId
+      } = req.body || {};
+
       if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
         return res.status(400).json({
           success: false,
@@ -3213,55 +3431,45 @@ STRICT GUARDRAILS:
         });
       }
 
-      const validRatio = aspectRatio === '16:9' ? '16:9' : '9:16';
-      const targetModel = 'veo-3.1-lite-generate-preview';
-      console.log(`[Media Gen] Requesting video generation with model ${targetModel}...`);
-
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build'
-          }
-        }
+      const result = await aiProviderService.generateVideo({
+        prompt,
+        aspectRatio,
+        assetCode,
+        brandDesignSystem,
+        providerId,
+        modelName,
+        platform
       });
 
-      const operation = await ai.models.generateVideos({
-        model: targetModel,
-        prompt: prompt.trim(),
-        config: {
-          numberOfVideos: 1,
-          resolution: '720p',
-          aspectRatio: validRatio
-        }
-      });
+      if (!result.success) {
+        return res.status(result.isBillingRequired ? 429 : 500).json(result);
+      }
 
-      return res.json({
-        success: true,
-        model: targetModel,
-        operationName: operation.name
-      });
+      // Persist internal DB media metadata record
+      if (assetId) {
+        await autonomaDb.saveMediaRecord({
+          mediaId: `med_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`,
+          assetId,
+          campaignId: campaignId || '',
+          type: 'VIDEO',
+          model: result.model,
+          prompt,
+          version: '1',
+          fileUrl: result.fileUrl || '',
+          thumbnailUrl: result.fileUrl || '',
+          generationStatus: 'GENERATED',
+          approvalStatus: 'PENDING_APPROVAL',
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      return res.json(result);
     } catch (error: any) {
-      console.warn('[Media Gen] Video generation response info:', error?.status || 'ERR', error?.message || error);
-      const isBillingRequired = 
-        error?.status === 429 || 
-        error?.message?.includes('quota') || 
-        error?.message?.includes('RESOURCE_EXHAUSTED') ||
-        error?.message?.includes('billing') ||
-        error?.message?.includes('limit: 0') ||
-        error?.message?.includes('not found') ||
-        error?.status === 404;
-
-      const userMessage = isBillingRequired
-        ? 'Google Veo video generation is not enabled on this free project tier or requires paid API billing access. Video generation is unavailable directly, but your production prompt, script, voiceover, and storyboard are ready to copy.'
-        : (error?.message || 'Video generation failed via Google Veo API.');
-
-      return res.status(error?.status === 429 ? 429 : 500).json({
+      console.warn('[Media Gen] Video generation error:', error?.message);
+      return res.status(500).json({
         success: false,
-        model: 'veo-3.1-lite-generate-preview',
-        error: userMessage,
-        rawError: error?.message,
-        isBillingRequired
+        error: error?.message || 'Video generation failed',
+        rawError: error?.message
       });
     }
   });

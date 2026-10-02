@@ -36,6 +36,7 @@ import {
   downloadDataUrl,
   downloadAllCarouselSlides
 } from '../services/mediaProductionService';
+import { autonomaDataService } from '../services/autonomaDataService';
 
 interface AssetProductionModalProps {
   asset: SocialAsset | null;
@@ -93,6 +94,21 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
   const [copiedVoiceover, setCopiedVoiceover] = useState<boolean>(false);
   const [copiedStoryboard, setCopiedStoryboard] = useState<boolean>(false);
+  const [activeImageProviderName, setActiveImageProviderName] = useState<string>('AI Image');
+  const [activeVideoProviderName, setActiveVideoProviderName] = useState<string>('NVIDIA NIM');
+
+  useEffect(() => {
+    autonomaDataService.getAiProviders().then((res) => {
+      const defImg = res?.aiProviders?.defaults?.image;
+      const defVid = res?.aiProviders?.defaults?.video;
+      if (defImg === 'openai') setActiveImageProviderName('OpenAI DALL-E 3');
+      else if (defImg === 'nvidia') setActiveImageProviderName('NVIDIA NIM');
+      else setActiveImageProviderName('Google Gemini');
+
+      if (defVid === 'google_veo') setActiveVideoProviderName('Google Veo');
+      else setActiveVideoProviderName('NVIDIA NIM Video MVP');
+    }).catch(() => {});
+  }, []);
 
   const isCarousel = asset?.format === 'carousel';
   const isVideo = asset?.format === 'reel_short';
@@ -486,9 +502,10 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                 {onOpenSettings && (
                   <button
                     onClick={onOpenSettings}
-                    className="px-3 py-1.5 bg-white hover:bg-neutral-50 text-[#1D1D1F] font-medium rounded-xl border border-black/[0.08] shadow-sm transition-colors text-xs"
+                    className="px-3 py-1.5 bg-white hover:bg-neutral-50 text-[#1D1D1F] font-medium rounded-xl border border-black/[0.08] shadow-sm transition-colors text-xs flex items-center gap-1.5"
                   >
-                    Enter paid Gemini key
+                    <Sparkles className="w-3.5 h-3.5 text-[#FF4500]" />
+                    <span>Configure AI Providers</span>
                   </button>
                 )}
                 <button
@@ -622,11 +639,11 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                     <div className="space-y-2.5">
                       <div className="bg-[#FBFBFD] p-4 rounded-2xl border border-black/[0.06] space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-xs text-[#1D1D1F]">Generate with Veo</span>
-                          <span className="text-[10px] text-[#6E6E73] bg-black/[0.04] px-2 py-0.5 rounded-md">Veo 3.1</span>
+                          <span className="font-medium text-xs text-[#1D1D1F]">Generate with {activeVideoProviderName}</span>
+                          <span className="text-[10px] text-[#6E6E73] bg-black/[0.04] px-2 py-0.5 rounded-md font-mono">{activeVideoProviderName}</span>
                         </div>
                         <p className="text-xs text-[#6E6E73]">
-                          Invokes Google Veo model server-side. Requires project API quota.
+                          Invokes configured video synthesis pipeline. Requires server provider configuration.
                         </p>
                         <button
                           onClick={handleGenerateVideo}
@@ -634,7 +651,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                           className="w-full py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5"
                         >
                           <Video className="w-3.5 h-3.5" />
-                          <span>{isGenerating ? 'Calling Veo API…' : 'Generate video'}</span>
+                          <span>{isGenerating ? 'Calling Video API…' : 'Generate video'}</span>
                         </button>
                       </div>
 
@@ -678,11 +695,11 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                       {/* Method 2: AI Image */}
                       <div className="bg-[#FBFBFD] p-4 rounded-2xl border border-black/[0.06] space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-xs text-[#1D1D1F]">AI Image</span>
-                          <span className="text-[10px] text-[#6E6E73] bg-black/[0.04] px-2 py-0.5 rounded-md">Gemini</span>
+                          <span className="font-medium text-xs text-[#1D1D1F]">Generate with {activeImageProviderName}</span>
+                          <span className="text-[10px] text-[#6E6E73] bg-black/[0.04] px-2 py-0.5 rounded-md font-mono">{activeImageProviderName}</span>
                         </div>
                         <p className="text-xs text-[#6E6E73]">
-                          Synthesizes pixels with Google Gemini. Requires media API quota.
+                          Synthesizes visual creative using configured provider ({activeImageProviderName}).
                         </p>
                         <button
                           onClick={handleGenerateImage}

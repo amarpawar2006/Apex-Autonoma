@@ -145,6 +145,8 @@ export interface DbSettingsRow {
   timezone: string;
   defaultPlatforms: string;
   brandConfigJson: string;
+  aiProvidersJson?: string;
+  emailConfigJson?: string;
   updatedAt: string;
 }
 
@@ -177,6 +179,10 @@ export interface DbMembershipRow {
   status: 'ACTIVE' | 'SUSPENDED';
   assignedAt: string;
   assignedBy: string;
+  inviteStatus?: 'SENT' | 'FAILED' | 'PENDING';
+  inviteSentAt?: string;
+  inviteError?: string;
+  inviteLink?: string;
 }
 
 export interface DbApprovalRequestRow {
@@ -231,6 +237,7 @@ export interface AutonomaDatabaseStore {
   activityLog: DbActivityLogRow[];
   deletedCampaignIds?: string[];
   deletedAssetIds?: string[];
+  deletedCompanyIds?: string[];
   initialized?: boolean;
 }
 

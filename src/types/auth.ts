@@ -66,14 +66,83 @@ export interface BrandDesignSystem {
   logoUrl?: string;
   visualStyleNotes?: string;
   imageStyle?: string;
+  videoStyleDirection?: string;
+  creativeRules?: string;
   brandVoiceNote?: string;
   suggestedFromWebsite?: boolean;
+  suggestedFromPdf?: boolean;
   websiteSuggestions?: {
     primaryColor?: string;
     secondaryColor?: string;
+    accentColor?: string;
     headingFont?: string;
     visualTone?: string;
   };
+  pdfSuggestions?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    accentColor?: string;
+    backgroundColor?: string;
+    textColor?: string;
+    headingFont?: string;
+    bodyFont?: string;
+    visualStyleNotes?: string;
+    imageStyle?: string;
+    videoStyleDirection?: string;
+    creativeRules?: string;
+    brandVoiceNote?: string;
+    extractedSummary?: string;
+  };
+}
+
+export type CapabilityType = 'text' | 'image' | 'video';
+
+export interface ProviderCapabilityDefaults {
+  text: string;
+  image: string;
+  video: string;
+}
+
+export interface ProviderConfig {
+  id: string; // 'gemini' | 'openai' | 'nvidia' | 'google_veo'
+  name: string;
+  apiKey?: string;
+  hasKey?: boolean;
+  source?: 'server_secret' | 'workspace_override' | 'unconfigured';
+  capabilities: CapabilityType[];
+  selectedModel: string;
+  availableModels: string[];
+  customEndpoint?: string;
+  status?: 'UNCONFIGURED' | 'CONFIGURED' | 'CONNECTED' | 'ERROR';
+  lastTestedAt?: string;
+  lastTestMessage?: string;
+  latencyMs?: number;
+}
+
+export interface AiProvidersSettings {
+  defaults: ProviderCapabilityDefaults;
+  providers: Record<string, ProviderConfig>;
+  googleDrive?: {
+    folderIdOrUrl?: string;
+    enabled?: boolean;
+  };
+}
+
+export interface TransactionalEmailConfig {
+  provider: 'resend' | 'smtp' | 'system';
+  source?: 'server_secret' | 'workspace_override' | 'unconfigured';
+  resendApiKey?: string;
+  hasResendKey?: boolean;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUser?: string;
+  smtpPass?: string;
+  hasSmtpPass?: boolean;
+  smtpFrom?: string;
+  smtpSecure?: boolean;
+  status?: 'UNCONFIGURED' | 'CONFIGURED' | 'CONNECTED' | 'ERROR';
+  lastTestedAt?: string;
+  lastTestMessage?: string;
 }
 
 export interface CompanyProfile {
@@ -124,6 +193,10 @@ export interface Membership {
   companyName?: string;
   userName?: string;
   userEmail?: string;
+  inviteStatus?: 'SENT' | 'FAILED' | 'PENDING';
+  inviteSentAt?: string;
+  inviteError?: string;
+  inviteLink?: string;
 }
 
 export interface ApprovalRequest {
