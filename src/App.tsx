@@ -368,8 +368,13 @@ export default function App() {
   const handleCampaignCreated = (result: { campaign: Campaign; assets: SocialAsset[] }) => {
     const { campaign: newCampaign, assets: newAssets } = result;
 
-    setCampaigns((prev) => [newCampaign, ...prev]);
-    setAssets((prev) => [...newAssets, ...prev]);
+    // Upsert rather than prepend. The generator first emits a persisted shell and then
+    // emits the completed campaign with the SAME id; prepending both created duplicates.
+    setCampaigns((prev) => [newCampaign, ...prev.filter((c) => c.id !== newCampaign.id)]);
+    setAssets((prev) => [
+      ...newAssets,
+      ...prev.filter((a) => a.campaignId !== newCampaign.id)
+    ]);
 
     setActiveCampaignFilter(newCampaign.id);
     setViewingCampaign(newCampaign);
@@ -379,16 +384,24 @@ export default function App() {
       setStudioSelectedAssetId(newAssets[0].id);
     }
 
-    try {
-      confetti({
-        particleCount: 80,
-        spread: 80,
-        origin: { y: 0.6 },
-        colors: ['#FF4500', '#10B981', '#FFFFFF']
-      });
-    } catch (e) {
-      // ignore
+    if (newCampaign.generationStatus === 'READY' && newAssets.length > 0) {
+      try {
+        confetti({
+          particleCount: 80,
+          spread: 80,
+          origin: { y: 0.6 },
+          colors: ['#FF4500', '#10B981', '#FFFFFF']
+        });
+      } catch (e) {
+        // ignore
+      }
     }
+  };
+
+  const handleRetryCampaignGeneration = async (campaignId: string) => {
+    const result = await autonomaDataService.retryCampaignGeneration(campaignId);
+    handleCampaignCreated(result);
+    return result;
   };
 
   // Open asset directly in Creative Studio
@@ -610,6 +623,7 @@ export default function App() {
               onSelectCampaign={handleSelectCampaignDetail}
               onFilterByCampaign={handleNavigateToMasterSheetWithFilter}
               onUpdateCampaignStatus={handleUpdateCampaignStatus}
+              onRetryGeneration={handleRetryCampaignGeneration}
             />
           )
         )}
