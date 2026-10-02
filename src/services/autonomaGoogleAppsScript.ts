@@ -31,11 +31,13 @@ var SCHEMAS = {
   CAMPAIGNS: [
     "campaignId", "organizationId", "name", "brief", "objective", "status",
     "startDate", "endDate", "platforms", "duration", "audience", "marketInsight",
-    "valueProposition", "contentPillars", "postingCadence", "createdAt", "updatedAt"
+    "valueProposition", "contentPillars", "postingCadence", "languages", "targetLanguage",
+    "customLanguage", "customPlatform", "languageStyle", "generationStatus",
+    "lastGenerationError", "lastGenerationAttemptAt", "generationOptionsJson", "assetCount", "createdAt", "updatedAt"
   ],
   ASSETS: [
     "assetId", "campaignId", "organizationId", "title", "hook", "strategicPurpose",
-    "angle", "platform", "format", "contentStream", "speciesCode", "funnelStage",
+    "angle", "platform", "language", "conceptIndex", "format", "contentStream", "speciesCode", "funnelStage",
     "targetDate", "targetTime", "caption", "hashtags", "cta", "carouselSlidesJson",
     "reelScript", "storyboardJson", "imagePrompt", "videoPrompt", "approvalStatus",
     "mediaStatus", "aiContentScore", "aiScoreRationale", "createdAt", "updatedAt"

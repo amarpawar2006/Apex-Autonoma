@@ -42,6 +42,8 @@ export interface SynthesizedCampaignData {
     angle: string;
     title: string;
     platform: string;
+    language?: string;
+    conceptIndex?: number;
     format: string;
     hook: string;
     caption: string;
@@ -259,7 +261,7 @@ export async function synthesizeFullCampaignWithAI(
   req: CampaignSynthesisRequest
 ): Promise<SynthesizedCampaignData> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s safety timeout
+  const timeoutId = setTimeout(() => controller.abort(), 120000); // Allow full multi-language/platform synthesis before client-side timeout
 
   try {
     const response = await fetch('/api/campaign/synthesize-campaign', {

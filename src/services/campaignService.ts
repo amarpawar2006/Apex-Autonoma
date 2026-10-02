@@ -230,30 +230,43 @@ export function calculateOptimalAssetCount(
   duration: 'single' | '3_days' | '7_days' | '30_days' | 'custom',
   platformCount: number,
   daysSpan: number,
-  customOverride?: number
+  customOverride?: number,
+  languageCount: number = 1
 ): number {
   if (customOverride && customOverride > 0) {
     return Math.min(25, Math.max(1, customOverride));
   }
 
+  // Keep a single AI synthesis request within a demo-safe amount of structured output.
+  // The concept count is independent of platform/language variants, so a 7-day campaign
+  // with 3 platforms and 2 languages should not silently become a 42-item response.
+  const variantMultiplier = Math.max(1, platformCount) * Math.max(1, languageCount);
+  const maxConceptsForOneRun = Math.max(1, Math.floor(12 / variantMultiplier));
+
+  let desiredConcepts = 1;
   switch (duration) {
     case 'single':
-      return 1;
+      desiredConcepts = 1;
+      break;
     case '3_days':
-      return Math.max(3, Math.min(4, platformCount > 1 ? 4 : 3));
+      desiredConcepts = 3;
+      break;
     case '7_days':
-      // A 7-day multi-platform campaign forms a complete 7-stage narrative arc (1 asset per day)
-      return 7;
+      desiredConcepts = 7;
+      break;
     case '30_days':
-      // 30 days: 14 to 16 assets across weekly narrative milestones
-      return 14;
+      desiredConcepts = 10;
+      break;
     case 'custom':
-      if (daysSpan <= 1) return 1;
-      if (daysSpan <= 4) return daysSpan;
-      if (daysSpan <= 8) return daysSpan;
-      if (daysSpan <= 14) return Math.min(10, Math.round(daysSpan * 0.8));
-      return Math.min(20, Math.max(7, Math.round(daysSpan * 0.5)));
+      if (daysSpan <= 1) desiredConcepts = 1;
+      else if (daysSpan <= 4) desiredConcepts = daysSpan;
+      else if (daysSpan <= 8) desiredConcepts = daysSpan;
+      else if (daysSpan <= 14) desiredConcepts = Math.min(10, Math.round(daysSpan * 0.8));
+      else desiredConcepts = Math.min(12, Math.max(7, Math.round(daysSpan * 0.4)));
+      break;
   }
+
+  return Math.max(1, Math.min(desiredConcepts, maxConceptsForOneRun));
 }
 
 /**
@@ -348,7 +361,8 @@ export async function createAutonomaCampaign(
     duration,
     finalPlatforms.length,
     daysSpan,
-    advancedOptions?.assetCount
+    advancedOptions?.assetCount,
+    Math.max(1, languages.length)
   );
 
   const campaignCodeSuffix = Math.floor(100 + Math.random() * 900);
@@ -451,8 +465,14 @@ export async function createAutonomaCampaign(
         const targetDate = postDate.toISOString().split('T')[0];
         const assetCode = `APEX-2026-C${campaignCodeSuffix}-${String(idx + 1).padStart(3, '0')}`;
         
-        // Normalize platform and format
-        const platform: Platform = (item.platform?.toLowerCase() as Platform) || finalPlatforms[idx % finalPlatforms.length];
+        // Normalize platform/language against the deterministic delivery matrix used by the server.
+        const languageCount = Math.max(1, languages.length);
+        const platformCount = Math.max(1, finalPlatforms.length);
+        const variantIndex = idx % (languageCount * platformCount);
+        const fallbackPlatform = finalPlatforms[Math.floor(variantIndex / languageCount)] || finalPlatforms[0];
+        const fallbackLanguage = languages[variantIndex % languageCount] || 'English';
+        const fallbackConceptIndex = Math.floor(idx / (languageCount * platformCount)) + 1;
+        const platform: Platform = (item.platform?.toLowerCase() as Platform) || fallbackPlatform;
         const format: ContentFormat = (item.format?.toLowerCase() as ContentFormat) || finalFormats[idx % finalFormats.length];
 
         return {
@@ -466,6 +486,8 @@ export async function createAutonomaCampaign(
           targetDate: targetDate,
           postTimeIST: idx % 2 === 0 ? '11:30 AM' : '04:45 PM',
           platform: platform,
+          language: item.language || fallbackLanguage,
+          conceptIndex: item.conceptIndex || fallbackConceptIndex,
           secondaryPlatforms: finalPlatforms.filter(p => p !== platform),
           format: format,
           stream: inferredStream,
@@ -485,7 +507,7 @@ export async function createAutonomaCampaign(
           expectedLeads: 0,
           targetBuyerPersona: strategy.targetAudience || 'Audience derived from campaign brief',
           designSystemVerified: true,
-          colorScheme: 'carbon_orange',
+          colorScheme: 'brand_custom',
           slides: item.carouselSlides && item.carouselSlides.length > 0 ? item.carouselSlides.map(s => ({
             slideNumber: s.slideNumber,
             layout: (s.layout as any) || 'title_hook',
@@ -503,7 +525,7 @@ export async function createAutonomaCampaign(
             onScreenCaption: sc.onScreenCaption,
             visualFocus: sc.visualFocus || 'Crisp visual focus'
           })) : undefined,
-          posterVisualPrompt: item.posterVisualPrompt || `High-contrast AES-DS graphic for "${item.title}". Bold typography, carbon background, vibrant orange accents.`
+          posterVisualPrompt: item.posterVisualPrompt || `Brand-aligned editorial creative for "${item.title}". Use the active company's saved brand palette, typography direction, logo guidance, and visual style.`
         };
       });
 
