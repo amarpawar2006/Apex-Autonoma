@@ -1445,6 +1445,9 @@ Generate a JSON object strictly adhering to the schema.`;
         preferredCta: (editedFields.includes('preferredCta') && existingProfile.preferredCta)
           ? existingProfile.preferredCta
           : (inferredProfile.preferredCta || existingProfile.preferredCta || parsed.cta || ''),
+        website: (editedFields.includes('website') && existingProfile.website)
+          ? existingProfile.website
+          : ((websiteUrl && typeof websiteUrl === 'string' && websiteUrl.trim()) ? websiteUrl.trim() : existingProfile.website),
         lastAnalyzedAt: new Date().toISOString(),
         confirmedContext: summary,
         contextVersions: [summary, ...currentVersions.filter(v => v.version !== nextVersion)],
@@ -1560,6 +1563,8 @@ Generate a JSON object strictly adhering to the schema.`;
         voice: (summary.voice || '').trim(),
         cta: (summary.cta || '').trim(),
         constraints: (summary.constraints || '').trim(),
+        positioning: (summary.positioning || existingProfile.positioning || '').trim() || undefined,
+        geography: (summary.geography || existingProfile.geography || '').trim() || undefined,
         sourceUrls: Array.isArray(summary.sourceUrls) ? summary.sourceUrls : [],
         assumptions: Array.isArray(summary.assumptions) ? summary.assumptions : [],
         version: nextVersion,
@@ -2284,6 +2289,32 @@ Instructions:
         effectivePlatforms.push('instagram', 'facebook', 'linkedin');
       }
 
+      // `assetCount` is the number of campaign concepts. Each concept must be adapted
+      // for every selected platform and every selected language. Keep a practical cap
+      // so a single request cannot create an unbounded response that times out.
+      const conceptCount = Math.max(1, Math.min(8, Number(assetCount) || 1));
+      const rawDeliveryCount = conceptCount * effectivePlatforms.length * effectiveLanguages.length;
+      const MAX_DELIVERABLES_PER_REQUEST = 36;
+      if (rawDeliveryCount > MAX_DELIVERABLES_PER_REQUEST) {
+        return res.status(400).json({
+          error: 'TOO_MANY_DELIVERABLES',
+          message: `This campaign requests ${rawDeliveryCount} deliverables (${conceptCount} concepts × ${effectivePlatforms.length} platforms × ${effectiveLanguages.length} languages). Please reduce the concept count, languages, or platforms to ${MAX_DELIVERABLES_PER_REQUEST} deliverables or fewer for one generation run.`
+        });
+      }
+      const totalDeliverables = rawDeliveryCount;
+      const deliveryMatrix = Array.from({ length: conceptCount }, (_, conceptIdx) =>
+        effectivePlatforms.flatMap((platform) =>
+          effectiveLanguages.map((language) => ({
+            conceptIndex: conceptIdx + 1,
+            platform,
+            language
+          }))
+        )
+      );
+      const deliveryMatrixText = deliveryMatrix
+        .map((item, idx) => `${idx + 1}. Concept ${item.conceptIndex} | ${item.platform} | ${item.language}`)
+        .join('\n');
+
       const activeCompany = (req as any).activeCompany;
       const comp = activeCompany ? autonomaDb.getCompany(activeCompany.companyId) : null;
       const compProfile: any = comp?.profile || activeCompany?.profile;
@@ -2375,8 +2406,11 @@ CAMPAIGN PARAMETERS:
 - Target Platforms: ${effectivePlatforms.join(', ')}
 - Available Formats: ${formats.join(', ')}
 - Duration: ${duration} (${daysSpan} days)
-- Total Deliverables Required: Exactly ${assetCount} assets
+- Core Campaign Concepts: Exactly ${conceptCount}
+- Total Deliverables Required: Exactly ${totalDeliverables} assets
 - Requested Languages: ${effectiveLanguages.join(', ')}
+- Required Delivery Matrix (one asset per row, in this exact order):
+${deliveryMatrixText}
 - Language Style / Register: ${effLangStyle}
 ${advancedOptions?.targetAudience ? `- Specified Target Audience: ${advancedOptions.targetAudience}` : (compProfile?.audience ? `- Target Audience: ${compProfile.audience}` : '- Target Audience: Derive strictly from the subject and ideal users of the product in the brief.')}
 ${advancedOptions?.primaryCta ? `- Specified Primary CTA: ${advancedOptions.primaryCta}` : (compProfile?.preferredCta ? `- Primary CTA: ${compProfile.preferredCta}` : '- Primary CTA: Align directly with the primary goal and product.')}
@@ -2400,7 +2434,7 @@ LANGUAGE & LOCALIZATION MANDATE:
 
 PLATFORM-SPECIFIC ADAPTATION DIRECTIVES:
 Targeted Platforms for this campaign: ${effectivePlatforms.join(', ')}
-Distribute the ${assetCount} deliverables across these platforms. Each asset MUST feel 100% native to its assigned platform:
+Generate exactly the ${totalDeliverables} matrix-defined deliverables across these platforms. Each asset MUST feel 100% native to its assigned platform:
 - Instagram: Visual-first hook in the first 3 seconds, carousel slides with clean headlines and punchy bullets, dynamic reels with on-screen text and voiceover, curated hashtags (4-6), and an engaging comment/share/save CTA.
 - Facebook: Relatable, story-driven scenario, conversational community discussion, and practical takeaways. High readability for diverse demographics.
 - LinkedIn: Systems-thinking narrative, founder/operator reflections, operational efficiency, and ROI takeaways. Professional discussion CTA. Minimal hashtags (2-3 max). No generic clickbait.
@@ -2412,9 +2446,9 @@ Distribute the ${assetCount} deliverables across these platforms. Each asset MUS
 - Pinterest: Highly searchable visual headline, actionable step-by-step or infographic summary layout, focus on saveable reference utility.
 - Custom / Other Platform(s)${effCustomPlat ? ` (e.g. ${effCustomPlat})` : ''}: Adapt the content to the normal communication conventions, audience culture, format constraints, and tone of that platform. If unrecognized, use a versatile, high-clarity social content structure. (Note: These selections guide content copy and structure only; no publishing integrations are assumed).
 
-DELIBERATE NARRATIVE PROGRESSION (ACROSS THE ${assetCount} DELIVERABLES):
+DELIBERATE NARRATIVE PROGRESSION (ACROSS ${conceptCount} CORE CONCEPTS, ADAPTED INTO ${totalDeliverables} DELIVERABLES):
 1. STRICTLY FORBIDDEN: NO "PART 2 / PART 3 / PART 4" TITLES. Every single asset MUST have its own standalone, compelling title and angle.
-2. Construct a sequential narrative arc tailored strictly to the subject of the brief across the ${assetCount} deliverables:
+2. Construct a sequential narrative arc tailored strictly to the subject of the brief across the ${conceptCount} core concepts:
    - Stage 1: Problem Recognition (surfacing the core friction, bottleneck, or missed opportunity the audience faces)
    - Stage 2: Stakes & Urgency (why this problem matters and what it costs in time, revenue, or effort)
    - Stage 3: Foundational Education (the paradigm shift or principle behind solving it)
@@ -2430,6 +2464,13 @@ NATIVE PLATFORM REQUIREMENTS:
 - For reel_short format: provide 4 structured scenes with timestamp, hookText, narrationVoiceover, onScreenCaption, and bRollPrompt.
 - Provide curated platform-appropriate hashtags and a concrete CTA.
 
+DELIVERY MATRIX INTEGRITY RULES:
+- The assets array length MUST equal ${totalDeliverables}.
+- Each matrix row must appear exactly once; no missing or duplicate platform/language combinations.
+- Assets sharing the same conceptIndex express the SAME strategic idea, but are genuinely rewritten for the target platform and naturally localized for the target language.
+- Do NOT merely translate an Instagram caption and reuse it on Reddit/LinkedIn. Adapt structure, CTA, hashtags and tone to the native platform conventions above.
+- For Reddit, hashtags should normally be empty unless genuinely appropriate to the community.
+
 GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
 - campaignName: Premium, concise campaign title derived from the actual product/topic
 - coreInsight: Deep market observation related to the brief
@@ -2438,11 +2479,13 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
 - buyerPersonas: Array of 3 distinct, grounded personas for this specific product
 - contentPillars: Array of 3 strategic pillars addressing this specific product
 - postingSequence: Summary of the narrative arc
-- assets: Array of exactly ${assetCount} assets. Each asset MUST include:
+- assets: Array of exactly ${totalDeliverables} assets, matching REQUIRED DELIVERY MATRIX exactly. Each asset MUST include:
   - strategicPurpose: Name of the narrative step
   - angle: Unique creative angle for this deliverable
   - title: UNIQUE, standalone title (NEVER "Part X")
-  - platform: Assigned platform from requested platforms
+  - conceptIndex: Integer matching the required parent concept number
+  - platform: Exact assigned platform from the delivery matrix
+  - language: Exact target language from the delivery matrix; all copy, slides and scripts must be localized naturally in this language
   - format: Content format
   - hook: Grabbing first line or visual hook
   - caption: Complete, platform-native caption with formatting
@@ -2481,7 +2524,9 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
                     strategicPurpose: { type: Type.STRING },
                     angle: { type: Type.STRING },
                     title: { type: Type.STRING },
+                    conceptIndex: { type: Type.INTEGER },
                     platform: { type: Type.STRING },
+                    language: { type: Type.STRING },
                     format: { type: Type.STRING },
                     hook: { type: Type.STRING },
                     caption: { type: Type.STRING },
@@ -2535,7 +2580,9 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
                     'strategicPurpose',
                     'angle',
                     'title',
+                    'conceptIndex',
                     'platform',
+                    'language',
                     'format',
                     'hook',
                     'caption',
@@ -2644,9 +2691,18 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
       const secondaryGoals = opts.secondaryGoals || [];
       const platforms = existingCampaign.platforms?.length ? existingCampaign.platforms : ['instagram', 'facebook', 'linkedin'];
       const formats = existingCampaign.formats?.length ? existingCampaign.formats : ['carousel', 'reel_short', 'static_poster'];
-      const assetCount = opts.advancedOptions?.assetCount || 7;
-      const daysSpan = 7;
+      const duration = opts.duration || '7_days';
+      const conceptCount = Math.max(1, Math.min(8, Number(opts.advancedOptions?.assetCount) || (duration === 'single' ? 1 : duration === '3_days' ? 3 : duration === '30_days' ? 8 : 7)));
+      const daysSpan = duration === 'single' ? 1 : duration === '3_days' ? 3 : duration === '30_days' ? 30 : 7;
       const languages = existingCampaign.languages?.length ? existingCampaign.languages : ['English'];
+      const deliveryCount = conceptCount * Math.max(1, platforms.length) * Math.max(1, languages.length);
+      if (deliveryCount > 36) {
+        throw new Error(`Retry requests ${deliveryCount} deliverables. Reduce the campaign to 36 or fewer platform/language variants per generation.`);
+      }
+      const deliveryMatrix = Array.from({ length: conceptCount }, (_, conceptIdx) =>
+        platforms.flatMap((platform) => languages.map((language) => ({ conceptIndex: conceptIdx + 1, platform, language })))
+      );
+      const deliveryMatrixText = deliveryMatrix.map((item, idx) => `${idx + 1}. Concept ${item.conceptIndex} | ${item.platform} | ${item.language}`).join('\n');
       const comp = autonomaDb.getCompany(activeCompanyId);
       const compProfile: any = comp?.profile || activeCompany?.profile;
       const compName = comp?.name || activeCompany?.name || 'Company';
@@ -2698,22 +2754,33 @@ PRIMARY GOAL: "${primaryGoal}"
 SECONDARY GOALS: "${secondaryGoals.join(', ')}"
 PLATFORMS: ${platforms.join(', ')}
 FORMATS: ${formats.join(', ')}
-DELIVERABLES COUNT: ${assetCount}
+CORE CONCEPTS: ${conceptCount}
+TOTAL DELIVERABLES: ${deliveryCount}
 LANGUAGES: ${languages.join(', ')}
+REQUIRED DELIVERY MATRIX (exactly one asset per row, in this order):
+${deliveryMatrixText}
 
 ${companyContextBlock}
 
-Produce high-converting, platform-native deliverables without generic "Part X" titles.
+Produce exactly ${deliveryCount} high-converting deliverables without generic "Part X" titles. For every delivery matrix row, keep the strategic concept consistent across variants but rewrite it natively for the platform and naturally in the target language. Reddit must not look like an Instagram caption; LinkedIn must be professional and insight-led. Include conceptIndex, platform, language, format, title, hook, caption, hashtags, CTA, carouselSlides/reelScript when relevant, posterVisualPrompt and virality metadata for every asset.
 Generate a JSON object strictly matching the schema with campaignName, coreInsight, valueProposition, targetAudience, buyerPersonas, contentPillars, postingSequence, and assets array.`;
 
       const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json'
-        }
-      });
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: prompt,
+          config: { responseMimeType: 'application/json' }
+        });
+      } catch (firstErr: any) {
+        console.warn('[retry-synthesis] gemini-3.8-flash unavailable, falling back to gemini-2.5-flash:', firstErr?.message);
+        response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: { responseMimeType: 'application/json' }
+        });
+      }
 
       const responseText = response.text || '';
       const parsedData = JSON.parse(responseText);
@@ -2723,7 +2790,8 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
         const postDate = new Date(now.getTime() + (idx * Math.max(1, Math.floor(daysSpan / (parsedData.assets?.length || 1))) * 86400000));
         const targetDate = postDate.toISOString().split('T')[0];
         const assetCode = `APEX-2026-C${existingRow.campaignId.replace(/[^0-9]/g, '').slice(-3) || '101'}-${String(idx + 1).padStart(3, '0')}`;
-        const platform = (item.platform?.toLowerCase() as Platform) || platforms[idx % platforms.length];
+        const matrixItem = deliveryMatrix[idx];
+        const platform = (item.platform?.toLowerCase() as Platform) || (matrixItem?.platform as Platform) || platforms[0];
         const format = (item.format?.toLowerCase() as ContentFormat) || formats[idx % formats.length];
 
         return {
@@ -2737,6 +2805,8 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
           targetDate,
           postTimeIST: idx % 2 === 0 ? '11:30 AM' : '04:45 PM',
           platform,
+          language: item.language || matrixItem?.language || languages[0] || 'English',
+          conceptIndex: item.conceptIndex || matrixItem?.conceptIndex || 1,
           secondaryPlatforms: platforms.filter(p => p !== platform),
           format,
           stream: 'automation_systems' as ContentStream,
