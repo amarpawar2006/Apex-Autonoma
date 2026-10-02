@@ -42,6 +42,7 @@ export function campaignToDbRow(c: Campaign, orgId?: string): DbCampaignRow {
     brief: c.brief,
     objective: c.objective,
     status: c.status,
+    assetCount: c.assetCount || 0,
     startDate: c.startDate,
     endDate: c.endDate,
     platforms: JSON.stringify(c.platforms || []),
@@ -116,7 +117,7 @@ export function dbRowToCampaign(row: DbCampaignRow): Campaign {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     archivedAt: row.archivedAt,
-    assetCount: 0,
+    assetCount: Number(row.assetCount) || 0,
     customLanguage: row.customLanguage,
     customPlatform: row.customPlatform,
     languageStyle: row.languageStyle,
@@ -150,6 +151,8 @@ export function assetToDbRow(a: SocialAsset, orgId?: string): DbAssetRow {
     strategicPurpose: a.strategicPurpose || 'Operational Education',
     angle: a.angle || '',
     platform: a.platform,
+    language: a.language || 'English',
+    conceptIndex: a.conceptIndex,
     format: a.format,
     contentStream: a.stream,
     speciesCode: a.speciesCode,
@@ -209,6 +212,8 @@ export function dbRowToAsset(row: DbAssetRow): SocialAsset {
     targetDate: row.targetDate,
     postTimeIST: row.targetTime || '11:30 AM',
     platform: (row.platform?.toLowerCase() as any) || 'instagram',
+    language: row.language || 'English',
+    conceptIndex: row.conceptIndex,
     format: (row.format?.toLowerCase() as any) || 'carousel',
     stream: (row.contentStream as any) || 'commerce_operations',
     speciesCode: (row.speciesCode as any) || 'SPEC-01_PROBLEM_FIRST',
@@ -1229,20 +1234,19 @@ export class AutonomaDatabaseManager {
       organizationId: campaign.organizationId
     });
 
-    // Write-through to Google Sheets when connected
+    // Google Sheets is a secondary sync target. A Sheets outage must never make a
+    // successfully persisted server campaign look like a failed save to the user.
     if (this.getGoogleSheetsUrl()) {
-      const sheetsResult = await this.callAppsScript(
+      this.callAppsScript(
         idx >= 0 ? 'UPDATE_CAMPAIGN' : 'CREATE_CAMPAIGN',
         { campaign }
-      );
-
-      if (!sheetsResult.success) {
-        throw new Error(
-          `Campaign saved locally but Google Sheets write failed: ${
-            sheetsResult.error || 'Unknown Google Sheets error'
-          }`
-        );
-      }
+      ).then((sheetsResult) => {
+        if (!sheetsResult.success) {
+          console.warn('[PERSISTENCE] Campaign saved on server; Sheets sync pending:', sheetsResult.error || 'Unknown Google Sheets error');
+        }
+      }).catch((err) => {
+        console.warn('[PERSISTENCE] Campaign saved on server; Sheets sync unavailable:', err?.message || err);
+      });
     }
 
     return { success: true, data: campaign };
@@ -1419,16 +1423,15 @@ export class AutonomaDatabaseManager {
       organizationId: asset.organizationId
     });
 
-    // Write-through to Google Sheets when connected
+    // Best-effort secondary Sheets sync; server persistence is authoritative.
     if (this.getGoogleSheetsUrl()) {
-      const sheetsResult = await this.callAppsScript(idx >= 0 ? 'UPDATE_ASSET' : 'CREATE_ASSET', { asset });
-      if (!sheetsResult.success) {
-        throw new Error(
-          `Asset saved locally but Google Sheets write failed: ${
-            sheetsResult.error || 'Unknown Google Sheets error'
-          }`
-        );
-      }
+      this.callAppsScript(idx >= 0 ? 'UPDATE_ASSET' : 'CREATE_ASSET', { asset })
+        .then((sheetsResult) => {
+          if (!sheetsResult.success) {
+            console.warn('[PERSISTENCE] Asset saved on server; Sheets sync pending:', sheetsResult.error || 'Unknown Google Sheets error');
+          }
+        })
+        .catch((err) => console.warn('[PERSISTENCE] Asset saved on server; Sheets sync unavailable:', err?.message || err));
     }
 
     return { success: true, data: asset };
@@ -1460,18 +1463,13 @@ export class AutonomaDatabaseManager {
     });
 
     if (this.getGoogleSheetsUrl()) {
-      const sheetsResult = await this.callAppsScript(
-        'BATCH_SAVE_ASSETS',
-        { assets }
-      );
-
-      if (!sheetsResult.success) {
-        throw new Error(
-          `Assets saved locally but Google Sheets batch write failed: ${
-            sheetsResult.error || 'Unknown Google Sheets error'
-          }`
-        );
-      }
+      this.callAppsScript('BATCH_SAVE_ASSETS', { assets })
+        .then((sheetsResult) => {
+          if (!sheetsResult.success) {
+            console.warn('[PERSISTENCE] Assets saved on server; Sheets batch sync pending:', sheetsResult.error || 'Unknown Google Sheets error');
+          }
+        })
+        .catch((err) => console.warn('[PERSISTENCE] Assets saved on server; Sheets batch sync unavailable:', err?.message || err));
     }
 
     return { success: true, count: assets.length };
@@ -1983,7 +1981,7 @@ export class AutonomaDatabaseManager {
   ): Promise<{
     campaign: Campaign;
     assetCount: number;
-    persistence: { server: true; googleSheets: true };
+    persistence: { server: true; googleSheets: boolean; warning?: string };
   }> {
     // A. Validate campaign
     if (!campaignData || typeof campaignData !== 'object') {
@@ -2034,6 +2032,8 @@ export class AutonomaDatabaseManager {
       this.store.campaigns.unshift(campRow);
     }
 
+    campRow.assetCount = assetRows.length;
+
     // D. Upsert ALL assets into authoritative store
     for (const aRow of assetRows) {
       const aIdx = this.store.assets.findIndex(a => a.assetId === aRow.assetId);
@@ -2051,48 +2051,47 @@ export class AutonomaDatabaseManager {
     // Persist to authoritative local disk
     this.persistToDisk();
 
-    // Verify Google Sheets configuration
+    // Google Sheets is optional secondary durability. The server DB is authoritative,
+    // so a disconnected/misconfigured sheet must never fail campaign creation.
+    let googleSheetsSynced = false;
+    let sheetsWarning: string | undefined;
     const validation = this.validateGoogleSheetsUrl();
-    if (!validation.valid) {
-      throw new Error(`Google Sheets write-through failed: ${validation.error}`);
-    }
 
-    // E. Write/upsert campaign to Google Sheets
-    const campSheetRes = await this.callAppsScript(
-      cIdx >= 0 ? 'UPDATE_CAMPAIGN' : 'CREATE_CAMPAIGN',
-      { campaign: campRow }
-    );
-    if (!campSheetRes.success) {
-      throw new Error(
-        `Campaign saved locally but Google Sheets write failed: ${
-          campSheetRes.error || 'Unknown Google Sheets error'
-        }`
-      );
-    }
-
-    // F. Batch upsert assets to Google Sheets
-    if (assetRows.length > 0) {
-      const assetsSheetRes = await this.callAppsScript('BATCH_SAVE_ASSETS', {
-        assets: assetRows
-      });
-      if (!assetsSheetRes.success) {
-        throw new Error(
-          `Assets saved locally but Google Sheets batch write failed: ${
-            assetsSheetRes.error || 'Unknown Google Sheets error'
-          }`
+    if (validation.valid) {
+      try {
+        const campSheetRes = await this.callAppsScript(
+          cIdx >= 0 ? 'UPDATE_CAMPAIGN' : 'CREATE_CAMPAIGN',
+          { campaign: campRow }
         );
+        if (!campSheetRes.success) {
+          throw new Error(campSheetRes.error || 'Campaign sheet write failed');
+        }
+
+        if (assetRows.length > 0) {
+          const assetsSheetRes = await this.callAppsScript('BATCH_SAVE_ASSETS', { assets: assetRows });
+          if (!assetsSheetRes.success) {
+            throw new Error(assetsSheetRes.error || 'Assets sheet write failed');
+          }
+        }
+        googleSheetsSynced = true;
+      } catch (err: any) {
+        sheetsWarning = err?.message || 'Google Sheets sync unavailable';
+        console.warn('[PERSISTENCE] Campaign committed to server; Sheets sync pending:', sheetsWarning);
       }
+    } else {
+      sheetsWarning = validation.error || 'Google Sheets is not configured';
+      console.warn('[PERSISTENCE] Campaign committed to server; Sheets sync skipped:', sheetsWarning);
     }
 
-    // G. Verify returned success & small persistence health log (no sensitive credentials)
     console.log(
-      `[PERSISTENCE] ${campRow.campaignId} committed: ${assetRows.length} assets, server=true, sheets=true`
+      `[PERSISTENCE] ${campRow.campaignId} committed: ${assetRows.length} assets, server=true, sheets=${googleSheetsSynced}`
     );
 
     this.logActivity('CAMPAIGN', campRow.campaignId, 'COMMIT_CAMPAIGN_AND_ASSETS', {
       assetCount: assetRows.length,
       serverPersistence: true,
-      sheetsPersistence: true
+      sheetsPersistence: googleSheetsSynced,
+      sheetsWarning
     });
 
     // H. Only then return success to client
@@ -2101,7 +2100,8 @@ export class AutonomaDatabaseManager {
       assetCount: assetRows.length,
       persistence: {
         server: true,
-        googleSheets: true
+        googleSheets: googleSheetsSynced,
+        ...(sheetsWarning ? { warning: sheetsWarning } : {})
       }
     };
   }
