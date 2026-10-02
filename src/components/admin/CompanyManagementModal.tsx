@@ -327,11 +327,33 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
 
       if (res?.summary) {
         setSummaryState(res.summary);
+
+        // The website analysis endpoint now persists the normalized company profile.
+        // Immediately hydrate every setup tab from that authoritative response so
+        // Strategic Context, Company Profile and Autonoma's Understanding cannot drift.
+        if (res.company) {
+          onCompanyUpdated(res.company);
+        }
+        const persistedProfile = res.profile;
+        if (persistedProfile) {
+          if (res.company?.name) setCompanyName(res.company.name);
+          setOrgType(persistedProfile.organizationType || 'business');
+          setDescription(persistedProfile.description || '');
+          setOfferings(persistedProfile.offerings || '');
+          setAudience(persistedProfile.audience || '');
+          setGeography(persistedProfile.geography || '');
+          setPositioning(persistedProfile.positioning || '');
+          setPrimaryGoal(persistedProfile.primaryGoal || '');
+          setBrandVoice(persistedProfile.brandVoice || '');
+          setClaimsAvoid(persistedProfile.claimsAvoid || '');
+          setPreferredCta(persistedProfile.preferredCta || '');
+          if (persistedProfile.website) setWebsite(persistedProfile.website);
+        }
         
         let filledCount = 0;
         const inf = res.inferredProfile;
         
-        if (inf) {
+        if (inf && !persistedProfile) {
           if ((!companyName.trim() || companyName === 'Company') && inf.companyName) {
             setCompanyName(inf.companyName);
             filledCount++;
@@ -376,7 +398,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
             setPreferredCta(inf.preferredCta || res.summary.cta);
             filledCount++;
           }
-        } else {
+        } else if (!persistedProfile) {
           // Fallback extraction from summary
           if (!description.trim() && res.summary.organizationAndOffering) {
             setDescription(res.summary.organizationAndOffering.slice(0, 300));
@@ -405,6 +427,18 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
           filledCount++;
         }
 
+        if (persistedProfile) {
+          filledCount = Object.values({
+            description: persistedProfile.description,
+            offerings: persistedProfile.offerings,
+            audience: persistedProfile.audience,
+            geography: persistedProfile.geography,
+            positioning: persistedProfile.positioning,
+            primaryGoal: persistedProfile.primaryGoal,
+            brandVoice: persistedProfile.brandVoice,
+            preferredCta: persistedProfile.preferredCta
+          }).filter(Boolean).length;
+        }
         setAutoFilledFieldsCount(filledCount);
         setSuccess(
           filledCount > 0
@@ -500,7 +534,17 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
       brandVoice: brandVoice.trim() || undefined,
       claimsAvoid: claimsAvoid.trim() || undefined,
       confirmedContext: summaryState.isActive ? summaryState : activeCompany.profile?.confirmedContext,
-      contextVersions: activeCompany.profile?.contextVersions || []
+      contextVersions: activeCompany.profile?.contextVersions || [],
+      lastAnalyzedAt: activeCompany.profile?.lastAnalyzedAt,
+      brandDesignSystem: activeCompany.profile?.brandDesignSystem,
+      // Saving the profile means the administrator has reviewed/accepted these values.
+      // Mark them user-owned so future website re-analysis suggests rather than silently overwrites them.
+      editedFields: Array.from(new Set([
+        ...(activeCompany.profile?.editedFields || []),
+        'name', 'organizationType', 'description', 'offerings', 'audience', 'geography',
+        'positioning', 'primaryGoal', 'preferredLanguage', 'timezone', 'website',
+        'preferredCta', 'defaultWhatsAppRecipient', 'brandVoice', 'claimsAvoid'
+      ]))
     };
 
     try {
