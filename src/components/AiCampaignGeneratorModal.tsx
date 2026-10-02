@@ -17,11 +17,18 @@ import {
   FolderKanban,
   FileSpreadsheet,
   Database,
-  ShieldCheck
+  ShieldCheck,
+  Undo2,
+  Edit3,
+  HelpCircle,
+  AlertCircle,
+  TrendingUp,
+  Target
 } from 'lucide-react';
 import { Platform, ContentFormat, Campaign, SocialAsset } from '../types/campaign';
 import { createAutonomaCampaign } from '../services/campaignService';
 import { autonomaDataService } from '../services/autonomaDataService';
+import { improveBriefWithAI, ImproveBriefResponse } from '../services/geminiService';
 
 interface AiCampaignGeneratorModalProps {
   isOpen: boolean;
@@ -30,16 +37,61 @@ interface AiCampaignGeneratorModalProps {
   onViewCampaignDetail?: (campaign: Campaign) => void;
 }
 
+export const GOAL_OPTIONS = [
+  'More enquiries/leads',
+  'More sales/orders',
+  'More followers',
+  'More engagement',
+  'More website visits',
+  'More registrations',
+  'More reach and shares',
+  'Customer education',
+  'Community participation'
+] as const;
+
+export type CampaignGoal = typeof GOAL_OPTIONS[number];
+
+const GOAL_EXAMPLES: Record<CampaignGoal, string> = {
+  'More enquiries/leads':
+    'Promote our 2-day business consultation to B2B founders struggling with fragmented manual tools. Focus on real workflow teardowns and booking discovery audits.',
+  'More sales/orders':
+    'Introduce our new seasonal collection or direct product offer with simple WhatsApp checkout. Emphasize fast delivery and zero order friction.',
+  'More followers':
+    'Build founder and brand authority by sharing actionable teardowns of common industry mistakes and practical blueprints.',
+  'More engagement':
+    'Spark thoughtful discussions and polls asking operators to share their biggest daily bottleneck and how they currently solve it.',
+  'More website visits':
+    'Drive curious decision-makers to read our complete case study and explore the interactive architecture system on our site.',
+  'More registrations':
+    'Invite boutique operators and founders to our upcoming live walkthrough showing automated operations in action.',
+  'More reach and shares':
+    'Publish a high-resonance manifesto challenging generic industry clichés and articulating the real friction customers experience.',
+  'Customer education':
+    'Demystify how structured rules and data eliminate repetitive manual work, explaining complex concepts with simple visuals.',
+  'Community participation':
+    'Invite our community of creators and business leaders to contribute their best tips, featuring user stories and mutual learning.'
+};
+
 export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> = ({
   isOpen,
   onClose,
   onCampaignCreated,
   onViewCampaignDetail,
 }) => {
+  // Goal Selection State
+  const [primaryGoal, setPrimaryGoal] = useState<CampaignGoal>('More enquiries/leads');
+  const [secondaryGoals, setSecondaryGoals] = useState<CampaignGoal[]>([]);
+
   // Primary field: Natural Language Business Objective
-  const [brief, setBrief] = useState<string>(
-    'Promote Apex Microcommerce to small Indian businesses currently taking orders on WhatsApp. Focus on affordability, simplicity and eliminating manual order management.'
-  );
+  const [brief, setBrief] = useState<string>('');
+
+  // AI Brief Improvement & Rewriting State
+  const [isImprovingBrief, setIsImprovingBrief] = useState<boolean>(false);
+  const [improveError, setImproveError] = useState<string | null>(null);
+  const [proposedRewrite, setProposedRewrite] = useState<ImproveBriefResponse | null>(null);
+  const [originalBriefSnapshot, setOriginalBriefSnapshot] = useState<string | null>(null);
+  const [isEditingRewrite, setIsEditingRewrite] = useState<boolean>(false);
+  const [editedRewriteText, setEditedRewriteText] = useState<string>('');
 
   // Platform selection (Default: Instagram + Facebook + LinkedIn)
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([
@@ -69,6 +121,12 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
   // Language options
   const [language, setLanguage] = useState<string>('English');
+  const [customLanguage, setCustomLanguage] = useState<string>('');
+  const [languageStyle, setLanguageStyle] = useState<string>('Natural');
+
+  // Custom Platform
+  const [customPlatform, setCustomPlatform] = useState<string>('');
+  const [hasCustomPlatform, setHasCustomPlatform] = useState<boolean>(false);
 
   // Advanced Options (collapsible)
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
@@ -78,6 +136,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   const [customAssetCount, setCustomAssetCount] = useState<number | ''>('');
   const [postingFrequency, setPostingFrequency] = useState<string>('Daily at 11:30 AM IST');
   const [tone, setTone] = useState<string>('Authoritative, pragmatic & conversion-focused');
+  const [additionalInstructions, setAdditionalInstructions] = useState<string>('');
 
   // Loading & Result States
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -86,7 +145,57 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   const [createdResult, setCreatedResult] = useState<{ campaign: Campaign; assets: SocialAsset[] } | null>(null);
   const [pendingCommitResult, setPendingCommitResult] = useState<{ campaign: Campaign; assets: SocialAsset[] } | null>(null);
 
+  // Request sequence tracker to prevent late response from an earlier request replacing current campaign
+  const activeRequestIdRef = React.useRef<number>(0);
+  // Persisted shell ref to ensure retries reuse the exact same campaign ID without duplicates
+  const activeCampaignShellRef = React.useRef<Campaign | null>(null);
+
+  // Reset to clean draft on fresh open
+  React.useEffect(() => {
+    if (isOpen) {
+      activeRequestIdRef.current += 1;
+      setBrief('');
+      setPrimaryGoal('More enquiries/leads');
+      setSecondaryGoals([]);
+      setCustomLanguage('');
+      setLanguageStyle('Natural');
+      setCustomPlatform('');
+      setHasCustomPlatform(false);
+      setAdditionalInstructions('');
+      setIsImprovingBrief(false);
+      setImproveError(null);
+      setProposedRewrite(null);
+      setOriginalBriefSnapshot(null);
+      setIsEditingRewrite(false);
+      setEditedRewriteText('');
+      setTargetAudience('');
+      setPrimaryCta('');
+      setProductsEmphasized('');
+      setCustomAssetCount('');
+      setError(null);
+      setCreatedResult(null);
+      setPendingCommitResult(null);
+      setIsLoading(false);
+      setLoadingStep('');
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  // Toggle primary goal
+  const handleSelectPrimaryGoal = (goal: CampaignGoal) => {
+    setPrimaryGoal(goal);
+    // If the new primary was in secondary, remove it
+    setSecondaryGoals((prev) => prev.filter((g) => g !== goal));
+  };
+
+  // Toggle secondary goal
+  const handleToggleSecondaryGoal = (goal: CampaignGoal) => {
+    if (goal === primaryGoal) return;
+    setSecondaryGoals((prev) =>
+      prev.includes(goal) ? prev.filter((g) => g !== goal) : [...prev, goal]
+    );
+  };
 
   // Toggle platform
   const handleTogglePlatform = (platform: Platform) => {
@@ -108,72 +217,228 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
     );
   };
 
+  // Handle "Improve with AI" action
+  const handleImproveBrief = async () => {
+    if (!brief.trim()) return;
+
+    activeRequestIdRef.current += 1;
+    const reqId = activeRequestIdRef.current;
+    setIsImprovingBrief(true);
+    setImproveError(null);
+
+    try {
+      const response = await improveBriefWithAI({
+        brief: brief.trim(),
+        primaryGoal,
+        secondaryGoals,
+      });
+
+      if (reqId !== activeRequestIdRef.current) return;
+
+      setProposedRewrite(response);
+      setEditedRewriteText(response.rewrittenBrief);
+      setIsEditingRewrite(false);
+    } catch (err: any) {
+      if (reqId !== activeRequestIdRef.current) return;
+      console.warn('[Campaign Director] Improve brief error:', err);
+      setImproveError(err?.message || 'Could not improve brief with AI. You can continue editing manually.');
+    } finally {
+      if (reqId === activeRequestIdRef.current) {
+        setIsImprovingBrief(false);
+      }
+    }
+  };
+
+  // Accept proposed rewrite
+  const handleAcceptRewrite = () => {
+    if (!proposedRewrite) return;
+    const finalRewrite = isEditingRewrite ? editedRewriteText : proposedRewrite.rewrittenBrief;
+    
+    // Preserve current brief in snapshot for Undo
+    setOriginalBriefSnapshot(brief);
+    setBrief(finalRewrite);
+
+    // Apply suggested audience/CTA if empty
+    if (proposedRewrite.suggestedAudience && !targetAudience.trim()) {
+      setTargetAudience(proposedRewrite.suggestedAudience);
+    }
+    if (proposedRewrite.suggestedPrimaryCta && !primaryCta.trim()) {
+      setPrimaryCta(proposedRewrite.suggestedPrimaryCta);
+    }
+
+    setProposedRewrite(null);
+    setIsEditingRewrite(false);
+    setImproveError(null);
+  };
+
+  // Undo rewrite
+  const handleUndoRewrite = () => {
+    if (originalBriefSnapshot !== null) {
+      setBrief(originalBriefSnapshot);
+      setOriginalBriefSnapshot(null);
+    }
+  };
+
+  // Dismiss proposed rewrite
+  const handleDismissRewrite = () => {
+    setProposedRewrite(null);
+    setIsEditingRewrite(false);
+    setImproveError(null);
+  };
+
   const handleCreateCampaign = async () => {
     if (!brief.trim()) return;
+
+    activeRequestIdRef.current += 1;
+    const reqId = activeRequestIdRef.current;
 
     setIsLoading(true);
     setError(null);
 
     const step1 = setTimeout(() => {
-      setLoadingStep('Synthesizing content pillars, format mix & calibrated narrative sequence…');
+      if (reqId === activeRequestIdRef.current) {
+        setLoadingStep('Synthesizing content pillars, format mix & calibrated narrative sequence…');
+      }
     }, 1500);
 
     const step2 = setTimeout(() => {
-      setLoadingStep('Structuring content deliverables (ZERO image/video calls)…');
+      if (reqId === activeRequestIdRef.current) {
+        setLoadingStep('Structuring content deliverables (ZERO image/video calls)…');
+      }
     }, 3000);
 
     try {
-      // 1. FIRST: Synthesize campaign intelligence via Gemini (or reuse pending if retrying commit)
-      let result = pendingCommitResult;
-      if (!result) {
-        setLoadingStep('Analyzing business objective & market friction…');
-        result = await createAutonomaCampaign({
-          brief: brief.trim(),
-          platforms: selectedPlatforms,
-          autoPlatforms: letAutonomaDecidePlatforms,
-          formats: selectedFormats,
-          autoFormats: letAutonomaDecideFormats,
-          duration,
-          startDate: duration === 'custom' ? customStartDate : undefined,
-          endDate: duration === 'custom' ? customEndDate : undefined,
-          languages: [language],
-          advancedOptions: {
-            targetAudience: targetAudience.trim() || undefined,
-            primaryCta: primaryCta.trim() || undefined,
-            productsEmphasized: productsEmphasized.trim() || undefined,
-            assetCount: typeof customAssetCount === 'number' && customAssetCount > 0 ? customAssetCount : undefined,
-            postingFrequency: postingFrequency.trim() || undefined,
-            tone: tone.trim() || undefined,
-          }
-        });
-        setPendingCommitResult(result);
+      const effectivePlatformList = [...selectedPlatforms];
+      if (hasCustomPlatform && customPlatform.trim() && !effectivePlatformList.includes(customPlatform.trim())) {
+        effectivePlatformList.push(customPlatform.trim());
       }
 
-      // 2. SAVING CAMPAIGN... Atomic write to authoritative server database & Google Sheets write-through
-      setLoadingStep('SAVING CAMPAIGN... Committing campaign and deliverables to database and Google Sheets…');
+      const effectiveLang = language === 'Other / Custom Language' && customLanguage.trim()
+        ? customLanguage.trim()
+        : language;
+
+      const now = new Date();
+      const campaignCodeSuffix = Math.floor(100 + Math.random() * 900);
+      const campaignId = activeCampaignShellRef.current?.id || `cmp-${Date.now()}`;
+      const campaignCode = activeCampaignShellRef.current?.campaignCode || `CMP-2026-${campaignCodeSuffix}`;
+      const campaignName = activeCampaignShellRef.current?.name || brief.trim().slice(0, 50);
+
+      const optionsPayload = {
+        brief: brief.trim(),
+        primaryGoal,
+        secondaryGoals,
+        platforms: effectivePlatformList,
+        autoPlatforms: letAutonomaDecidePlatforms,
+        formats: selectedFormats,
+        autoFormats: letAutonomaDecideFormats,
+        duration,
+        startDate: duration === 'custom' ? customStartDate : undefined,
+        endDate: duration === 'custom' ? customEndDate : undefined,
+        languages: [effectiveLang],
+        customLanguage: language === 'Other / Custom Language' ? customLanguage.trim() : undefined,
+        customPlatform: hasCustomPlatform && customPlatform.trim() ? customPlatform.trim() : undefined,
+        languageStyle,
+        additionalInstructions: additionalInstructions.trim() || undefined,
+        campaignIdOverride: campaignId,
+        campaignCodeOverride: campaignCode,
+        advancedOptions: {
+          targetAudience: targetAudience.trim() || undefined,
+          primaryCta: primaryCta.trim() || undefined,
+          productsEmphasized: productsEmphasized.trim() || undefined,
+          assetCount: typeof customAssetCount === 'number' && customAssetCount > 0 ? customAssetCount : undefined,
+          postingFrequency: postingFrequency.trim() || undefined,
+          tone: tone.trim() || undefined,
+          customLanguage: language === 'Other / Custom Language' ? customLanguage.trim() : undefined,
+          customPlatform: hasCustomPlatform && customPlatform.trim() ? customPlatform.trim() : undefined,
+          languageStyle,
+          additionalInstructions: additionalInstructions.trim() || undefined,
+        }
+      };
+
+      // Part 1: SAVE CAMPAIGN SHELL IMMEDIATELY with status = GENERATING
+      setLoadingStep('INITIALIZING CAMPAIGN SHELL... Persisting campaign record…');
+      const initialShell: Campaign = {
+        id: campaignId,
+        campaignCode,
+        name: campaignName,
+        brief: brief.trim(),
+        objective: primaryGoal,
+        status: 'ACTIVE',
+        generationStatus: 'GENERATING',
+        lastGenerationAttemptAt: now.toISOString(),
+        platforms: effectivePlatformList,
+        formats: selectedFormats,
+        languages: [effectiveLang],
+        startDate: duration === 'custom' && customStartDate ? customStartDate : now.toISOString().split('T')[0],
+        endDate: duration === 'custom' && customEndDate ? customEndDate : new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0],
+        createdAt: activeCampaignShellRef.current?.createdAt || now.toISOString(),
+        updatedAt: now.toISOString(),
+        assetCount: 0,
+        generationOptions: optionsPayload
+      };
+
+      const savedShell = await autonomaDataService.saveCampaign(initialShell);
+      activeCampaignShellRef.current = savedShell;
+      // Campaign creation is immediately persisted and visible in UI!
+      onCampaignCreated({ campaign: savedShell, assets: [] });
+
+      if (reqId !== activeRequestIdRef.current) return;
+
+      // Part 1: Invoke AI synthesis
+      setLoadingStep('Analyzing business objective & synthesizing deliverables via Gemini…');
+      const result = await createAutonomaCampaign(optionsPayload);
+
+      if (reqId !== activeRequestIdRef.current) return;
+
+      result.campaign.generationStatus = 'READY';
+      result.campaign.lastGenerationError = undefined;
+      result.campaign.lastGenerationAttemptAt = new Date().toISOString();
+
+      // Part 1: On success, commit populated campaign & assets (status = READY)
+      setLoadingStep('SAVING DELIVERABLES... Committing deliverables to database and Google Sheets…');
       const commitRes = await autonomaDataService.commitCampaign(result.campaign, result.assets);
 
-      // 3. ONLY AFTER BOTH SUCCEED: Update parent React state, clear pending cache, and show CAMPAIGN SAVED
-      setPendingCommitResult(null);
+      if (reqId !== activeRequestIdRef.current) return;
+
       const persistedResult = {
         campaign: commitRes.campaign,
         assets: commitRes.assets
       };
 
+      activeCampaignShellRef.current = null;
       onCampaignCreated(persistedResult);
       setCreatedResult(persistedResult);
     } catch (err: any) {
-      console.error('[Campaign Director] Campaign creation and persistence failed:', err);
-      setError(err?.message || 'Campaign could not be saved to the operational database and Google Sheets.');
+      if (reqId !== activeRequestIdRef.current) return;
+      console.error('[Campaign Director] Campaign synthesis timed out or failed:', err);
+      const errMsg = err?.message || 'Campaign synthesis request timed out.';
+      
+      // Part 1: On timeout/failure status = GENERATION_FAILED; Campaign SHELL REMAINS PERSISTED
+      if (activeCampaignShellRef.current) {
+        const failedShell: Campaign = {
+          ...activeCampaignShellRef.current,
+          generationStatus: 'GENERATION_FAILED',
+          lastGenerationError: errMsg,
+          lastGenerationAttemptAt: new Date().toISOString()
+        };
+        await autonomaDataService.saveCampaign(failedShell).catch(() => null);
+        activeCampaignShellRef.current = failedShell;
+        onCampaignCreated({ campaign: failedShell, assets: [] });
+      }
+
+      setError(errMsg);
     } finally {
       clearTimeout(step1);
       clearTimeout(step2);
-      setIsLoading(false);
-      setLoadingStep('');
+      if (reqId === activeRequestIdRef.current) {
+        setIsLoading(false);
+        setLoadingStep('');
+      }
     }
   };
 
   const handleResetAndClose = () => {
+    activeCampaignShellRef.current = null;
     setCreatedResult(null);
     setPendingCommitResult(null);
     setError(null);
@@ -186,6 +451,10 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
     { id: 'linkedin', label: 'LinkedIn' },
     { id: 'twitter', label: 'X' },
     { id: 'youtube', label: 'YouTube' },
+    { id: 'threads', label: 'Threads' },
+    { id: 'reddit', label: 'Reddit' },
+    { id: 'snapchat', label: 'Snapchat' },
+    { id: 'pinterest', label: 'Pinterest' },
   ];
 
   const availableFormats: { id: ContentFormat; label: string }[] = [
@@ -199,12 +468,32 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
   const languagesList = [
     'English',
-    'Marathi',
     'Hindi',
-    'Marathi + English',
-    'Hindi + English',
-    'Auto'
+    'Marathi',
+    'Bengali',
+    'Telugu',
+    'Tamil',
+    'Gujarati',
+    'Urdu',
+    'Kannada',
+    'Odia',
+    'Malayalam',
+    'Punjabi',
+    'Assamese',
+    'Mixed / Hinglish',
+    'Mixed / Marathi + English',
+    'Other / Custom Language'
   ];
+
+  const languageStyles = [
+    'Natural',
+    'Professional',
+    'Conversational',
+    'Local / colloquial',
+    'Formal'
+  ];
+
+  const showViralityNote = primaryGoal === 'More reach and shares' || secondaryGoals.includes('More reach and shares');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
@@ -253,15 +542,15 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 <div>
-                  <span className="text-[#86868B] block font-medium">Platforms</span>
-                  <span className="text-[#1D1D1F] font-semibold capitalize mt-0.5 block">
-                    {createdResult.campaign.platforms.join(', ')}
+                  <span className="text-[#86868B] block font-medium">Primary Goal</span>
+                  <span className="text-[#1D1D1F] font-semibold mt-0.5 block">
+                    {primaryGoal}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[#86868B] block font-medium">Format Strategy</span>
+                  <span className="text-[#86868B] block font-medium">Platforms</span>
                   <span className="text-[#1D1D1F] font-semibold capitalize mt-0.5 block">
-                    {createdResult.campaign.formats.map(f => f.replace('_', ' ')).join(', ')}
+                    {createdResult.campaign.platforms.join(', ')}
                   </span>
                 </div>
               </div>
@@ -344,7 +633,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                   Create a campaign
                 </h2>
                 <p className="text-sm text-[#6E6E73] font-normal leading-relaxed">
-                  Tell Autonoma what you want to achieve. We'll build the social strategy, format mix and production plan.
+                  Select your primary campaign goal and describe what you want to achieve. Use AI to improve clarity and structure.
                 </p>
               </div>
               <button 
@@ -358,36 +647,288 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
             {/* Main Form Fields */}
             <div className="space-y-6">
-              {/* Primary field: Natural Language Business Objective */}
+
+              {/* 1. SELECTABLE GOAL CHIPS */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-[#1D1D1F] flex items-center space-x-1.5">
+                    <Target className="w-3.5 h-3.5 text-[#FF4500]" />
+                    <span>Primary Goal (Select one required)</span>
+                  </label>
+                  <span className="text-[11px] text-[#86868B]">
+                    Required: 1 primary
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {GOAL_OPTIONS.map((goal) => {
+                    const isPrimary = primaryGoal === goal;
+                    return (
+                      <button
+                        key={goal}
+                        type="button"
+                        onClick={() => handleSelectPrimaryGoal(goal)}
+                        disabled={isLoading}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center space-x-1.5 ${
+                          isPrimary
+                            ? 'bg-[#1D1D1F] text-white shadow-sm ring-2 ring-[#1D1D1F]/20'
+                            : 'bg-[#F5F5F7] text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.05]'
+                        }`}
+                      >
+                        {isPrimary && <Check className="w-3 h-3 text-emerald-400" />}
+                        <span>{goal}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Secondary Goals (Optional multi-select) */}
+                <div className="pt-1 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-[#86868B] font-medium">
+                      Secondary goals (optional):
+                    </span>
+                    {secondaryGoals.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSecondaryGoals([])}
+                        className="text-[#FF4500] hover:underline"
+                      >
+                        Clear secondary
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {GOAL_OPTIONS.filter((g) => g !== primaryGoal).map((secGoal) => {
+                      const isSelected = secondaryGoals.includes(secGoal);
+                      return (
+                        <button
+                          key={secGoal}
+                          type="button"
+                          onClick={() => handleToggleSecondaryGoal(secGoal)}
+                          disabled={isLoading}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${
+                            isSelected
+                              ? 'bg-orange-50 text-[#FF4500] border border-orange-200'
+                              : 'bg-white border border-black/[0.06] text-[#86868B] hover:text-[#1D1D1F]'
+                          }`}
+                        >
+                          {isSelected ? '✓ ' : '+ '}
+                          {secGoal}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Virality / Reach Ambition Disclosure */}
+                {showViralityNote && (
+                  <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-xl text-[11px] text-amber-900 flex items-start space-x-2 animate-in fade-in duration-200">
+                    <TrendingUp className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Reach & Sharing Ambition:</strong> Autonoma calibrates hook architecture, format dwell-time, and platform-native distribution to maximize reach and shares. Virality is an ambition of strong problem-resonance, not an algorithmic guarantee.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Natural Language Campaign Description & AI Brief Rewriting */}
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-[#1D1D1F] block">
-                  What do you want to achieve?
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-[#1D1D1F] block">
+                    What do you want to achieve?
+                  </label>
+
+                  <div className="flex items-center space-x-2">
+                    {/* Undo button if a rewrite was accepted */}
+                    {originalBriefSnapshot !== null && (
+                      <button
+                        type="button"
+                        onClick={handleUndoRewrite}
+                        className="inline-flex items-center space-x-1 text-xs text-[#6E6E73] hover:text-[#1D1D1F] font-medium transition-colors"
+                        title="Revert to your original text prior to accepting AI rewrite"
+                      >
+                        <Undo2 className="w-3 h-3" />
+                        <span>Undo rewrite</span>
+                      </button>
+                    )}
+
+                    {/* "Improve with AI" Button */}
+                    <button
+                      type="button"
+                      onClick={handleImproveBrief}
+                      disabled={isLoading || isImprovingBrief || !brief.trim()}
+                      className="inline-flex items-center space-x-1.5 px-3 py-1 bg-orange-50 hover:bg-orange-100 text-[#FF4500] border border-orange-200/60 rounded-xl text-xs font-medium transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      {isImprovingBrief ? (
+                        <div className="w-3 h-3 border-2 border-[#FF4500] border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3" />
+                      )}
+                      <span>{isImprovingBrief ? 'Improving…' : 'Improve with AI'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Textarea */}
                 <textarea
                   value={brief}
                   onChange={(e) => setBrief(e.target.value)}
                   disabled={isLoading}
                   rows={3}
-                  placeholder="Promote Apex Microcommerce to small Indian businesses currently taking orders on WhatsApp. Focus on affordability, simplicity and eliminating manual order management."
+                  placeholder={GOAL_EXAMPLES[primaryGoal] || 'Describe what you want to achieve...'}
                   className="w-full bg-[#F5F5F7] border-0 rounded-2xl p-4 text-sm text-[#1D1D1F] placeholder-[#86868B] focus:outline-none focus:ring-2 focus:ring-[#FF4500]/20 resize-none transition-all leading-relaxed"
                 />
+
+                {/* Contextual guidance prompt */}
+                <p className="text-[11px] text-[#86868B] flex items-center justify-between">
+                  <span>Contextual example: {GOAL_EXAMPLES[primaryGoal]?.slice(0, 75)}…</span>
+                  <span>{brief.length} characters</span>
+                </p>
+
+                {/* AI Error State with Retry */}
+                {improveError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center justify-between gap-2 animate-in fade-in duration-200">
+                    <div className="flex items-center space-x-2">
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                      <span>{improveError}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleImproveBrief}
+                      className="px-2.5 py-1 bg-white border border-red-300 rounded-lg text-[11px] font-semibold text-red-800 hover:bg-red-100 transition-colors shrink-0"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {/* PROPOSED REWRITE COMPARISON CARD (Shows proposed rewrite before replacing anything) */}
+                {proposedRewrite && (
+                  <div className="bg-orange-50/60 border border-orange-200/80 rounded-2xl p-4 sm:p-5 space-y-4 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Sparkles className="w-4 h-4 text-[#FF4500]" />
+                        <span className="text-xs font-semibold text-[#1D1D1F]">
+                          Proposed AI Brief Refinement
+                        </span>
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-orange-100 text-[#FF4500]">
+                          Preview
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleDismissRewrite}
+                        className="text-[#86868B] hover:text-[#1D1D1F] p-1"
+                        title="Dismiss without replacing"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Key Improvements */}
+                    {proposedRewrite.keyImprovements && proposedRewrite.keyImprovements.length > 0 && (
+                      <div className="space-y-1 text-xs">
+                        <span className="text-[11px] font-medium text-[#86868B] uppercase tracking-wider">
+                          Key Improvements
+                        </span>
+                        <ul className="space-y-0.5 list-disc list-inside text-[#1D1D1F] text-[11px]">
+                          {proposedRewrite.keyImprovements.map((imp, i) => (
+                            <li key={i}>{imp}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Rewritten Text (Editable or Viewable) */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-[11px] font-medium text-[#86868B] uppercase tracking-wider">
+                          Proposed Text
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingRewrite(!isEditingRewrite)}
+                          className="inline-flex items-center space-x-1 text-[11px] text-[#FF4500] font-medium hover:underline"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>{isEditingRewrite ? 'Finish editing' : 'Edit rewrite'}</span>
+                        </button>
+                      </div>
+
+                      {isEditingRewrite ? (
+                        <textarea
+                          value={editedRewriteText}
+                          onChange={(e) => setEditedRewriteText(e.target.value)}
+                          rows={3}
+                          className="w-full bg-white border border-orange-300 rounded-xl p-3 text-xs text-[#1D1D1F] focus:outline-none focus:ring-2 focus:ring-[#FF4500]/20"
+                        />
+                      ) : (
+                        <div className="bg-white border border-orange-200/80 rounded-xl p-3 text-xs text-[#1D1D1F] leading-relaxed">
+                          {editedRewriteText || proposedRewrite.rewrittenBrief}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Focused Questions for Essential Missing Details */}
+                    {proposedRewrite.focusedQuestions && proposedRewrite.focusedQuestions.length > 0 && (
+                      <div className="pt-2 border-t border-orange-200/60 space-y-1.5">
+                        <div className="flex items-center space-x-1.5 text-xs font-semibold text-orange-950">
+                          <HelpCircle className="w-3.5 h-3.5 text-[#FF4500]" />
+                          <span>Questions to consider for maximum sharpness:</span>
+                        </div>
+                        <ul className="space-y-1 text-[11px] text-orange-900/90 pl-5 list-disc">
+                          {proposedRewrite.focusedQuestions.map((q, idx) => (
+                            <li key={idx}>{q}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Accept, Edit & Dismiss Actions */}
+                    <div className="flex items-center justify-end space-x-2 pt-2 border-t border-orange-200/60">
+                      <button
+                        type="button"
+                        onClick={handleDismissRewrite}
+                        className="px-3 py-1.5 text-xs text-[#6E6E73] hover:text-[#1D1D1F] transition-colors rounded-lg font-medium"
+                      >
+                        Keep Original
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleAcceptRewrite}
+                        className="inline-flex items-center space-x-1.5 px-4 py-1.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-semibold rounded-xl shadow-sm transition-all active:scale-95"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Accept Rewrite</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Platforms (Multi-select chips) */}
+              {/* 3. Platforms (Multi-select chips) */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-[#1D1D1F]">
-                    Platforms
-                  </label>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <label className="text-xs font-semibold text-[#1D1D1F] block">
+                      Target Platforms
+                    </label>
+                    <span className="text-[10px] text-[#86868B] block mt-0.5">
+                      Shapes native copy style, audience expectation, and format conventions (no live API connection required).
+                    </span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
                       setLetAutonomaDecidePlatforms(!letAutonomaDecidePlatforms);
                       if (!letAutonomaDecidePlatforms) {
                         setSelectedPlatforms(['instagram', 'facebook', 'linkedin']);
+                        setHasCustomPlatform(false);
                       }
                     }}
-                    className={`text-xs px-2.5 py-1 rounded-lg transition-colors font-medium ${
+                    className={`text-xs px-2.5 py-1 rounded-lg transition-colors font-medium shrink-0 ${
                       letAutonomaDecidePlatforms
                         ? 'bg-orange-50 text-[#FF4500]'
                         : 'text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.04]'
@@ -406,7 +947,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                         type="button"
                         onClick={() => handleTogglePlatform(plat.id)}
                         disabled={isLoading}
-                        className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
                           isSelected
                             ? 'bg-[#1D1D1F] text-white shadow-sm'
                             : 'bg-[#F5F5F7] text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.05]'
@@ -416,10 +957,40 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                       </button>
                     );
                   })}
+
+                  {/* Other / Custom Platform button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHasCustomPlatform(!hasCustomPlatform);
+                      if (letAutonomaDecidePlatforms) setLetAutonomaDecidePlatforms(false);
+                    }}
+                    disabled={isLoading}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                      hasCustomPlatform
+                        ? 'bg-[#1D1D1F] text-white shadow-sm'
+                        : 'bg-[#F5F5F7] text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.05]'
+                    }`}
+                  >
+                    + Other Platform
+                  </button>
                 </div>
+
+                {/* Custom Platform free text input */}
+                {hasCustomPlatform && (
+                  <div className="pt-1.5 animate-in fade-in duration-150">
+                    <input
+                      type="text"
+                      value={customPlatform}
+                      onChange={(e) => setCustomPlatform(e.target.value)}
+                      placeholder="e.g. Reddit, Discord, Telegram, Quora, Substack, WhatsApp Channel..."
+                      className="w-full bg-[#F5F5F7] px-3.5 py-2 rounded-xl text-xs text-[#1D1D1F] placeholder-[#86868B] border border-black/[0.08] focus:outline-none focus:ring-2 focus:ring-[#FF4500]/20"
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Content Formats (Multi-select chips) */}
+              {/* 4. Content Formats (Multi-select chips) */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-[#1D1D1F]">
@@ -465,7 +1036,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                 </div>
               </div>
 
-              {/* Campaign Duration */}
+              {/* 5. Campaign Duration */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-[#1D1D1F] block">
                   Campaign Duration
@@ -519,38 +1090,82 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                 )}
               </div>
 
-              {/* Language selection */}
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-[#1D1D1F] block">
-                  Language
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {languagesList.map((lang) => (
-                    <button
-                      key={lang}
-                      type="button"
-                      onClick={() => setLanguage(lang)}
-                      disabled={isLoading}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                        language === lang
-                          ? 'bg-[#FF4500] text-white shadow-sm'
-                          : 'bg-[#F5F5F7] text-[#6E6E73] hover:text-[#1D1D1F]'
-                      }`}
-                    >
-                      {lang}
-                    </button>
-                  ))}
+              {/* 6. Language selection */}
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-[#1D1D1F] block">
+                    Language
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {languagesList.map((lang) => (
+                      <button
+                        key={lang}
+                        type="button"
+                        onClick={() => setLanguage(lang)}
+                        disabled={isLoading}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                          language === lang
+                            ? 'bg-[#FF4500] text-white shadow-sm'
+                            : 'bg-[#F5F5F7] text-[#6E6E73] hover:text-[#1D1D1F]'
+                        }`}
+                      >
+                        {lang}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Other / Custom Language Free-Text Input */}
+                  {language === 'Other / Custom Language' && (
+                    <div className="pt-1.5 animate-in fade-in duration-150">
+                      <input
+                        type="text"
+                        value={customLanguage}
+                        onChange={(e) => setCustomLanguage(e.target.value)}
+                        placeholder="e.g. Konkani, Nepali, French, German, Arabic, Spanish..."
+                        className="w-full bg-[#F5F5F7] px-3.5 py-2 rounded-xl text-xs text-[#1D1D1F] placeholder-[#86868B] border border-black/[0.08] focus:outline-none focus:ring-2 focus:ring-[#FF4500]/20"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Language Style (Register) Selection */}
+                <div className="space-y-1.5 pt-1 border-t border-black/[0.04]">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-medium text-[#86868B]">
+                      Language Style (Register)
+                    </label>
+                    <span className="text-[10px] text-[#86868B]">
+                      Tone of language phrasing
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {languageStyles.map((style) => (
+                      <button
+                        key={style}
+                        type="button"
+                        onClick={() => setLanguageStyle(style)}
+                        disabled={isLoading}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                          languageStyle === style
+                            ? 'bg-[#1D1D1F] text-white shadow-sm'
+                            : 'bg-[#F5F5F7] text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.05]'
+                        }`}
+                      >
+                        {style}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              {/* Collapsible Advanced Options */}
+              {/* 7. Collapsible Advanced Options */}
               <div className="border-t border-black/[0.06] pt-3">
                 <button
                   type="button"
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   className="flex items-center justify-between w-full py-1 text-xs font-semibold text-[#6E6E73] hover:text-[#1D1D1F] transition-colors"
                 >
-                  <span>Advanced Options</span>
+                  <span>Advanced Options (Audience, CTA, Tone)</span>
                   {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
 
@@ -630,13 +1245,49 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
             </div>
 
             {/* Error Message */}
+            {/* Resilient Error & Retry Banner */}
             {error && (
-              <div className="bg-red-50 text-red-700 text-xs p-3.5 rounded-2xl border border-red-200 flex flex-col space-y-1">
-                <div className="flex items-center space-x-2 font-semibold">
-                  <span className="w-2 h-2 rounded-full bg-red-600" />
-                  <span>CAMPAIGN NOT SAVED</span>
+              <div className="bg-amber-50 text-amber-900 text-xs p-4 rounded-2xl border border-amber-200/90 flex flex-col space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2 font-semibold text-amber-800">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                    <span>CAMPAIGN SHELL PERSISTED (SYNTHESIS INCOMPLETE)</span>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-amber-200/70 text-amber-900">
+                    GENERATION FAILED
+                  </span>
                 </div>
-                <div className="text-[11px] text-red-600 pl-4">{error}</div>
+                <div className="text-[11px] text-amber-800 leading-relaxed font-normal">
+                  {error}
+                </div>
+                <p className="text-[11px] text-[#6E6E73]">
+                  Your campaign shell is safely saved in the database. You can retry synthesis now using the same campaign ID without creating duplicates.
+                </p>
+                <div className="pt-1 flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={handleCreateCampaign}
+                    disabled={isLoading}
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Retry Synthesis</span>
+                  </button>
+                  {activeCampaignShellRef.current && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const camp = activeCampaignShellRef.current;
+                        handleResetAndClose();
+                        if (camp && onViewCampaignDetail) onViewCampaignDetail(camp);
+                      }}
+                      className="inline-flex items-center space-x-1 px-3 py-1.5 bg-white text-[#1D1D1F] border border-black/[0.08] hover:bg-black/[0.03] text-xs font-medium rounded-xl transition-all"
+                    >
+                      <FolderKanban className="w-3.5 h-3.5 text-[#6E6E73]" />
+                      <span>View in Campaigns</span>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 

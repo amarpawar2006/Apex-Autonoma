@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { 
   AutonomaDatabaseStore, 
@@ -11,6 +12,11 @@ import {
   DbDailySnapshotRow, 
   DbSettingsRow, 
   DbActivityLogRow,
+  DbCompanyRow,
+  DbUserRow,
+  DbMembershipRow,
+  DbApprovalRequestRow,
+  DbSessionRow,
   AppsScriptResponse
 } from '../src/types/database.js';
 import { INITIAL_CAMPAIGNS, INITIAL_MONTH_ASSETS } from '../src/data/initialCampaigns.js';
@@ -20,17 +26,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE_PATH = path.resolve(__dirname, '..', 'data', 'autonoma-database.json');
 
-const DEFAULT_ORG_ID = 'org_apex_pune';
+export const DEFAULT_ORG_ID = 'org_apex_pune';
+export const INITIAL_SUPER_ADMIN_EMAIL = (process.env.INITIAL_SUPER_ADMIN_EMAIL || 'amarpawar2007@gmail.com').toLowerCase().trim();
 export const DEFAULT_PRODUCTION_SHEETS_URL =
   'https://script.google.com/macros/s/AKfycbyyTzei9wvOAWbDrFeaGhk2fFkwsWVgBqK-zcFdAQH_dMKVKAQE2wLSIjvdqZHGct5m/exec';
 
 /**
  * Maps a rich frontend Campaign object to the flat Google Sheets DbCampaignRow
  */
-export function campaignToDbRow(c: Campaign): DbCampaignRow {
+export function campaignToDbRow(c: Campaign, orgId?: string): DbCampaignRow {
   return {
     campaignId: c.id,
-    organizationId: DEFAULT_ORG_ID,
+    organizationId: orgId || (c as any).organizationId || DEFAULT_ORG_ID,
     name: c.name,
     brief: c.brief,
     objective: c.objective,
@@ -38,6 +45,7 @@ export function campaignToDbRow(c: Campaign): DbCampaignRow {
     startDate: c.startDate,
     endDate: c.endDate,
     platforms: JSON.stringify(c.platforms || []),
+    platformsJson: JSON.stringify(c.platforms || []),
     duration: c.strategy?.formatMix?.join(', ') || '7_days',
     audience: c.strategy?.targetAudience || '',
     marketInsight: c.strategy?.coreInsight || '',
@@ -45,7 +53,17 @@ export function campaignToDbRow(c: Campaign): DbCampaignRow {
     contentPillars: JSON.stringify(c.strategy?.contentPillars || []),
     postingCadence: c.strategy?.recommendedPostingSchedule || '',
     createdAt: c.createdAt || new Date().toISOString(),
-    updatedAt: c.updatedAt || new Date().toISOString()
+    updatedAt: c.updatedAt || new Date().toISOString(),
+    archivedAt: c.archivedAt,
+    languages: JSON.stringify(c.languages || [(c as any).targetLanguage || 'English']),
+    targetLanguage: (c as any).targetLanguage || (c.languages && c.languages[0]) || 'English',
+    customLanguage: c.customLanguage,
+    customPlatform: c.customPlatform,
+    languageStyle: c.languageStyle,
+    generationStatus: c.generationStatus,
+    lastGenerationError: c.lastGenerationError,
+    lastGenerationAttemptAt: c.lastGenerationAttemptAt,
+    generationOptionsJson: c.generationOptions ? JSON.stringify(c.generationOptions) : undefined
   };
 }
 
@@ -67,6 +85,22 @@ export function dbRowToCampaign(row: DbCampaignRow): Campaign {
     contentPillars = (row.contentPillars || '').split('\n').filter(Boolean);
   }
 
+  let languages: string[] = ['English'];
+  if (row.languages) {
+    try {
+      languages = JSON.parse(row.languages);
+    } catch {
+      languages = [row.languages];
+    }
+  }
+
+  let generationOptions: any = undefined;
+  if (row.generationOptionsJson) {
+    try {
+      generationOptions = JSON.parse(row.generationOptionsJson);
+    } catch {}
+  }
+
   return {
     id: row.campaignId,
     campaignCode: row.campaignId.startsWith('CMP-') ? row.campaignId : `CMP-${row.campaignId.toUpperCase()}`,
@@ -76,18 +110,29 @@ export function dbRowToCampaign(row: DbCampaignRow): Campaign {
     status: (row.status as any) || 'ACTIVE',
     platforms,
     formats: ['carousel', 'reel_short', 'static_poster'],
-    languages: ['English', 'Auto'],
+    languages,
     startDate: row.startDate,
     endDate: row.endDate,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt,
     assetCount: 0,
+    customLanguage: row.customLanguage,
+    customPlatform: row.customPlatform,
+    languageStyle: row.languageStyle,
+    generationStatus: (row.generationStatus as any),
+    lastGenerationError: row.lastGenerationError,
+    lastGenerationAttemptAt: row.lastGenerationAttemptAt,
+    generationOptions,
     strategy: {
       targetAudience: row.audience,
       coreInsight: row.marketInsight,
       valueProposition: row.valueProposition,
       contentPillars,
-      recommendedPostingSchedule: row.postingCadence
+      recommendedPostingSchedule: row.postingCadence,
+      languageGuidance: row.customLanguage
+        ? `${row.customLanguage} (${row.languageStyle || 'Natural'})`
+        : (languages.join(', ') + (row.languageStyle ? ` · ${row.languageStyle}` : ''))
     }
   };
 }
@@ -95,11 +140,11 @@ export function dbRowToCampaign(row: DbCampaignRow): Campaign {
 /**
  * Maps a rich SocialAsset object to flat DbAssetRow
  */
-export function assetToDbRow(a: SocialAsset): DbAssetRow {
+export function assetToDbRow(a: SocialAsset, orgId?: string): DbAssetRow {
   return {
     assetId: a.id,
     campaignId: a.campaignId || 'cmp-q1-manifesto',
-    organizationId: DEFAULT_ORG_ID,
+    organizationId: orgId || (a as any).organizationId || DEFAULT_ORG_ID,
     title: a.title,
     hook: a.hook,
     strategicPurpose: a.strategicPurpose || 'Operational Education',
@@ -123,6 +168,8 @@ export function assetToDbRow(a: SocialAsset): DbAssetRow {
     mediaStatus: a.productionStatus || 'NOT_GENERATED',
     aiContentScore: a.viralityScore || 85,
     aiScoreRationale: a.viralityRationale || '',
+    isArchived: Boolean(a.isArchived),
+    archivedAt: a.archivedAt,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -167,6 +214,8 @@ export function dbRowToAsset(row: DbAssetRow): SocialAsset {
     speciesCode: (row.speciesCode as any) || 'SPEC-01_PROBLEM_FIRST',
     status: (row.approvalStatus as any) || 'draft',
     productionStatus: (row.mediaStatus as any) || 'NOT_GENERATED',
+    isArchived: Boolean(row.isArchived),
+    archivedAt: row.archivedAt,
     hook: row.hook,
     caption: row.caption,
     hashtags,
@@ -190,8 +239,8 @@ export function dbRowToAsset(row: DbAssetRow): SocialAsset {
  * Creates initial baseline database populated with the 22 seeded assets and campaigns
  */
 function createInitialDatabase(): AutonomaDatabaseStore {
-  const campaigns = INITIAL_CAMPAIGNS.map(campaignToDbRow);
-  const assets = INITIAL_MONTH_ASSETS.map(assetToDbRow);
+  const campaigns = INITIAL_CAMPAIGNS.map(c => campaignToDbRow(c));
+  const assets = INITIAL_MONTH_ASSETS.map(a => assetToDbRow(a));
 
   const defaultSettings: DbSettingsRow = {
     organizationId: DEFAULT_ORG_ID,
@@ -223,11 +272,79 @@ function createInitialDatabase(): AutonomaDatabaseStore {
     })
   };
 
+  const initialProfile = {
+    organizationType: 'business' as const,
+    description: 'Precision CNC machining, industrial automation, and custom tooling engineering.',
+    audience: 'Industrial procurement heads, automotive & aerospace OEMs, factory automation engineers in India & APAC',
+    primaryGoal: 'Drive qualified RFQ consultations, technical audits, and high-volume machining contracts',
+    offerings: '5-axis CNC Milling, Turning, Sheet Metal Fabrication, Automation Jigs & Fixtures',
+    geography: 'Pune, Maharashtra, India (serving Global OEMs)',
+    preferredLanguage: 'English',
+    timezone: 'Asia/Kolkata (IST)',
+    brandVoice: 'Authoritative, precision-driven, engineering-centric, ISO compliant',
+    claimsAvoid: 'Overpromising lead times, uncertified material specs',
+    preferredCta: 'Request Technical Feasibility & Quote',
+    confirmedContext: {
+      organizationAndOffering: 'Precision CNC machining, industrial automation, and custom tooling engineering.',
+      audience: 'Industrial procurement heads, automotive & aerospace OEMs, factory automation engineers in India & APAC',
+      goals: 'Drive qualified RFQ consultations, technical audits, and high-volume machining contracts',
+      voice: 'Authoritative, precision-driven, engineering-centric, ISO compliant',
+      cta: 'Request Technical Feasibility & Quote',
+      constraints: 'Overpromising lead times, uncertified material specs',
+      sourceUrls: ['https://apexengineering.in'],
+      assumptions: ['[Assumption] Standard ISO compliant precision manufacturing operations.'],
+      version: 1,
+      confirmedAt: '2026-09-01T00:00:00.000Z',
+      isActive: true
+    }
+  };
+
+  const initialCompanies: DbCompanyRow[] = [
+    {
+      companyId: DEFAULT_ORG_ID,
+      name: 'Apex Engineering Pune',
+      status: 'ACTIVE',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: new Date().toISOString(),
+      profile: initialProfile,
+      profileJson: JSON.stringify(initialProfile)
+    }
+  ];
+
+  const initialUsers: DbUserRow[] = [
+    {
+      userId: 'usr_super_admin',
+      email: INITIAL_SUPER_ADMIN_EMAIL,
+      name: 'Amar Pawar',
+      isSuperAdmin: true,
+      status: 'ACTIVE',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      lastLoginAt: new Date().toISOString()
+    }
+  ];
+
+  const initialMemberships: DbMembershipRow[] = [
+    {
+      membershipId: 'mem_apex_super',
+      userId: 'usr_super_admin',
+      companyId: DEFAULT_ORG_ID,
+      role: 'COMPANY_ADMIN',
+      status: 'ACTIVE',
+      assignedAt: '2026-09-01T00:00:00.000Z',
+      assignedBy: 'SYSTEM'
+    }
+  ];
+
   return {
     version: '1.0.0',
     organizationId: DEFAULT_ORG_ID,
     lastSyncAt: null,
     googleSheetsUrl: process.env.GOOGLE_APPS_SCRIPT_URL || process.env.GOOGLE_SHEETS_WEBAPP_URL || '',
+    companies: initialCompanies,
+    users: initialUsers,
+    memberships: initialMemberships,
+    approvalRequests: [],
+    sessions: [],
     campaigns,
     assets,
     media: [],
@@ -235,7 +352,10 @@ function createInitialDatabase(): AutonomaDatabaseStore {
     performance: [],
     dailySnapshots: [],
     settings: defaultSettings,
-    activityLog: [initialLog]
+    activityLog: [initialLog],
+    deletedCampaignIds: [],
+    deletedAssetIds: [],
+    initialized: true
   };
 }
 
@@ -243,35 +363,149 @@ export class AutonomaDatabaseManager {
   private store: AutonomaDatabaseStore;
   private hasHydrated = false;
   private isHydrating: Promise<any> | null = null;
+  private dbFilePath: string;
 
-  constructor() {
+  constructor(customFilePath?: string) {
+    this.dbFilePath = customFilePath || DB_FILE_PATH;
     this.store = this.loadFromDisk();
   }
 
   private loadFromDisk(): AutonomaDatabaseStore {
     try {
-      const dir = path.dirname(DB_FILE_PATH);
+      const dir = path.dirname(this.dbFilePath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      if (fs.existsSync(DB_FILE_PATH)) {
-        const raw = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+      if (fs.existsSync(this.dbFilePath)) {
+        const raw = fs.readFileSync(this.dbFilePath, 'utf-8');
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.campaigns) && Array.isArray(parsed.assets)) {
+          if (!parsed.deletedCampaignIds) parsed.deletedCampaignIds = [];
+          if (!parsed.deletedAssetIds) parsed.deletedAssetIds = [];
+          parsed.initialized = true;
+
+          // Strip any records that are marked deleted
+          if (parsed.deletedCampaignIds.length > 0) {
+            const delSet = new Set(parsed.deletedCampaignIds);
+            parsed.campaigns = parsed.campaigns.filter((c: any) => !delSet.has(c.campaignId));
+          }
+          if (parsed.deletedAssetIds.length > 0) {
+            const delSet = new Set(parsed.deletedAssetIds);
+            parsed.assets = parsed.assets.filter((a: any) => !delSet.has(a.assetId));
+          }
+
+          if (!parsed.companies || !Array.isArray(parsed.companies)) parsed.companies = [];
+          if (!parsed.users || !Array.isArray(parsed.users)) parsed.users = [];
+          if (!parsed.memberships || !Array.isArray(parsed.memberships)) parsed.memberships = [];
+          if (!parsed.approvalRequests || !Array.isArray(parsed.approvalRequests)) parsed.approvalRequests = [];
+          if (!parsed.sessions || !Array.isArray(parsed.sessions)) parsed.sessions = [];
+
+          // Guarantee legacy company exists
+          let legacyCo = parsed.companies.find((c: any) => c.companyId === DEFAULT_ORG_ID);
+          if (!legacyCo) {
+            legacyCo = {
+              companyId: DEFAULT_ORG_ID,
+              name: 'Apex Engineering Pune',
+              status: 'ACTIVE',
+              createdAt: '2026-09-01T00:00:00.000Z',
+              updatedAt: new Date().toISOString()
+            };
+            parsed.companies.push(legacyCo);
+          }
+          if (!legacyCo.profile) {
+            legacyCo.profile = {
+              organizationType: 'business',
+              description: 'Precision CNC machining, industrial automation, and custom tooling engineering.',
+              audience: 'Industrial procurement heads, automotive & aerospace OEMs, factory automation engineers in India & APAC',
+              primaryGoal: 'Drive qualified RFQ consultations, technical audits, and high-volume machining contracts',
+              offerings: '5-axis CNC Milling, Turning, Sheet Metal Fabrication, Automation Jigs & Fixtures',
+              geography: 'Pune, Maharashtra, India (serving Global OEMs)',
+              preferredLanguage: 'English',
+              timezone: 'Asia/Kolkata (IST)',
+              brandVoice: 'Authoritative, precision-driven, engineering-centric, ISO compliant',
+              claimsAvoid: 'Overpromising lead times, uncertified material specs',
+              preferredCta: 'Request Technical Feasibility & Quote'
+            };
+            legacyCo.profileJson = JSON.stringify(legacyCo.profile);
+          }
+          if (legacyCo.profile && !legacyCo.profile.confirmedContext) {
+            legacyCo.profile.confirmedContext = {
+              organizationAndOffering: legacyCo.profile.description,
+              audience: legacyCo.profile.audience,
+              goals: legacyCo.profile.primaryGoal,
+              voice: legacyCo.profile.brandVoice || 'Authoritative, precision-driven, engineering-centric',
+              cta: legacyCo.profile.preferredCta || 'Request Technical Feasibility & Quote',
+              constraints: legacyCo.profile.claimsAvoid || 'Overpromising lead times, uncertified material specs',
+              sourceUrls: ['https://apexengineering.in'],
+              assumptions: ['[Assumption] Standard ISO compliant precision manufacturing operations.'],
+              version: 1,
+              confirmedAt: '2026-09-01T00:00:00.000Z',
+              isActive: true
+            };
+            legacyCo.profileJson = JSON.stringify(legacyCo.profile);
+          }
+
+          // Ensure all companies deserialize their profiles and remain fully synchronized
+          for (const c of parsed.companies) {
+            if (!c.profile && c.profileJson) {
+              try { c.profile = JSON.parse(c.profileJson); } catch {}
+            } else if (c.profile && !c.profileJson) {
+              c.profileJson = JSON.stringify(c.profile);
+            }
+          }
+
+          // Guarantee Super Admin user exists and has isSuperAdmin: true
+          let superAdmin = parsed.users.find((u: any) => u.email?.toLowerCase().trim() === INITIAL_SUPER_ADMIN_EMAIL);
+          if (!superAdmin) {
+            superAdmin = {
+              userId: 'usr_super_admin',
+              email: INITIAL_SUPER_ADMIN_EMAIL,
+              name: 'Amar Pawar',
+              isSuperAdmin: true,
+              status: 'ACTIVE',
+              createdAt: '2026-09-01T00:00:00.000Z',
+              lastLoginAt: new Date().toISOString()
+            };
+            parsed.users.push(superAdmin);
+          } else {
+            superAdmin.isSuperAdmin = true;
+          }
+
+          // Guarantee membership for Super Admin in Apex Engineering Pune
+          if (!parsed.memberships.find((m: any) => m.userId === superAdmin.userId && m.companyId === DEFAULT_ORG_ID)) {
+            parsed.memberships.push({
+              membershipId: 'mem_apex_super',
+              userId: superAdmin.userId,
+              companyId: DEFAULT_ORG_ID,
+              role: 'COMPANY_ADMIN',
+              status: 'ACTIVE',
+              assignedAt: '2026-09-01T00:00:00.000Z',
+              assignedBy: 'SYSTEM'
+            });
+          }
+
+          // Map any unassigned legacy campaigns or assets strictly to DEFAULT_ORG_ID
+          for (const c of parsed.campaigns) {
+            if (!c.organizationId) c.organizationId = DEFAULT_ORG_ID;
+          }
+          for (const a of parsed.assets) {
+            if (!a.organizationId) a.organizationId = DEFAULT_ORG_ID;
+          }
+
           // If env has a sheets URL and store doesn't, apply env var
           const envUrl = process.env.GOOGLE_APPS_SCRIPT_URL || process.env.GOOGLE_SHEETS_WEBAPP_URL;
           if (envUrl && !parsed.googleSheetsUrl) {
             parsed.googleSheetsUrl = envUrl;
           }
-          // Ensure seeded baseline assets are not missing
-          if (parsed.assets.length === 0) {
-            parsed.assets = INITIAL_MONTH_ASSETS.map(assetToDbRow);
+          // Ensure seeded baseline assets are not missing on fresh setup
+          if (parsed.assets.length === 0 && parsed.deletedAssetIds.length === 0 && !parsed.initialized) {
+            parsed.assets = INITIAL_MONTH_ASSETS.map(a => assetToDbRow(a));
           }
-          if (parsed.campaigns.length === 0) {
-            parsed.campaigns = INITIAL_CAMPAIGNS.map(campaignToDbRow);
+          if (parsed.campaigns.length === 0 && parsed.deletedCampaignIds.length === 0 && !parsed.initialized) {
+            parsed.campaigns = INITIAL_CAMPAIGNS.map(c => campaignToDbRow(c));
           }
-          console.log(`[Autonoma DB] Loaded ${parsed.campaigns.length} campaigns and ${parsed.assets.length} assets from disk.`);
+          console.log(`[Autonoma DB] Loaded ${parsed.campaigns.length} campaigns, ${parsed.assets.length} assets, ${parsed.companies.length} companies from disk.`);
           return parsed;
         }
       }
@@ -286,19 +520,19 @@ export class AutonomaDatabaseManager {
   }
 
   private persistToDisk(storeToSave?: AutonomaDatabaseStore): void {
-  const data = storeToSave || this.store;
-  const dir = path.dirname(DB_FILE_PATH);
+    const data = storeToSave || this.store;
+    const dir = path.dirname(this.dbFilePath);
 
-  try {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
 
-    fs.writeFileSync(
-      DB_FILE_PATH,
-      JSON.stringify(data, null, 2),
-      'utf-8'
-    );
+      fs.writeFileSync(
+        this.dbFilePath,
+        JSON.stringify(data, null, 2),
+        'utf-8'
+      );
   } catch (err: any) {
     console.error(
       '[Autonoma DB] CRITICAL: Failed to persist database to disk:',
@@ -322,6 +556,11 @@ export class AutonomaDatabaseManager {
    * Normalizes whitespace and strips trailing slashes.
    */
   public resolveGoogleSheetsUrl(): string {
+    // 0. If explicitly set to DISABLED or empty string in store, respect disconnection/test isolation
+    if (this.store.googleSheetsUrl === 'DISABLED' || this.store.googleSheetsUrl === '') {
+      return '';
+    }
+
     // 1. Explicit persisted server setting, if available and valid
     const stored = (this.store.googleSheetsUrl || '').trim().replace(/\/+$/, '');
     if (stored && stored.endsWith('/exec')) {
@@ -329,6 +568,10 @@ export class AutonomaDatabaseManager {
     }
 
     // 2. Environment variable fallback
+    if (process.env.NODE_ENV === 'test') {
+      return '';
+    }
+
     const envUrl = (
       process.env.AUTONOMA_SHEETS_WEBAPP_URL ||
       process.env.GOOGLE_APPS_SCRIPT_URL ||
@@ -453,7 +696,8 @@ export class AutonomaDatabaseManager {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...payload }),
-        redirect: 'follow'
+        redirect: 'follow',
+        signal: AbortSignal.timeout(12000)
       });
 
       if (!res.ok) {
@@ -478,20 +722,500 @@ export class AutonomaDatabaseManager {
   }
 
   // ==========================================
+  // COMPANIES API
+  // ==========================================
+
+  public getCompanies(): DbCompanyRow[] {
+    const list = this.store.companies || [];
+    for (const c of list) {
+      if (c.profileJson && !c.profile) {
+        try { c.profile = JSON.parse(c.profileJson); } catch {}
+      } else if (c.profile && !c.profileJson) {
+        c.profileJson = JSON.stringify(c.profile);
+      }
+    }
+    return list;
+  }
+
+  public getCompany(companyId: string): DbCompanyRow | null {
+    const c = (this.store.companies || []).find(comp => comp.companyId === companyId);
+    if (!c) return null;
+    if (c.profileJson && !c.profile) {
+      try { c.profile = JSON.parse(c.profileJson); } catch {}
+    } else if (c.profile && !c.profileJson) {
+      c.profileJson = JSON.stringify(c.profile);
+    }
+    return c;
+  }
+
+  public async createCompany(name: string, status: 'ACTIVE' | 'SUSPENDED' = 'ACTIVE', profile?: any): Promise<DbCompanyRow> {
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'company';
+    const companyId = `org_${slug}_${crypto.randomBytes(3).toString('hex')}`;
+    const now = new Date().toISOString();
+    const newCompany: DbCompanyRow = {
+      companyId,
+      name: name.trim(),
+      status,
+      profile: profile || undefined,
+      profileJson: profile ? JSON.stringify(profile) : undefined,
+      createdAt: now,
+      updatedAt: now
+    };
+    if (!this.store.companies) this.store.companies = [];
+    this.store.companies.push(newCompany);
+    this.persistToDisk();
+
+    this.logActivity('COMPANY', companyId, 'CREATE_COMPANY', { name: newCompany.name });
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('CREATE_COMPANY', { company: newCompany }).catch(() => {});
+    }
+    return newCompany;
+  }
+
+  public async updateCompany(companyId: string, updates: Partial<DbCompanyRow>): Promise<DbCompanyRow> {
+    if (!this.store.companies) this.store.companies = [];
+    const idx = this.store.companies.findIndex(c => c.companyId === companyId);
+    if (idx < 0) throw new Error(`Company ${companyId} not found`);
+
+    let profile = updates.profile !== undefined ? updates.profile : this.store.companies[idx].profile;
+    if (profile === undefined && updates.profileJson) {
+      try { profile = JSON.parse(updates.profileJson); } catch {}
+    }
+    const profileJson = profile ? JSON.stringify(profile) : (updates.profileJson || this.store.companies[idx].profileJson);
+
+    const updated = {
+      ...this.store.companies[idx],
+      ...updates,
+      profile,
+      profileJson,
+      updatedAt: new Date().toISOString()
+    };
+    this.store.companies[idx] = updated;
+    this.persistToDisk();
+
+    this.logActivity('COMPANY', companyId, 'UPDATE_COMPANY', updates);
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('UPDATE_COMPANY', { company: updated }).catch(() => {});
+    }
+    return updated;
+  }
+
+
+  public async deleteCompany(companyId: string, actorUserId: string): Promise<{
+    success: boolean;
+    companyId: string;
+    deletedCampaigns: number;
+    deletedAssets: number;
+    deletedMemberships: number;
+  }> {
+    if (companyId === DEFAULT_ORG_ID) {
+      throw new Error('Apex Engineering Pune is the protected primary workspace and cannot be deleted.');
+    }
+    const company = this.getCompany(companyId);
+    if (!company) throw new Error('Company not found');
+
+    const campaignIds = new Set((this.store.campaigns || []).filter(c => c.organizationId === companyId).map(c => c.campaignId));
+    const assetIds = new Set((this.store.assets || []).filter(a => a.organizationId === companyId || campaignIds.has(a.campaignId)).map(a => a.assetId));
+    const publicationIds = new Set((this.store.publishing || []).filter(p => campaignIds.has(p.campaignId) || assetIds.has(p.assetId)).map(p => p.publicationId));
+
+    const deletedCampaigns = campaignIds.size;
+    const deletedAssets = assetIds.size;
+    const deletedMemberships = (this.store.memberships || []).filter(m => m.companyId === companyId).length;
+
+    if (!this.store.deletedCampaignIds) this.store.deletedCampaignIds = [];
+    if (!this.store.deletedAssetIds) this.store.deletedAssetIds = [];
+    for (const id of campaignIds) if (!this.store.deletedCampaignIds.includes(id)) this.store.deletedCampaignIds.push(id);
+    for (const id of assetIds) if (!this.store.deletedAssetIds.includes(id)) this.store.deletedAssetIds.push(id);
+
+    this.store.campaigns = (this.store.campaigns || []).filter(c => !campaignIds.has(c.campaignId));
+    this.store.assets = (this.store.assets || []).filter(a => !assetIds.has(a.assetId));
+    this.store.media = (this.store.media || []).filter(m => !assetIds.has(m.assetId) && !campaignIds.has(m.campaignId));
+    this.store.publishing = (this.store.publishing || []).filter(p => !assetIds.has(p.assetId) && !campaignIds.has(p.campaignId));
+    this.store.performance = (this.store.performance || []).filter(p => !assetIds.has(p.assetId) && !campaignIds.has(p.campaignId) && !publicationIds.has(p.publicationId));
+    this.store.dailySnapshots = (this.store.dailySnapshots || []).filter(s => !assetIds.has(s.assetId) && !publicationIds.has(s.publicationId));
+    this.store.memberships = (this.store.memberships || []).filter(m => m.companyId !== companyId);
+    this.store.companies = (this.store.companies || []).filter(c => c.companyId !== companyId);
+
+    for (const req of this.store.approvalRequests || []) {
+      if (req.assignedCompanyId === companyId) req.assignedCompanyId = undefined;
+    }
+
+    for (const session of this.store.sessions || []) {
+      if (session.activeCompanyId === companyId) {
+        const fallback = (this.store.memberships || []).find(m => m.userId === session.userId && m.status === 'ACTIVE');
+        session.activeCompanyId = fallback?.companyId;
+      }
+    }
+
+    this.logActivity('COMPANY', companyId, 'DELETE_COMPANY', {
+      name: company.name, actorUserId, deletedCampaigns, deletedAssets, deletedMemberships
+    });
+    this.persistToDisk();
+
+    return { success: true, companyId, deletedCampaigns, deletedAssets, deletedMemberships };
+  }
+
+  // ==========================================
+  // USERS & MEMBERSHIPS API
+  // ==========================================
+
+  public getUsers(): DbUserRow[] {
+    return this.store.users || [];
+  }
+
+  public getUser(userId: string): DbUserRow | null {
+    return (this.store.users || []).find(u => u.userId === userId) || null;
+  }
+
+  public getUserByEmail(email: string): DbUserRow | null {
+    const norm = email.toLowerCase().trim();
+    return (this.store.users || []).find(u => u.email.toLowerCase().trim() === norm) || null;
+  }
+
+  public async saveUser(user: DbUserRow): Promise<DbUserRow> {
+    if (!this.store.users) this.store.users = [];
+    const idx = this.store.users.findIndex(u => u.userId === user.userId);
+    if (idx >= 0) {
+      this.store.users[idx] = { ...this.store.users[idx], ...user };
+    } else {
+      this.store.users.push(user);
+    }
+    this.persistToDisk();
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript(idx >= 0 ? 'UPDATE_USER' : 'CREATE_USER', { user }).catch(() => {});
+    }
+    return user;
+  }
+
+
+  public async deleteUser(userId: string, actorUserId: string): Promise<{ success: boolean; userId: string; deletedMemberships: number }> {
+    const user = this.getUser(userId);
+    if (!user) throw new Error('User not found');
+    if (user.isSuperAdmin || user.email.toLowerCase().trim() === INITIAL_SUPER_ADMIN_EMAIL) {
+      throw new Error('The Super Admin account cannot be deleted.');
+    }
+
+    const deletedMemberships = (this.store.memberships || []).filter(m => m.userId === userId).length;
+    this.store.memberships = (this.store.memberships || []).filter(m => m.userId !== userId);
+    this.store.sessions = (this.store.sessions || []).filter(s => s.userId !== userId);
+    this.store.users = (this.store.users || []).filter(u => u.userId !== userId);
+
+    this.logActivity('USER', userId, 'DELETE_USER', { email: user.email, actorUserId, deletedMemberships });
+    this.persistToDisk();
+    return { success: true, userId, deletedMemberships };
+  }
+
+  public getMemberships(userId?: string, companyId?: string): DbMembershipRow[] {
+    let list = this.store.memberships || [];
+    if (userId) list = list.filter(m => m.userId === userId);
+    if (companyId) list = list.filter(m => m.companyId === companyId);
+    return list;
+  }
+
+  public getMembership(membershipId: string): DbMembershipRow | null {
+    return (this.store.memberships || []).find(m => m.membershipId === membershipId) || null;
+  }
+
+  public async createMembership(
+    userId: string,
+    companyId: string,
+    role: 'COMPANY_ADMIN' | 'MEMBER',
+    assignedBy: string
+  ): Promise<DbMembershipRow> {
+    if (!this.store.memberships) this.store.memberships = [];
+    // Prevent duplicate memberships: if user already has membership in companyId, safely update existing
+    const existing = this.store.memberships.find(m => m.userId === userId && m.companyId === companyId);
+    if (existing) {
+      existing.role = role;
+      existing.status = 'ACTIVE';
+      existing.assignedBy = assignedBy;
+      existing.assignedAt = new Date().toISOString();
+      this.persistToDisk();
+      return existing;
+    }
+
+    const membershipId = `mem_${crypto.randomBytes(6).toString('hex')}`;
+    const newMembership: DbMembershipRow = {
+      membershipId,
+      userId,
+      companyId,
+      role,
+      status: 'ACTIVE',
+      assignedAt: new Date().toISOString(),
+      assignedBy
+    };
+    this.store.memberships.push(newMembership);
+    this.persistToDisk();
+
+    this.logActivity('MEMBERSHIP', membershipId, 'CREATE_MEMBERSHIP', { userId, companyId, role });
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('CREATE_MEMBERSHIP', { membership: newMembership }).catch(() => {});
+    }
+    return newMembership;
+  }
+
+  public async updateMembership(membershipId: string, updates: Partial<DbMembershipRow>): Promise<DbMembershipRow> {
+    if (!this.store.memberships) this.store.memberships = [];
+    const idx = this.store.memberships.findIndex(m => m.membershipId === membershipId);
+    if (idx < 0) throw new Error(`Membership ${membershipId} not found`);
+    const updated = {
+      ...this.store.memberships[idx],
+      ...updates
+    };
+    this.store.memberships[idx] = updated;
+    this.persistToDisk();
+
+    this.logActivity('MEMBERSHIP', membershipId, 'UPDATE_MEMBERSHIP', updates);
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('UPDATE_MEMBERSHIP', { membership: updated }).catch(() => {});
+    }
+    return updated;
+  }
+
+  public async deleteMembership(membershipId: string): Promise<boolean> {
+    if (!this.store.memberships) this.store.memberships = [];
+    const idx = this.store.memberships.findIndex(m => m.membershipId === membershipId);
+    if (idx < 0) return false;
+    this.store.memberships.splice(idx, 1);
+    this.persistToDisk();
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('DELETE_MEMBERSHIP', { membershipId }).catch(() => {});
+    }
+    return true;
+  }
+
+  // ==========================================
+  // APPROVAL REQUESTS API
+  // ==========================================
+
+  public getApprovalRequests(): DbApprovalRequestRow[] {
+    return this.store.approvalRequests || [];
+  }
+
+  public getApprovalRequestByEmail(email: string): DbApprovalRequestRow | null {
+    const norm = email.toLowerCase().trim();
+    return (this.store.approvalRequests || []).find(r => r.email.toLowerCase().trim() === norm) || null;
+  }
+
+  public async createApprovalRequest(
+    email: string,
+    name: string,
+    proposedCompanyName: string
+  ): Promise<DbApprovalRequestRow> {
+    if (!this.store.approvalRequests) this.store.approvalRequests = [];
+    const normEmail = email.toLowerCase().trim();
+    const existing = this.store.approvalRequests.find(r => r.email.toLowerCase().trim() === normEmail);
+    if (existing) {
+      if (existing.status === 'PENDING') {
+        existing.proposedCompanyName = proposedCompanyName.trim() || existing.proposedCompanyName;
+        existing.name = name.trim() || existing.name;
+        this.persistToDisk();
+        return existing;
+      }
+    }
+
+    const requestId = `req_${crypto.randomBytes(6).toString('hex')}`;
+    const newRequest: DbApprovalRequestRow = {
+      requestId,
+      email: normEmail,
+      name: name.trim(),
+      proposedCompanyName: proposedCompanyName.trim(),
+      status: 'PENDING',
+      requestedAt: new Date().toISOString()
+    };
+    this.store.approvalRequests.unshift(newRequest);
+    this.persistToDisk();
+
+    this.logActivity('APPROVAL_REQUEST', requestId, 'SIGNUP_REQUEST_CREATED', {
+      email: normEmail,
+      proposedCompanyName: newRequest.proposedCompanyName
+    });
+
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('CREATE_APPROVAL_REQUEST', { request: newRequest }).catch(() => {});
+    }
+    return newRequest;
+  }
+
+  public async approveRequest(
+    requestId: string,
+    targetCompanyId: string,
+    role: 'COMPANY_ADMIN' | 'MEMBER',
+    resolvedByUserId: string,
+    newCompanyName?: string
+  ): Promise<{
+    success: boolean;
+    request: DbApprovalRequestRow;
+    company: DbCompanyRow;
+    membership: DbMembershipRow;
+  }> {
+    if (!this.store.approvalRequests) this.store.approvalRequests = [];
+    const req = this.store.approvalRequests.find(r => r.requestId === requestId);
+    if (!req) {
+      throw new Error(`Approval request ${requestId} not found`);
+    }
+
+    // Resolve or create company
+    let company: DbCompanyRow | null = null;
+    if (targetCompanyId === 'new') {
+      const cName = (newCompanyName || req.proposedCompanyName || 'New Company').trim();
+      company = await this.createCompany(cName, 'ACTIVE');
+    } else {
+      company = this.getCompany(targetCompanyId);
+      if (!company) {
+        throw new Error(`Target company ${targetCompanyId} not found`);
+      }
+    }
+
+    // Ensure user record exists
+    let user = this.getUserByEmail(req.email);
+    if (!user) {
+      user = {
+        userId: `usr_${crypto.randomBytes(6).toString('hex')}`,
+        email: req.email.toLowerCase().trim(),
+        name: req.name || req.email.split('@')[0],
+        isSuperAdmin: req.email.toLowerCase().trim() === INITIAL_SUPER_ADMIN_EMAIL,
+        status: 'ACTIVE',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString()
+      };
+      await this.saveUser(user);
+    } else {
+      if (user.status === 'SUSPENDED') {
+        user.status = 'ACTIVE';
+        await this.saveUser(user);
+      }
+    }
+
+    // Create or update membership (safe repeated approvals, prevent duplicate memberships)
+    const membership = await this.createMembership(user.userId, company.companyId, role, resolvedByUserId);
+
+    // Update approval request
+    req.status = 'APPROVED';
+    req.resolvedAt = new Date().toISOString();
+    req.resolvedBy = resolvedByUserId;
+    req.assignedCompanyId = company.companyId;
+    req.assignedRole = role;
+    this.persistToDisk();
+
+    this.logActivity('APPROVAL_REQUEST', requestId, 'APPROVE_REQUEST', {
+      email: req.email,
+      companyId: company.companyId,
+      role
+    });
+
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('UPDATE_APPROVAL_REQUEST', { request: req }).catch(() => {});
+    }
+
+    return {
+      success: true,
+      request: req,
+      company,
+      membership
+    };
+  }
+
+  public async rejectRequest(requestId: string, resolvedByUserId: string): Promise<{ success: boolean; request: DbApprovalRequestRow }> {
+    if (!this.store.approvalRequests) this.store.approvalRequests = [];
+    const req = this.store.approvalRequests.find(r => r.requestId === requestId);
+    if (!req) {
+      throw new Error(`Approval request ${requestId} not found`);
+    }
+
+    req.status = 'REJECTED';
+    req.resolvedAt = new Date().toISOString();
+    req.resolvedBy = resolvedByUserId;
+    this.persistToDisk();
+
+    this.logActivity('APPROVAL_REQUEST', requestId, 'REJECT_REQUEST', {
+      email: req.email
+    });
+
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('UPDATE_APPROVAL_REQUEST', { request: req }).catch(() => {});
+    }
+
+    return { success: true, request: req };
+  }
+
+  // ==========================================
+  // SESSIONS API
+  // ==========================================
+
+  public createSession(userId: string, activeCompanyId?: string): DbSessionRow {
+    if (!this.store.sessions) this.store.sessions = [];
+    const sessionToken = `autonoma_sess_${crypto.randomBytes(24).toString('hex')}`;
+    const now = new Date();
+    const expires = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    const session: DbSessionRow = {
+      sessionToken,
+      userId,
+      activeCompanyId,
+      createdAt: now.toISOString(),
+      expiresAt: expires.toISOString()
+    };
+    this.store.sessions.push(session);
+    this.persistToDisk();
+    return session;
+  }
+
+  public getSession(sessionToken: string): DbSessionRow | null {
+    if (!sessionToken || !this.store.sessions) return null;
+    const session = this.store.sessions.find(s => s.sessionToken === sessionToken);
+    if (!session) return null;
+    // Check expiry
+    if (new Date(session.expiresAt).getTime() < Date.now()) {
+      this.deleteSession(sessionToken);
+      return null;
+    }
+    return session;
+  }
+
+  public deleteSession(sessionToken: string): boolean {
+    if (!this.store.sessions) return false;
+    const idx = this.store.sessions.findIndex(s => s.sessionToken === sessionToken);
+    if (idx < 0) return false;
+    this.store.sessions.splice(idx, 1);
+    this.persistToDisk();
+    return true;
+  }
+
+  public updateSessionCompany(sessionToken: string, activeCompanyId: string): DbSessionRow | null {
+    const session = this.getSession(sessionToken);
+    if (!session) return null;
+    session.activeCompanyId = activeCompanyId;
+    this.persistToDisk();
+    return session;
+  }
+
+  // ==========================================
   // CAMPAIGNS API
   // ==========================================
 
-  public getCampaigns(): DbCampaignRow[] {
+  public getCampaigns(companyId?: string): DbCampaignRow[] {
+    if (companyId) {
+      return this.store.campaigns.filter(c => c.organizationId === companyId);
+    }
     return this.store.campaigns;
   }
 
-  public getCampaign(campaignId: string): DbCampaignRow | null {
-    return this.store.campaigns.find(c => c.campaignId === campaignId) || null;
+  public getCampaign(campaignId: string, companyId?: string): DbCampaignRow | null {
+    const c = this.store.campaigns.find(c => c.campaignId === campaignId);
+    if (!c) return null;
+    if (companyId && c.organizationId !== companyId) return null;
+    return c;
   }
 
-  public async saveCampaign(campaign: DbCampaignRow): Promise<{ success: boolean; data: DbCampaignRow }> {
+  public async saveCampaign(campaign: DbCampaignRow, companyId?: string): Promise<{ success: boolean; data: DbCampaignRow }> {
+    if (companyId) {
+      campaign.organizationId = companyId;
+    }
     const idx = this.store.campaigns.findIndex(c => c.campaignId === campaign.campaignId);
     if (idx >= 0) {
+      if (companyId && this.store.campaigns[idx].organizationId !== companyId) {
+        throw new Error('Unauthorized cross-company campaign modification');
+      }
       this.store.campaigns[idx] = { ...this.store.campaigns[idx], ...campaign, updatedAt: new Date().toISOString() };
     } else {
       this.store.campaigns.unshift({ ...campaign, createdAt: campaign.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() });
@@ -501,47 +1225,186 @@ export class AutonomaDatabaseManager {
     // Log Activity
     this.logActivity('CAMPAIGN', campaign.campaignId, idx >= 0 ? 'UPDATE_CAMPAIGN' : 'CREATE_CAMPAIGN', {
       name: campaign.name,
-      status: campaign.status
+      status: campaign.status,
+      organizationId: campaign.organizationId
     });
 
-// Write-through to Google Sheets when connected.
-// Do not report full persistence success if Sheets rejects the record.
-if (this.getGoogleSheetsUrl()) {
-  const sheetsResult = await this.callAppsScript(
-    idx >= 0 ? 'UPDATE_CAMPAIGN' : 'CREATE_CAMPAIGN',
-    { campaign }
-  );
+    // Write-through to Google Sheets when connected
+    if (this.getGoogleSheetsUrl()) {
+      const sheetsResult = await this.callAppsScript(
+        idx >= 0 ? 'UPDATE_CAMPAIGN' : 'CREATE_CAMPAIGN',
+        { campaign }
+      );
 
-  if (!sheetsResult.success) {
-    throw new Error(
-      `Campaign saved locally but Google Sheets write failed: ${
-        sheetsResult.error || 'Unknown Google Sheets error'
-      }`
-    );
-  }
-}
+      if (!sheetsResult.success) {
+        throw new Error(
+          `Campaign saved locally but Google Sheets write failed: ${
+            sheetsResult.error || 'Unknown Google Sheets error'
+          }`
+        );
+      }
+    }
 
     return { success: true, data: campaign };
+  }
+
+  public async archiveCampaign(campaignId: string, companyId?: string): Promise<{ success: boolean; data: DbCampaignRow }> {
+    const idx = this.store.campaigns.findIndex(c => c.campaignId === campaignId);
+    if (idx < 0) {
+      throw new Error(`Campaign ${campaignId} not found`);
+    }
+    if (companyId && this.store.campaigns[idx].organizationId !== companyId) {
+      throw new Error('Unauthorized cross-company access');
+    }
+    const updated = {
+      ...this.store.campaigns[idx],
+      status: 'ARCHIVED',
+      archivedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    this.store.campaigns[idx] = updated;
+    this.persistToDisk();
+
+    this.logActivity('CAMPAIGN', campaignId, 'ARCHIVE_CAMPAIGN', {
+      name: updated.name
+    });
+
+    if (this.getGoogleSheetsUrl()) {
+      await this.callAppsScript('UPDATE_CAMPAIGN', { campaign: updated }).catch(e => {
+        console.warn('[Autonoma DB] Sheets archive update error:', e);
+      });
+    }
+
+    return { success: true, data: updated };
+  }
+
+  public async restoreCampaign(campaignId: string, companyId?: string): Promise<{ success: boolean; data: DbCampaignRow }> {
+    const idx = this.store.campaigns.findIndex(c => c.campaignId === campaignId);
+    if (idx < 0) {
+      throw new Error(`Campaign ${campaignId} not found`);
+    }
+    if (companyId && this.store.campaigns[idx].organizationId !== companyId) {
+      throw new Error('Unauthorized cross-company access');
+    }
+    const updated = {
+      ...this.store.campaigns[idx],
+      status: 'ACTIVE',
+      archivedAt: undefined,
+      updatedAt: new Date().toISOString()
+    };
+    this.store.campaigns[idx] = updated;
+    this.persistToDisk();
+
+    this.logActivity('CAMPAIGN', campaignId, 'RESTORE_CAMPAIGN', {
+      name: updated.name
+    });
+
+    if (this.getGoogleSheetsUrl()) {
+      await this.callAppsScript('UPDATE_CAMPAIGN', { campaign: updated }).catch(e => {
+        console.warn('[Autonoma DB] Sheets restore update error:', e);
+      });
+    }
+
+    return { success: true, data: updated };
+  }
+
+  public async deleteCampaignPermanently(campaignId: string, companyId?: string): Promise<{
+    success: boolean;
+    deletedCampaignId: string;
+    deletedAssetCount: number;
+  }> {
+    const cIdx = this.store.campaigns.findIndex(c => c.campaignId === campaignId);
+    if (cIdx < 0) {
+      throw new Error(`Campaign ${campaignId} not found`);
+    }
+    if (companyId && this.store.campaigns[cIdx].organizationId !== companyId) {
+      throw new Error('Unauthorized cross-company access');
+    }
+    const campaignName = this.store.campaigns[cIdx].name;
+
+    // Find all assets associated with this campaign
+    const associatedAssets = this.store.assets.filter(a => a.campaignId === campaignId);
+    const associatedAssetIds = associatedAssets.map(a => a.assetId);
+
+    // 1. Remove campaign
+    this.store.campaigns.splice(cIdx, 1);
+
+    // 2. Remove associated assets
+    const assetIdSet = new Set(associatedAssetIds);
+    this.store.assets = this.store.assets.filter(a => !assetIdSet.has(a.assetId));
+
+    // 3. Add to tombstone arrays so reloads and sheets never resurrect them
+    if (!this.store.deletedCampaignIds) this.store.deletedCampaignIds = [];
+    if (!this.store.deletedAssetIds) this.store.deletedAssetIds = [];
+    if (!this.store.deletedCampaignIds.includes(campaignId)) {
+      this.store.deletedCampaignIds.push(campaignId);
+    }
+    for (const aId of associatedAssetIds) {
+      if (!this.store.deletedAssetIds.includes(aId)) {
+        this.store.deletedAssetIds.push(aId);
+      }
+    }
+
+    // 4. Clean up dependent entries in publishing
+    if (Array.isArray(this.store.publishing)) {
+      this.store.publishing = this.store.publishing.filter(p => !assetIdSet.has(p.assetId));
+    }
+
+    // 5. Persist to disk immediately
+    this.persistToDisk();
+
+    // 6. Log activity
+    this.logActivity('CAMPAIGN', campaignId, 'PERMANENT_DELETE_CAMPAIGN', {
+      name: campaignName,
+      deletedAssetCount: associatedAssetIds.length
+    });
+
+    // 7. Write-through to Google Sheets if connected
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('DELETE_CAMPAIGN', {
+        campaignId,
+        assetIds: associatedAssetIds
+      }).catch(e => console.warn('[Autonoma DB] Sheets permanent delete error:', e));
+    }
+
+    return {
+      success: true,
+      deletedCampaignId: campaignId,
+      deletedAssetCount: associatedAssetIds.length
+    };
   }
 
   // ==========================================
   // ASSETS API
   // ==========================================
 
-  public getAssets(campaignId?: string): DbAssetRow[] {
-    if (campaignId && campaignId !== 'all') {
-      return this.store.assets.filter(a => a.campaignId === campaignId);
+  public getAssets(campaignId?: string, companyId?: string): DbAssetRow[] {
+    let list = this.store.assets;
+    if (companyId) {
+      list = list.filter(a => a.organizationId === companyId);
     }
-    return this.store.assets;
+    if (campaignId && campaignId !== 'all') {
+      list = list.filter(a => a.campaignId === campaignId);
+    }
+    return list;
   }
 
-  public getAsset(assetId: string): DbAssetRow | null {
-    return this.store.assets.find(a => a.assetId === assetId) || null;
+  public getAsset(assetId: string, companyId?: string): DbAssetRow | null {
+    const a = this.store.assets.find(a => a.assetId === assetId);
+    if (!a) return null;
+    if (companyId && a.organizationId !== companyId) return null;
+    return a;
   }
 
-  public async saveAsset(asset: DbAssetRow): Promise<{ success: boolean; data: DbAssetRow }> {
+  public async saveAsset(asset: DbAssetRow, companyId?: string): Promise<{ success: boolean; data: DbAssetRow }> {
+    if (companyId) {
+      asset.organizationId = companyId;
+    }
     const idx = this.store.assets.findIndex(a => a.assetId === asset.assetId);
     if (idx >= 0) {
+      if (companyId && this.store.assets[idx].organizationId !== companyId) {
+        throw new Error('Unauthorized cross-company asset modification');
+      }
       this.store.assets[idx] = { ...this.store.assets[idx], ...asset, updatedAt: new Date().toISOString() };
     } else {
       this.store.assets.unshift({ ...asset, createdAt: asset.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() });
@@ -552,7 +1415,8 @@ if (this.getGoogleSheetsUrl()) {
     this.logActivity('ASSET', asset.assetId, idx >= 0 ? 'UPDATE_ASSET' : 'CREATE_ASSET', {
       title: asset.title,
       platform: asset.platform,
-      format: asset.format
+      format: asset.format,
+      organizationId: asset.organizationId
     });
 
     // Write-through to Google Sheets when connected
@@ -570,12 +1434,18 @@ if (this.getGoogleSheetsUrl()) {
     return { success: true, data: asset };
   }
 
-  public async batchSaveAssets(assets: DbAssetRow[]): Promise<{ success: boolean; count: number }> {
+  public async batchSaveAssets(assets: DbAssetRow[], companyId?: string): Promise<{ success: boolean; count: number }> {
     if (!assets || assets.length === 0) return { success: true, count: 0 };
 
     for (const newAsset of assets) {
+      if (companyId) {
+        newAsset.organizationId = companyId;
+      }
       const idx = this.store.assets.findIndex(a => a.assetId === newAsset.assetId);
       if (idx >= 0) {
+        if (companyId && this.store.assets[idx].organizationId !== companyId) {
+          throw new Error('Unauthorized cross-company asset batch modification');
+        }
         this.store.assets[idx] = { ...this.store.assets[idx], ...newAsset, updatedAt: new Date().toISOString() };
       } else {
         this.store.assets.unshift({ ...newAsset, createdAt: newAsset.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() });
@@ -589,23 +1459,171 @@ if (this.getGoogleSheetsUrl()) {
       campaignId: assets[0]?.campaignId
     });
 
-  // Write-through batch to Google Sheets when connected.
-if (this.getGoogleSheetsUrl()) {
-  const sheetsResult = await this.callAppsScript(
-    'BATCH_SAVE_ASSETS',
-    { assets }
-  );
+    if (this.getGoogleSheetsUrl()) {
+      const sheetsResult = await this.callAppsScript(
+        'BATCH_SAVE_ASSETS',
+        { assets }
+      );
 
-  if (!sheetsResult.success) {
-    throw new Error(
-      `Assets saved locally but Google Sheets batch write failed: ${
-        sheetsResult.error || 'Unknown Google Sheets error'
-      }`
-    );
-  }
-}
+      if (!sheetsResult.success) {
+        throw new Error(
+          `Assets saved locally but Google Sheets batch write failed: ${
+            sheetsResult.error || 'Unknown Google Sheets error'
+          }`
+        );
+      }
+    }
 
     return { success: true, count: assets.length };
+  }
+
+  public async archiveAsset(assetId: string, archive: boolean = true, companyId?: string): Promise<{ success: boolean; data: DbAssetRow }> {
+    const idx = this.store.assets.findIndex(a => a.assetId === assetId);
+    if (idx < 0) {
+      throw new Error(`Asset ${assetId} not found`);
+    }
+    if (companyId && this.store.assets[idx].organizationId !== companyId) {
+      throw new Error('Unauthorized cross-company access');
+    }
+    const updated = {
+      ...this.store.assets[idx],
+      isArchived: archive,
+      archivedAt: archive ? new Date().toISOString() : undefined,
+      updatedAt: new Date().toISOString()
+    };
+    this.store.assets[idx] = updated;
+    this.persistToDisk();
+
+    this.logActivity('ASSET', assetId, archive ? 'ARCHIVE_ASSET' : 'RESTORE_ASSET', {
+      title: updated.title
+    });
+
+    if (this.getGoogleSheetsUrl()) {
+      await this.callAppsScript('UPDATE_ASSET', { asset: updated }).catch(e => {
+        console.warn('[Autonoma DB] Sheets asset archive error:', e);
+      });
+    }
+
+    return { success: true, data: updated };
+  }
+
+  public async batchArchiveAssets(assetIds: string[], archive: boolean = true, companyId?: string): Promise<{ success: boolean; count: number }> {
+    if (!Array.isArray(assetIds) || assetIds.length === 0) {
+      return { success: true, count: 0 };
+    }
+    const targetSet = new Set(assetIds);
+    let count = 0;
+    const timestamp = archive ? new Date().toISOString() : undefined;
+
+    for (let i = 0; i < this.store.assets.length; i++) {
+      if (targetSet.has(this.store.assets[i].assetId)) {
+        if (companyId && this.store.assets[i].organizationId !== companyId) {
+          continue;
+        }
+        this.store.assets[i] = {
+          ...this.store.assets[i],
+          isArchived: archive,
+          archivedAt: timestamp,
+          updatedAt: new Date().toISOString()
+        };
+        count++;
+      }
+    }
+    this.persistToDisk();
+
+    this.logActivity('ASSET', 'BATCH', archive ? 'BATCH_ARCHIVE_ASSETS' : 'BATCH_RESTORE_ASSETS', {
+      count,
+      assetIds
+    });
+
+    if (this.getGoogleSheetsUrl()) {
+      const updatedRows = this.store.assets.filter(a => targetSet.has(a.assetId) && (!companyId || a.organizationId === companyId));
+      this.callAppsScript('BATCH_SAVE_ASSETS', { assets: updatedRows }).catch(e => {
+        console.warn('[Autonoma DB] Sheets batch archive error:', e);
+      });
+    }
+
+    return { success: true, count };
+  }
+
+  public async deleteAssetPermanently(assetId: string, companyId?: string): Promise<{ success: boolean; deletedAssetId: string }> {
+    const idx = this.store.assets.findIndex(a => a.assetId === assetId);
+    if (idx < 0) {
+      throw new Error(`Asset ${assetId} not found`);
+    }
+    if (companyId && this.store.assets[idx].organizationId !== companyId) {
+      throw new Error('Unauthorized cross-company access');
+    }
+    const title = this.store.assets[idx].title;
+
+    this.store.assets.splice(idx, 1);
+
+    if (!this.store.deletedAssetIds) this.store.deletedAssetIds = [];
+    if (!this.store.deletedAssetIds.includes(assetId)) {
+      this.store.deletedAssetIds.push(assetId);
+    }
+
+    if (Array.isArray(this.store.publishing)) {
+      this.store.publishing = this.store.publishing.filter(p => p.assetId !== assetId);
+    }
+
+    this.persistToDisk();
+
+    this.logActivity('ASSET', assetId, 'PERMANENT_DELETE_ASSET', {
+      title
+    });
+
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('DELETE_ASSET', { assetId }).catch(e => {
+        console.warn('[Autonoma DB] Sheets delete asset error:', e);
+      });
+    }
+
+    return { success: true, deletedAssetId: assetId };
+  }
+
+  public async batchDeleteAssetsPermanently(assetIds: string[], companyId?: string): Promise<{ success: boolean; count: number }> {
+    if (!Array.isArray(assetIds) || assetIds.length === 0) {
+      return { success: true, count: 0 };
+    }
+    const targetSet = new Set(assetIds);
+    const beforeCount = this.store.assets.length;
+    this.store.assets = this.store.assets.filter(a => {
+      if (targetSet.has(a.assetId)) {
+        if (companyId && a.organizationId !== companyId) {
+          return true; // Don't delete another company's asset
+        }
+        return false;
+      }
+      return true;
+    });
+    const deletedCount = beforeCount - this.store.assets.length;
+
+    if (!this.store.deletedAssetIds) this.store.deletedAssetIds = [];
+    for (const aId of assetIds) {
+      if (!this.store.deletedAssetIds.includes(aId)) {
+        this.store.deletedAssetIds.push(aId);
+      }
+    }
+
+    if (Array.isArray(this.store.publishing)) {
+      this.store.publishing = this.store.publishing.filter(p => !targetSet.has(p.assetId));
+    }
+
+    this.persistToDisk();
+
+    this.logActivity('ASSET', 'BATCH', 'BATCH_PERMANENT_DELETE_ASSETS', {
+      count: deletedCount,
+      assetIds
+    });
+
+    if (this.getGoogleSheetsUrl()) {
+      this.callAppsScript('BATCH_DELETE_ASSETS', { assetIds }).catch(e => {
+        console.warn('[Autonoma DB] Sheets batch delete error:', e);
+      });
+    }
+
+    return { success: true, count: deletedCount };
   }
 
   // ==========================================
@@ -908,13 +1926,19 @@ if (this.getGoogleSheetsUrl()) {
       const sheetCampaigns = campaignsRes.data;
       const sheetAssets = assetsRes.data;
 
-      // Google Sheets wins over seed data.
-      // Seed data is ONLY fallback when Sheet is genuinely empty or unconfigured.
-      if (sheetCampaigns.length > 0) {
-        this.store.campaigns = sheetCampaigns;
+      // Google Sheets wins over seed data, BUT local deletion tombstones always win
+      // so permanently deleted records can never resurrect from Sheets.
+      const delCampaignSet = new Set(this.store.deletedCampaignIds || []);
+      const delAssetSet = new Set(this.store.deletedAssetIds || []);
+
+      const validSheetCampaigns = sheetCampaigns.filter(c => !delCampaignSet.has(c.campaignId));
+      const validSheetAssets = sheetAssets.filter(a => !delAssetSet.has(a.assetId));
+
+      if (validSheetCampaigns.length > 0) {
+        this.store.campaigns = validSheetCampaigns;
       }
-      if (sheetAssets.length > 0) {
-        this.store.assets = sheetAssets;
+      if (validSheetAssets.length > 0) {
+        this.store.assets = validSheetAssets;
       }
 
       this.hasHydrated = true;
@@ -954,7 +1978,8 @@ if (this.getGoogleSheetsUrl()) {
    */
   public async commitCampaign(
     campaignData: any,
-    assetsData: any[]
+    assetsData: any[],
+    companyId?: string
   ): Promise<{
     campaign: Campaign;
     assetCount: number;
@@ -978,12 +2003,19 @@ if (this.getGoogleSheetsUrl()) {
     }
 
     const campRow: DbCampaignRow = campaignData.campaignId
-      ? campaignData
-      : campaignToDbRow(campaignData);
+      ? { ...campaignData }
+      : campaignToDbRow(campaignData, companyId);
+
+    if (companyId) {
+      campRow.organizationId = companyId;
+    }
 
     const assetRows: DbAssetRow[] = assetsData.map((a: any) => {
-      const row = a.assetId ? a : assetToDbRow(a);
+      const row = a.assetId ? { ...a } : assetToDbRow(a, companyId);
       row.campaignId = campRow.campaignId;
+      if (companyId) {
+        row.organizationId = companyId;
+      }
       if (!row.assetId) {
         throw new Error('Invalid asset: missing asset ID.');
       }

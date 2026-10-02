@@ -1,19 +1,59 @@
 import { Campaign, SocialAsset } from '../types/campaign';
 import { INITIAL_CAMPAIGNS, SEED_ASSETS } from '../data/initialCampaigns';
+import { User, Company, Membership, ApprovalRequest, AuthSessionResponse, UserRole, CompanyProfile, CompanyUnderstoodSummary, InferredCompanyProfile } from '../types/auth';
 
 const STORAGE_KEY_CAMPAIGNS = 'apex_autonoma_campaigns_v2';
 const STORAGE_KEY_ASSETS = 'apex_autonoma_assets_v2';
 const STORAGE_KEY_ACTIVE_CAMPAIGN = 'apex_autonoma_active_campaign_filter';
 const STORAGE_KEY_SHEETS_URL = 'apex_autonoma_sheets_url';
+export const STORAGE_KEY_SESSION = 'autonoma_session_token';
+
+export function getAuthHeaders(additionalHeaders: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = { ...additionalHeaders };
+  try {
+    const token = localStorage.getItem(STORAGE_KEY_SESSION);
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  } catch {}
+  return headers;
+}
 
 class AutonomaDataService {
+  getSessionToken(): string | null {
+    try {
+      return localStorage.getItem(STORAGE_KEY_SESSION);
+    } catch {
+      return null;
+    }
+  }
+
+  setSessionToken(token: string | null): void {
+    try {
+      if (token) {
+        localStorage.setItem(STORAGE_KEY_SESSION, token);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_SESSION);
+      }
+    } catch {}
+  }
+
+  public getAuthHeaders(additionalHeaders: Record<string, string> = {}): Record<string, string> {
+    return getAuthHeaders(additionalHeaders);
+  }
+
+  private async fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+    const headers = this.getAuthHeaders((options.headers as Record<string, string>) || {});
+    return fetch(url, { ...options, headers });
+  }
+
   /**
    * Loads all campaigns from server-side durable database,
-   * with fallback to localStorage and initial seed campaigns.
+   * with fallback to localStorage.
    */
   async loadCampaigns(): Promise<Campaign[]> {
     try {
-      const res = await fetch('/api/autonoma/campaigns');
+      const res = await this.fetchWithAuth('/api/autonoma/campaigns');
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
@@ -23,6 +63,9 @@ class AutonomaDataService {
           } catch {}
           return serverCampaigns;
         }
+      } else if (res.status === 401 || res.status === 403) {
+        // Access forbidden or session expired: never return unpermitted campaigns
+        return [];
       }
     } catch (err) {
       console.warn('[AutonomaDataService] Network fetch failed, falling back to local cache:', err);
@@ -45,7 +88,7 @@ class AutonomaDataService {
    */
   async loadCampaign(id: string): Promise<Campaign | null> {
     try {
-      const res = await fetch(`/api/autonoma/campaigns/${encodeURIComponent(id)}`);
+      const res = await this.fetchWithAuth(`/api/autonoma/campaigns/${encodeURIComponent(id)}`);
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) return json.data;
@@ -61,41 +104,33 @@ class AutonomaDataService {
   /**
    * Persists a campaign to server-side durable database and Google Sheets
    */
-async saveCampaign(campaign: Campaign): Promise<Campaign> {
-  try {
-    const res = await fetch('/api/autonoma/campaigns', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(campaign)
-    });
+  async saveCampaign(campaign: Campaign): Promise<Campaign> {
+    try {
+      const res = await this.fetchWithAuth('/api/autonoma/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(campaign)
+      });
 
-    const json = await res.json().catch(() => null);
+      const json = await res.json().catch(() => null);
 
-    if (!res.ok || !json?.success || !json?.data) {
+      if (!res.ok || !json?.success || !json?.data) {
+        throw new Error(
+          json?.error ||
+          `Campaign persistence failed with HTTP ${res.status}`
+        );
+      }
+
+      this.updateLocalCampaignCache(json.data);
+      return json.data;
+    } catch (err: any) {
+      console.error('[AutonomaDataService] AUTHORITATIVE campaign save failed:', err);
       throw new Error(
-        json?.error ||
-        `Campaign persistence failed with HTTP ${res.status}`
+        err?.message ||
+        'Campaign could not be saved to the operational database.'
       );
     }
-
-    // Cache ONLY after authoritative server persistence succeeds.
-    this.updateLocalCampaignCache(json.data);
-
-    return json.data;
-  } catch (err: any) {
-    console.error(
-      '[AutonomaDataService] AUTHORITATIVE campaign save failed:',
-      err
-    );
-
-    // CRITICAL:
-    // Never convert a failed DB write into a fake successful local save.
-    throw new Error(
-      err?.message ||
-      'Campaign could not be saved to the operational database.'
-    );
   }
-}
 
   /**
    * Atomically commits a campaign and all its assets to the authoritative server database
@@ -115,7 +150,7 @@ async saveCampaign(campaign: Campaign): Promise<Campaign> {
     }
 
     try {
-      const res = await fetch('/api/autonoma/campaigns/commit', {
+      const res = await this.fetchWithAuth('/api/autonoma/campaigns/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ campaign, assets })
@@ -133,7 +168,6 @@ async saveCampaign(campaign: Campaign): Promise<Campaign> {
       const confirmedCampaign: Campaign = json.campaign || campaign;
       const confirmedAssets: SocialAsset[] = assets;
 
-      // Update local cache ONLY AFTER authoritative commit succeeds
       this.updateLocalCampaignCache(confirmedCampaign);
       this.prependLocalAssetsCache(confirmedAssets);
 
@@ -154,44 +188,109 @@ async saveCampaign(campaign: Campaign): Promise<Campaign> {
   /**
    * Updates an existing campaign
    */
-async updateCampaign(
-  campaignId: string,
-  updates: Partial<Campaign>
-): Promise<Campaign> {
-  try {
-    const res = await fetch(
-      `/api/autonoma/campaigns/${encodeURIComponent(campaignId)}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
+  async updateCampaign(
+    campaignId: string,
+    updates: Partial<Campaign>
+  ): Promise<Campaign> {
+    try {
+      const res = await this.fetchWithAuth(
+        `/api/autonoma/campaigns/${encodeURIComponent(campaignId)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates)
+        }
+      );
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success || !json?.data) {
+        throw new Error(
+          json?.error ||
+          `Campaign update failed with HTTP ${res.status}`
+        );
       }
-    );
 
-    const json = await res.json().catch(() => null);
-
-    if (!res.ok || !json?.success || !json?.data) {
+      this.updateLocalCampaignCache(json.data);
+      return json.data;
+    } catch (err: any) {
+      console.error(
+        `[AutonomaDataService] AUTHORITATIVE update failed for ${campaignId}:`,
+        err
+      );
       throw new Error(
-        json?.error ||
-        `Campaign update failed with HTTP ${res.status}`
+        err?.message ||
+        `Campaign ${campaignId} could not be updated in the operational database.`
       );
     }
-
-    this.updateLocalCampaignCache(json.data);
-
-    return json.data;
-  } catch (err: any) {
-    console.error(
-      `[AutonomaDataService] AUTHORITATIVE update failed for ${campaignId}:`,
-      err
-    );
-
-    throw new Error(
-      err?.message ||
-      `Campaign ${campaignId} could not be updated in the operational database.`
-    );
   }
-}
+
+  /**
+   * Archives a campaign in the operational database
+   */
+  async archiveCampaign(campaignId: string): Promise<Campaign> {
+    try {
+      const res = await this.fetchWithAuth(`/api/autonoma/campaigns/${encodeURIComponent(campaignId)}/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success || !json?.data) {
+        throw new Error(json?.error || `Failed to archive campaign ${campaignId}`);
+      }
+      this.updateLocalCampaignCache(json.data);
+      return json.data;
+    } catch (err: any) {
+      console.error(`[AutonomaDataService] Archive campaign failed for ${campaignId}:`, err);
+      throw new Error(err?.message || `Could not archive campaign ${campaignId}`);
+    }
+  }
+
+  /**
+   * Restores an archived campaign
+   */
+  async restoreCampaign(campaignId: string): Promise<Campaign> {
+    try {
+      const res = await this.fetchWithAuth(`/api/autonoma/campaigns/${encodeURIComponent(campaignId)}/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success || !json?.data) {
+        throw new Error(json?.error || `Failed to restore campaign ${campaignId}`);
+      }
+      this.updateLocalCampaignCache(json.data);
+      return json.data;
+    } catch (err: any) {
+      console.error(`[AutonomaDataService] Restore campaign failed for ${campaignId}:`, err);
+      throw new Error(err?.message || `Could not restore campaign ${campaignId}`);
+    }
+  }
+
+  /**
+   * Permanently deletes a campaign and its associated assets
+   */
+  async deleteCampaignPermanently(campaignId: string): Promise<{
+    success: boolean;
+    deletedCampaignId: string;
+    deletedAssetCount: number;
+  }> {
+    try {
+      const res = await this.fetchWithAuth(`/api/autonoma/campaigns/${encodeURIComponent(campaignId)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || `Failed to permanently delete campaign ${campaignId}`);
+      }
+      this.removeCampaignFromLocalCache(campaignId);
+      return json;
+    } catch (err: any) {
+      console.error(`[AutonomaDataService] Permanent delete failed for campaign ${campaignId}:`, err);
+      throw new Error(err?.message || `Could not permanently delete campaign ${campaignId}`);
+    }
+  }
 
   /**
    * Loads all assets, optionally filtered by campaignId
@@ -199,7 +298,7 @@ async updateCampaign(
   async loadAssets(campaignId?: string): Promise<SocialAsset[]> {
     try {
       const query = campaignId && campaignId !== 'all' ? `?campaignId=${encodeURIComponent(campaignId)}` : '';
-      const res = await fetch(`/api/autonoma/assets${query}`);
+      const res = await this.fetchWithAuth(`/api/autonoma/assets${query}`);
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
@@ -214,6 +313,8 @@ async updateCampaign(
           }
           return serverAssets;
         }
+      } else if (res.status === 401 || res.status === 403) {
+        return [];
       }
     } catch (err) {
       console.warn('[AutonomaDataService] Network assets fetch failed, falling back to local cache:', err);
@@ -250,95 +351,204 @@ async updateCampaign(
    * Persists a batch of assets (used by Campaign Director after synthesis)
    */
   async saveAssetsBatch(assets: SocialAsset[]): Promise<{ count: number }> {
-  if (!Array.isArray(assets) || assets.length === 0) {
-    return { count: 0 };
-  }
-
-  try {
-    const res = await fetch('/api/autonoma/assets/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assets })
-    });
-
-    const json = await res.json().catch(() => null);
-
-    if (!res.ok || !json?.success) {
-      throw new Error(
-        json?.error ||
-        `Asset batch persistence failed with HTTP ${res.status}`
-      );
+    if (!Array.isArray(assets) || assets.length === 0) {
+      return { count: 0 };
     }
 
-    const persistedCount = Number(json.count ?? 0);
+    try {
+      const res = await this.fetchWithAuth('/api/autonoma/assets/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assets })
+      });
 
-    if (persistedCount !== assets.length) {
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        throw new Error(
+          json?.error ||
+          `Asset batch persistence failed with HTTP ${res.status}`
+        );
+      }
+
+      const persistedCount = Number(json.count ?? 0);
+
+      if (persistedCount !== assets.length) {
+        throw new Error(
+          `Database persisted ${persistedCount} of ${assets.length} assets.`
+        );
+      }
+
+      this.prependLocalAssetsCache(assets);
+      return { count: persistedCount };
+    } catch (err: any) {
+      console.error('[AutonomaDataService] AUTHORITATIVE asset batch save failed:', err);
       throw new Error(
-        `Database persisted ${persistedCount} of ${assets.length} assets.`
+        err?.message ||
+        'Campaign assets could not be saved to the operational database.'
       );
     }
-
-    // Cache ONLY after authoritative persistence succeeds.
-    this.prependLocalAssetsCache(assets);
-
-    return { count: persistedCount };
-  } catch (err: any) {
-    console.error(
-      '[AutonomaDataService] AUTHORITATIVE asset batch save failed:',
-      err
-    );
-
-    throw new Error(
-      err?.message ||
-      'Campaign assets could not be saved to the operational database.'
-    );
   }
-}
+
   /**
    * Updates a single asset (e.g. status changes, generated media)
    */
   async updateAsset(asset: SocialAsset): Promise<SocialAsset> {
-  try {
-    const res = await fetch(
-      `/api/autonoma/assets/${encodeURIComponent(asset.id)}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(asset)
+    try {
+      const res = await this.fetchWithAuth(
+        `/api/autonoma/assets/${encodeURIComponent(asset.id)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(asset)
+        }
+      );
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success || !json?.data) {
+        throw new Error(
+          json?.error ||
+          `Asset update failed with HTTP ${res.status}`
+        );
       }
-    );
 
-    const json = await res.json().catch(() => null);
-
-    if (!res.ok || !json?.success || !json?.data) {
+      this.updateLocalAssetCache(json.data);
+      return json.data;
+    } catch (err: any) {
+      console.error(
+        `[AutonomaDataService] AUTHORITATIVE asset update failed for ${asset.id}:`,
+        err
+      );
       throw new Error(
-        json?.error ||
-        `Asset update failed with HTTP ${res.status}`
+        err?.message ||
+        `Asset ${asset.id} could not be updated in the operational database.`
       );
     }
-
-    this.updateLocalAssetCache(json.data);
-
-    return json.data;
-  } catch (err: any) {
-    console.error(
-      `[AutonomaDataService] AUTHORITATIVE asset update failed for ${asset.id}:`,
-      err
-    );
-
-    throw new Error(
-      err?.message ||
-      `Asset ${asset.id} could not be updated in the operational database.`
-    );
   }
-}
+
+  /**
+   * Archives a single asset
+   */
+  async archiveAsset(assetId: string): Promise<SocialAsset> {
+    try {
+      const res = await this.fetchWithAuth(`/api/autonoma/assets/${encodeURIComponent(assetId)}/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success || !json?.data) {
+        throw new Error(json?.error || `Failed to archive asset ${assetId}`);
+      }
+      this.updateLocalAssetCache(json.data);
+      return json.data;
+    } catch (err: any) {
+      console.error(`[AutonomaDataService] Archive asset failed for ${assetId}:`, err);
+      throw new Error(err?.message || `Could not archive asset ${assetId}`);
+    }
+  }
+
+  /**
+   * Restores an archived asset
+   */
+  async restoreAsset(assetId: string): Promise<SocialAsset> {
+    try {
+      const res = await this.fetchWithAuth(`/api/autonoma/assets/${encodeURIComponent(assetId)}/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success || !json?.data) {
+        throw new Error(json?.error || `Failed to restore asset ${assetId}`);
+      }
+      this.updateLocalAssetCache(json.data);
+      return json.data;
+    } catch (err: any) {
+      console.error(`[AutonomaDataService] Restore asset failed for ${assetId}:`, err);
+      throw new Error(err?.message || `Could not restore asset ${assetId}`);
+    }
+  }
+
+  /**
+   * Batch archives or restores multiple assets
+   */
+  async batchArchiveAssets(assetIds: string[], archive: boolean = true): Promise<{ count: number }> {
+    try {
+      const res = await this.fetchWithAuth('/api/autonoma/assets/archive-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetIds, archive })
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || 'Failed to batch archive assets');
+      }
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY_ASSETS);
+        if (raw) {
+          const list: SocialAsset[] = JSON.parse(raw);
+          const targetSet = new Set(assetIds);
+          const timestamp = archive ? new Date().toISOString() : undefined;
+          const updated = list.map(a => targetSet.has(a.id) ? { ...a, isArchived: archive, archivedAt: timestamp } : a);
+          localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(updated));
+        }
+      } catch {}
+      return { count: json.count ?? assetIds.length };
+    } catch (err: any) {
+      console.error('[AutonomaDataService] Batch archive failed:', err);
+      throw new Error(err?.message || 'Could not batch archive assets');
+    }
+  }
+
+  /**
+   * Permanently deletes a single asset
+   */
+  async deleteAssetPermanently(assetId: string): Promise<{ success: boolean; deletedAssetId: string }> {
+    try {
+      const res = await this.fetchWithAuth(`/api/autonoma/assets/${encodeURIComponent(assetId)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || `Failed to permanently delete asset ${assetId}`);
+      }
+      this.removeAssetFromLocalCache(assetId);
+      return json;
+    } catch (err: any) {
+      console.error(`[AutonomaDataService] Permanent delete failed for asset ${assetId}:`, err);
+      throw new Error(err?.message || `Could not permanently delete asset ${assetId}`);
+    }
+  }
+
+  /**
+   * Permanently deletes multiple assets
+   */
+  async batchDeleteAssetsPermanently(assetIds: string[]): Promise<{ count: number }> {
+    try {
+      const res = await this.fetchWithAuth('/api/autonoma/assets/delete-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetIds })
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || 'Failed to permanently delete assets');
+      }
+      this.removeAssetsFromLocalCache(assetIds);
+      return { count: json.count ?? assetIds.length };
+    } catch (err: any) {
+      console.error('[AutonomaDataService] Batch permanent delete failed:', err);
+      throw new Error(err?.message || 'Could not permanently delete assets');
+    }
+  }
 
   /**
    * Saves a media generation record
    */
   async saveMediaRecord(media: any): Promise<any> {
     try {
-      const res = await fetch('/api/autonoma/media', {
+      const res = await this.fetchWithAuth('/api/autonoma/media', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(media)
@@ -355,7 +565,7 @@ async updateCampaign(
    */
   async savePublication(publication: any): Promise<any> {
     try {
-      const res = await fetch('/api/autonoma/publishing', {
+      const res = await this.fetchWithAuth('/api/autonoma/publishing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(publication)
@@ -372,7 +582,7 @@ async updateCampaign(
    */
   async savePerformance(performance: any): Promise<any> {
     try {
-      const res = await fetch('/api/autonoma/performance', {
+      const res = await this.fetchWithAuth('/api/autonoma/performance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(performance)
@@ -389,7 +599,7 @@ async updateCampaign(
    */
   async saveSnapshot(snapshot: any): Promise<any> {
     try {
-      const res = await fetch('/api/autonoma/snapshot', {
+      const res = await this.fetchWithAuth('/api/autonoma/snapshot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(snapshot)
@@ -406,7 +616,7 @@ async updateCampaign(
    */
   async loadSettings(): Promise<{ settings: any; googleSheetsUrl: string; hasSheetsConnection: boolean }> {
     try {
-      const res = await fetch('/api/autonoma/settings');
+      const res = await this.fetchWithAuth('/api/autonoma/settings');
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
@@ -440,7 +650,7 @@ async updateCampaign(
       } catch {}
     }
     try {
-      const res = await fetch('/api/autonoma/settings', {
+      const res = await this.fetchWithAuth('/api/autonoma/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ settings, googleSheetsUrl })
@@ -629,6 +839,386 @@ async updateCampaign(
       const combined = [...newAssets, ...filtered];
       localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(combined));
     } catch {}
+  }
+
+  private removeCampaignFromLocalCache(campaignId: string): void {
+    try {
+      // 1. Remove campaign
+      const rawC = localStorage.getItem(STORAGE_KEY_CAMPAIGNS);
+      if (rawC) {
+        const list: Campaign[] = JSON.parse(rawC);
+        const filtered = list.filter(c => c.id !== campaignId);
+        localStorage.setItem(STORAGE_KEY_CAMPAIGNS, JSON.stringify(filtered));
+      }
+      // 2. Remove associated child assets from asset cache as well
+      const rawA = localStorage.getItem(STORAGE_KEY_ASSETS);
+      if (rawA) {
+        const aList: SocialAsset[] = JSON.parse(rawA);
+        const filteredA = aList.filter(a => a.campaignId !== campaignId);
+        localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(filteredA));
+      }
+    } catch {}
+  }
+
+  private removeAssetFromLocalCache(assetId: string): void {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_ASSETS);
+      if (raw) {
+        const list: SocialAsset[] = JSON.parse(raw);
+        const filtered = list.filter(a => a.id !== assetId);
+        localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(filtered));
+      }
+    } catch {}
+  }
+
+  private removeAssetsFromLocalCache(assetIds: string[]): void {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_ASSETS);
+      if (raw) {
+        const list: SocialAsset[] = JSON.parse(raw);
+        const targetSet = new Set(assetIds);
+        const filtered = list.filter(a => !targetSet.has(a.id));
+        localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(filtered));
+      }
+    } catch {}
+  }
+
+  // ==========================================
+  // AUTHENTICATION & MULTI-COMPANY API
+  // ==========================================
+
+  async loginWithGoogle(credential: string, proposedCompanyName?: string): Promise<AuthSessionResponse> {
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential, proposedCompanyName })
+    });
+    const json = await res.json();
+    if (json.success && json.token) {
+      this.setSessionToken(json.token);
+    }
+    return json;
+  }
+
+  async fixtureLogin(payload: {
+    email: string;
+    name?: string;
+    role?: 'SUPER_ADMIN' | 'COMPANY_ADMIN' | 'MEMBER';
+    companyId?: string;
+    isSuperAdmin?: boolean;
+    status?: 'ACTIVE' | 'SUSPENDED';
+  }): Promise<AuthSessionResponse> {
+    const res = await fetch('/api/auth/fixture-login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-autonoma-test-key': 'fixture-auth-verified'
+      },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (json.success && json.token) {
+      this.setSessionToken(json.token);
+    }
+    return json;
+  }
+
+  async getCurrentSession(): Promise<AuthSessionResponse> {
+    const token = this.getSessionToken();
+    if (!token) {
+      return { success: false, error: 'No active session' };
+    }
+    try {
+      const res = await fetch('/api/auth/me', {
+        headers: this.getAuthHeaders()
+      });
+      if (!res.ok) {
+        if (res.status === 401) {
+          this.setSessionToken(null);
+        }
+        const errJson = await res.json().catch(() => null);
+        return { success: false, error: errJson?.message || 'Session expired' };
+      }
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to check session' };
+    }
+  }
+
+  async switchCompany(companyId: string): Promise<{ success: boolean; activeCompany?: Company; role?: UserRole; error?: string }> {
+    try {
+      const res = await fetch('/api/auth/switch-company', {
+        method: 'POST',
+        headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ companyId })
+      });
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to switch company' };
+    }
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: this.getAuthHeaders()
+      });
+    } catch {}
+    this.setSessionToken(null);
+  }
+
+  async submitAccessRequest(proposedCompanyName: string): Promise<{ success: boolean; data?: ApprovalRequest; error?: string }> {
+    try {
+      const res = await fetch('/api/auth/submit-request', {
+        method: 'POST',
+        headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ proposedCompanyName })
+      });
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to submit request' };
+    }
+  }
+
+  // Super Admin workspace methods
+  async getAdminRequests(): Promise<ApprovalRequest[]> {
+    const res = await fetch('/api/admin/requests', { headers: this.getAuthHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.data || [];
+  }
+
+  async approveRequest(
+    requestId: string,
+    targetCompanyId: string,
+    role: 'COMPANY_ADMIN' | 'MEMBER',
+    newCompanyName?: string
+  ): Promise<any> {
+    const res = await fetch(`/api/admin/requests/${encodeURIComponent(requestId)}/approve`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ targetCompanyId, role, newCompanyName })
+    });
+    return await res.json();
+  }
+
+  async rejectRequest(requestId: string): Promise<any> {
+    const res = await fetch(`/api/admin/requests/${encodeURIComponent(requestId)}/reject`, {
+      method: 'POST',
+      headers: this.getAuthHeaders()
+    });
+    return await res.json();
+  }
+
+  async getAdminCompanies(): Promise<Company[]> {
+    const res = await fetch('/api/admin/companies', { headers: this.getAuthHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.data || [];
+  }
+
+  async createAdminCompany(name: string): Promise<Company> {
+    const res = await fetch('/api/admin/companies', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ name })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to create company');
+    return json.data;
+  }
+
+  async updateAdminCompany(companyId: string, updates: Partial<Company>): Promise<Company> {
+    const res = await fetch(`/api/admin/companies/${encodeURIComponent(companyId)}`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(updates)
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to update company');
+    return json.data;
+  }
+
+
+  async deleteAdminCompany(companyId: string): Promise<{ success: boolean; deletedCampaigns?: number; deletedAssets?: number; deletedMemberships?: number }> {
+    const res = await fetch(`/api/admin/companies/${encodeURIComponent(companyId)}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders()
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to delete company');
+    return json;
+  }
+
+  async getAdminUsers(): Promise<User[]> {
+    const res = await fetch('/api/admin/users', { headers: this.getAuthHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.data || [];
+  }
+
+  async suspendUser(userId: string, status: 'ACTIVE' | 'SUSPENDED'): Promise<any> {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/suspend`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ status })
+    });
+    return await res.json();
+  }
+
+
+  async deleteAdminUser(userId: string): Promise<{ success: boolean; deletedMemberships?: number }> {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders()
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to delete user');
+    return json;
+  }
+
+  // Company Admin workspace methods
+  async getCompanyMembers(): Promise<Membership[]> {
+    const res = await fetch('/api/company/members', { headers: this.getAuthHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.data || [];
+  }
+
+  async addCompanyMember(email: string, name: string, role: 'COMPANY_ADMIN' | 'MEMBER'): Promise<Membership> {
+    const res = await fetch('/api/company/members', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ email, name, role })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to add member');
+    return json.data;
+  }
+
+  async updateCompanyMemberRole(membershipId: string, role: 'COMPANY_ADMIN' | 'MEMBER'): Promise<Membership> {
+    const res = await fetch(`/api/company/members/${encodeURIComponent(membershipId)}`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ role })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to update member');
+    return json.data;
+  }
+
+  async removeCompanyMember(membershipId: string): Promise<void> {
+    const res = await fetch(`/api/company/members/${encodeURIComponent(membershipId)}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders()
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to remove member');
+  }
+
+  async updateCompanySettings(name: string): Promise<Company> {
+    const res = await fetch('/api/company/settings', {
+      method: 'PUT',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ name })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to update company settings');
+    return json.data;
+  }
+
+  async getCompanyProfile(): Promise<{ company: Company; profile: CompanyProfile }> {
+    const res = await fetch('/api/company/profile', { headers: this.getAuthHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to fetch company profile');
+    return json.data;
+  }
+
+  async updateCompanyProfile(name: string, profile: Partial<CompanyProfile>): Promise<Company> {
+    const res = await fetch('/api/company/profile', {
+      method: 'PUT',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ name, profile })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to update company profile');
+    return json.data;
+  }
+
+  async improveCompanyDescription(params: {
+    currentDescription: string;
+    organizationType?: string;
+    offerings?: string;
+    audience?: string;
+  }): Promise<{ original: string; improved: string }> {
+    const res = await fetch('/api/company/improve-description', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(params)
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to improve company description');
+    return json;
+  }
+
+  async analyzeCompanyWebsite(params: {
+    websiteUrl?: string;
+    pastedText?: string;
+  }): Promise<{
+    summary: CompanyUnderstoodSummary;
+    inferredProfile?: InferredCompanyProfile;
+    profile?: CompanyProfile;
+    company?: Company;
+    brandSuggestions?: {
+      primaryColor?: string;
+      secondaryColor?: string;
+      headingFont?: string;
+      visualTone?: string;
+    };
+    message?: string;
+  }> {
+    const res = await fetch('/api/company/analyze-website', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(params)
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || json.message || 'Failed to analyze website');
+    return json;
+  }
+
+  async retryCampaignGeneration(campaignId: string): Promise<{ campaign: Campaign; assets: SocialAsset[] }> {
+    const res = await this.fetchWithAuth('/api/campaign/retry-synthesis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaignId })
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.success) {
+      throw new Error(json?.error || json?.message || 'Campaign synthesis retry failed');
+    }
+    this.updateLocalCampaignCache(json.campaign);
+    return {
+      campaign: json.campaign,
+      assets: json.assets || []
+    };
+  }
+
+  async confirmCompanyContext(summary: Partial<CompanyUnderstoodSummary>): Promise<{
+    success: boolean;
+    data: Company;
+    confirmedContext: CompanyUnderstoodSummary;
+  }> {
+    const res = await fetch('/api/company/confirm-context', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ summary })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to confirm company context');
+    return json;
   }
 }
 

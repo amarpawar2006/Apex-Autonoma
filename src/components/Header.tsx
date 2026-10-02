@@ -1,35 +1,50 @@
-import React, { useState } from 'react';
-import { 
-  Sparkles, 
-  FileSpreadsheet, 
-  Layers, 
-  Calendar, 
-  Palette, 
-  TrendingUp, 
-  Send, 
-  Settings, 
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Archive,
+  Building2,
+  Calendar,
+  Check,
+  ChevronDown,
+  Clock3,
   Download,
-  Clock,
-  Menu,
-  X,
-  CheckCircle2,
+  FileSpreadsheet,
   FolderKanban,
-  Filter
+  Layers,
+  LogOut,
+  Menu,
+  MoreHorizontal,
+  Palette,
+  Plus,
+  Send,
+  Settings,
+  ShieldCheck,
+  TrendingUp,
+  Users,
+  X,
 } from 'lucide-react';
 import { Campaign } from '../types/campaign';
+import { Company, User, UserRole } from '../types/auth';
 import { ApexLogo } from './ApexLogo';
 
-export type AppNavTab = 
-  | 'todays_production' 
-  | 'master_sheet' 
-  | 'campaigns' 
-  | 'creative_studio' 
-  | 'calendar' 
-  | 'design_system' 
-  | 'virality' 
-  | 'publishing';
+export type AppNavTab =
+  | 'todays_production'
+  | 'master_sheet'
+  | 'campaigns'
+  | 'creative_studio'
+  | 'calendar'
+  | 'design_system'
+  | 'virality'
+  | 'publishing'
+  | 'archive';
 
-interface HeaderProps {
+export interface CompanyOption {
+  id: string;
+  name: string;
+  role?: string;
+  organizationType?: string;
+}
+
+export interface HeaderProps {
   activeTab: AppNavTab;
   setActiveTab: (tab: AppNavTab) => void;
   onOpenAiGenerator: () => void;
@@ -37,9 +52,18 @@ interface HeaderProps {
   onExportCsv: () => void;
   assetCount: number;
   approvedCount: number;
+  archivedCount?: number;
   campaigns: Campaign[];
-  activeCampaignFilter: string; // 'all' or campaign.id
+  activeCampaignFilter: string;
   onSelectCampaignFilter: (campaignId: string) => void;
+  currentUser?: User | null;
+  activeCompany?: Company | null;
+  userRole?: UserRole | null;
+  onSignOut?: () => void;
+  onOpenCompanyManagement?: () => void;
+  onOpenSuperAdminWorkspace?: () => void;
+  availableCompanies?: CompanyOption[];
+  onSwitchCompany?: (companyId: string) => void | Promise<void>;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -49,172 +73,538 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   onExportCsv,
   assetCount,
-  approvedCount,
-  campaigns,
-  activeCampaignFilter,
+  archivedCount,
+  campaigns = [],
+  activeCampaignFilter = 'all',
   onSelectCampaignFilter,
+  currentUser,
+  activeCompany,
+  userRole,
+  onSignOut,
+  onOpenCompanyManagement,
+  onOpenSuperAdminWorkspace,
+  availableCompanies = [],
+  onSwitchCompany,
 }) => {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [switchingCompanyId, setSwitchingCompanyId] = useState<string | null>(null);
 
-  const navGroups = [
-    {
-      group: 'WORKSPACE',
-      items: [
-        { id: 'todays_production' as AppNavTab, label: 'Today', icon: Clock, count: null },
-        { id: 'master_sheet' as AppNavTab, label: 'Content', icon: FileSpreadsheet, count: assetCount },
-        { id: 'calendar' as AppNavTab, label: 'Calendar', icon: Calendar, count: null },
-      ]
-    },
-    {
-      group: 'CREATE',
-      items: [
-        { id: 'campaigns' as AppNavTab, label: 'Campaigns', icon: FolderKanban, count: campaigns.length },
-        { id: 'creative_studio' as AppNavTab, label: 'Creative Studio', icon: Layers, count: null },
-      ]
-    },
-    {
-      group: 'SYSTEM',
-      items: [
-        { id: 'design_system' as AppNavTab, label: 'Design System', icon: Palette, count: null },
-        { id: 'virality' as AppNavTab, label: 'Virality Engine', icon: TrendingUp, count: null },
-        { id: 'publishing' as AppNavTab, label: 'Publishing', icon: Send, count: null },
-      ]
-    }
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('[data-autonoma-menu]')) {
+        setWorkspaceOpen(false);
+        setMoreOpen(false);
+        setAccountOpen(false);
+      }
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setWorkspaceOpen(false);
+        setMoreOpen(false);
+        setAccountOpen(false);
+        setMobileOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', escape);
+    };
+  }, []);
+
+  const primary = [
+    { id: 'todays_production' as AppNavTab, label: 'Today', icon: Clock3 },
+    { id: 'campaigns' as AppNavTab, label: 'Campaigns', icon: FolderKanban },
+    { id: 'master_sheet' as AppNavTab, label: 'Content', icon: FileSpreadsheet },
+    { id: 'creative_studio' as AppNavTab, label: 'Studio', icon: Layers },
+    { id: 'calendar' as AppNavTab, label: 'Calendar', icon: Calendar },
   ];
 
-  const selectedCampaignObj = campaigns.find(c => c.id === activeCampaignFilter);
+  const secondary = [
+    { id: 'design_system' as AppNavTab, label: 'Design System', icon: Palette },
+    { id: 'virality' as AppNavTab, label: 'Virality Engine', icon: TrendingUp },
+    { id: 'publishing' as AppNavTab, label: 'Publishing', icon: Send },
+    { id: 'archive' as AppNavTab, label: 'Archive', icon: Archive, count: archivedCount || 0 },
+  ];
+
+  const activeCompanyId = activeCompany?.companyId || activeCompany?.id || '';
+
+  const companies = useMemo<CompanyOption[]>(() => {
+    const list = availableCompanies && availableCompanies.length > 0
+      ? [...availableCompanies]
+      : [];
+
+    if (activeCompany && activeCompanyId && !list.some((c) => c.id === activeCompanyId)) {
+      list.unshift({
+        id: activeCompanyId,
+        name: activeCompany.name,
+        role: userRole || 'MEMBER',
+      });
+    }
+
+    if (list.length === 0 && activeCompany) {
+      return [
+        {
+          id: activeCompanyId,
+          name: activeCompany.name,
+          role: userRole || 'MEMBER',
+        },
+      ];
+    }
+    return list;
+  }, [availableCompanies, activeCompanyId, activeCompany, userRole]);
+
+  const canManage = userRole === 'COMPANY_ADMIN' || Boolean(currentUser?.isSuperAdmin);
+
+  const filterRelevant = [
+    'todays_production',
+    'campaigns',
+    'master_sheet',
+    'creative_studio',
+    'calendar',
+  ].includes(activeTab);
+
+  const selectedCampaign = (campaigns || []).find((c) => c.id === activeCampaignFilter);
+
+  const switchWorkspace = async (companyId: string) => {
+    if (
+      !onSwitchCompany ||
+      !companyId ||
+      companyId === activeCompanyId ||
+      switchingCompanyId
+    )
+      return;
+
+    setSwitchingCompanyId(companyId);
+
+    try {
+      await onSwitchCompany(companyId);
+      setWorkspaceOpen(false);
+      setMobileOpen(false);
+    } finally {
+      setSwitchingCompanyId(null);
+    }
+  };
+
+  const selectTab = (tab: AppNavTab) => {
+    setActiveTab(tab);
+    setMoreOpen(false);
+    setMobileOpen(false);
+  };
 
   return (
-    <>
-      {/* Top Application Bar */}
-      <header className="sticky top-0 z-40 bg-white/85 backdrop-blur-xl border-b border-black/[0.06] text-[#1D1D1F]">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
-          {/* Left: Brand Identity & Mobile Menu Toggle */}
-          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 shrink">
+    <div className="sticky top-0 z-50 w-full select-none">
+      <header className="border-b border-white/[0.075] bg-[#090A0D]/94 text-white shadow-[0_1px_0_rgba(255,255,255,.02)] backdrop-blur-2xl">
+        <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-3 px-3 sm:px-5 lg:px-7">
+          <button
+            className="rounded-lg p-2 text-[#747781] hover:bg-white/[0.05] hover:text-white md:hidden"
+            onClick={() => setMobileOpen((v) => !v)}
+          >
+            {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </button>
+
+          <button
+            onClick={() => selectTab('todays_production')}
+            className="flex shrink-0 items-center gap-2"
+            title="Autonoma home"
+          >
+            <ApexLogo variant="mark" size="sm" />
+            <span className="hidden text-[12px] font-bold tracking-[0.08em] text-white sm:block">
+              AUTONOMA
+            </span>
+          </button>
+
+          <div className="hidden h-5 w-px bg-white/[0.09] sm:block" />
+
+          <div className="relative min-w-0" data-autonoma-menu>
             <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 -ml-1 text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors shrink-0"
-              aria-label="Toggle Navigation"
+              onClick={() => {
+                setWorkspaceOpen((v) => !v);
+                setMoreOpen(false);
+                setAccountOpen(false);
+              }}
+              className="flex max-w-[210px] items-center gap-2 rounded-xl border border-white/[0.075] bg-white/[0.035] px-2.5 py-1.5 text-left transition hover:bg-white/[0.065] sm:max-w-[260px]"
             >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              <Building2 className="h-3.5 w-3.5 shrink-0 text-[#FF6A2A]" />
+
+              <div className="min-w-0">
+                <div className="truncate text-[11px] font-semibold text-white">
+                  {activeCompany?.name || 'Choose workspace'}
+                </div>
+                <div className="hidden truncate text-[9px] text-[#666973] lg:block">
+                  {userRole || 'Workspace'}
+                </div>
+              </div>
+
+              <ChevronDown
+                className={`ml-auto h-3 w-3 shrink-0 text-[#666973] transition ${
+                  workspaceOpen ? 'rotate-180' : ''
+                }`}
+              />
             </button>
 
-            <div 
-              onClick={() => setActiveTab('todays_production')}
-              className="flex items-center space-x-2 sm:space-x-3 cursor-pointer group min-w-0"
-            >
-              <ApexLogo variant="mark" size="md" className="transition-transform group-hover:scale-105 shrink-0" />
-              <div className="min-w-0">
-                <div className="flex items-center space-x-1.5 sm:space-x-2">
-                  <span className="font-semibold text-xs sm:text-sm tracking-tight text-[#1D1D1F] truncate">
-                    Apex Autonoma
-                  </span>
-                  <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-black/[0.04] text-[#6E6E73] shrink-0">
-                    Pro Ops
-                  </span>
+            {workspaceOpen && (
+              <div className="absolute left-0 top-full mt-2 w-[310px] overflow-hidden rounded-2xl border border-white/[0.1] bg-[#111318] shadow-2xl">
+                <div className="border-b border-white/[0.06] px-4 py-3">
+                  <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[#5F626B]">
+                    Switch workspace
+                  </div>
+                  <div className="mt-1 text-[11px] text-[#8C8F98]">
+                    Your ventures and assigned brands
+                  </div>
                 </div>
-                <p className="text-[11px] text-[#86868B] hidden md:block truncate">
-                  Social Intelligence & Production Studio
-                </p>
+
+                <div className="max-h-72 overflow-y-auto p-1.5">
+                  {companies.map((company) => {
+                    const active = company.id === activeCompanyId;
+                    const switching = switchingCompanyId === company.id;
+
+                    return (
+                      <button
+                        key={company.id}
+                        disabled={Boolean(switchingCompanyId)}
+                        onClick={() => switchWorkspace(company.id)}
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
+                          active
+                            ? 'bg-white/[0.075]'
+                            : 'hover:bg-white/[0.045]'
+                        }`}
+                      >
+                        <div
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                            active ? 'bg-[#FF4500]/12' : 'bg-white/[0.04]'
+                          }`}
+                        >
+                          <Building2
+                            className={`h-4 w-4 ${
+                              active ? 'text-[#FF6A2A]' : 'text-[#6D7078]'
+                            }`}
+                          />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div
+                            className={`truncate text-xs ${
+                              active
+                                ? 'font-semibold text-white'
+                                : 'text-[#B3B5BC]'
+                            }`}
+                          >
+                            {company.name}
+                          </div>
+                          <div className="mt-0.5 text-[9px] text-[#5F626B]">
+                            {company.organizationType ||
+                              company.role ||
+                              'Workspace'}
+                          </div>
+                        </div>
+
+                        {switching ? (
+                          <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#FF6A2A] border-t-transparent" />
+                        ) : active ? (
+                          <Check className="h-3.5 w-3.5 text-[#FF6A2A]" />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+
+                  {!companies.length && (
+                    <div className="px-3 py-7 text-center text-[11px] text-[#666973]">
+                      No workspaces available.
+                    </div>
+                  )}
+                </div>
+
+                {canManage && onOpenCompanyManagement && (
+                  <div className="border-t border-white/[0.06] p-1.5">
+                    <button
+                      onClick={() => {
+                        onOpenCompanyManagement();
+                        setWorkspaceOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-[#8C8F98] hover:bg-white/[0.045] hover:text-white"
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                      Company setup & team
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Desktop Central Quick Switcher */}
-          <nav className="hidden md:flex items-center p-1 bg-black/[0.03] rounded-xl border border-black/[0.04]">
-            <button
-              onClick={() => setActiveTab('todays_production')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs rounded-lg transition-all ${
-                activeTab === 'todays_production'
-                  ? 'bg-white text-[#1D1D1F] font-medium shadow-sm'
-                  : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-              }`}
-            >
-              <Clock className={`w-3.5 h-3.5 ${activeTab === 'todays_production' ? 'text-[#FF4500]' : ''}`} />
-              <span>Today</span>
-            </button>
+          <nav className="mx-auto hidden items-center gap-0.5 rounded-xl border border-white/[0.055] bg-white/[0.018] p-1 md:flex">
+            {primary.map((item) => {
+              const Icon = item.icon;
+              const active = item.id === activeTab;
 
-            <button
-              onClick={() => setActiveTab('master_sheet')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs rounded-lg transition-all ${
-                activeTab === 'master_sheet'
-                  ? 'bg-white text-[#1D1D1F] font-medium shadow-sm'
-                  : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-              }`}
-            >
-              <FileSpreadsheet className={`w-3.5 h-3.5 ${activeTab === 'master_sheet' ? 'text-[#FF4500]' : ''}`} />
-              <span>Content</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/[0.05] text-[#6E6E73]">
-                {assetCount}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('campaigns')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs rounded-lg transition-all ${
-                activeTab === 'campaigns'
-                  ? 'bg-white text-[#1D1D1F] font-medium shadow-sm'
-                  : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-              }`}
-            >
-              <FolderKanban className={`w-3.5 h-3.5 ${activeTab === 'campaigns' ? 'text-[#FF4500]' : ''}`} />
-              <span>Campaigns</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/[0.05] text-[#6E6E73]">
-                {campaigns.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('creative_studio')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs rounded-lg transition-all ${
-                activeTab === 'creative_studio'
-                  ? 'bg-white text-[#1D1D1F] font-medium shadow-sm'
-                  : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-              }`}
-            >
-              <Layers className={`w-3.5 h-3.5 ${activeTab === 'creative_studio' ? 'text-[#FF4500]' : ''}`} />
-              <span>Studio</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('calendar')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs rounded-lg transition-all ${
-                activeTab === 'calendar'
-                  ? 'bg-white text-[#1D1D1F] font-medium shadow-sm'
-                  : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-              }`}
-            >
-              <Calendar className={`w-3.5 h-3.5 ${activeTab === 'calendar' ? 'text-[#FF4500]' : ''}`} />
-              <span>Calendar</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('design_system')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs rounded-lg transition-all ${
-                activeTab === 'design_system'
-                  ? 'bg-white text-[#1D1D1F] font-medium shadow-sm'
-                  : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-              }`}
-            >
-              <Palette className={`w-3.5 h-3.5 ${activeTab === 'design_system' ? 'text-[#FF4500]' : ''}`} />
-              <span>Design</span>
-            </button>
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => selectTab(item.id)}
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition lg:px-3 ${
+                    active
+                      ? 'bg-white/[0.09] text-white shadow-sm'
+                      : 'text-[#747781] hover:bg-white/[0.035] hover:text-white'
+                  }`}
+                >
+                  <Icon
+                    className={`h-3.5 w-3.5 ${
+                      active ? 'text-[#FF6A2A]' : ''
+                    }`}
+                  />
+                  <span className="hidden lg:inline">{item.label}</span>
+                </button>
+              );
+            })}
           </nav>
 
-          {/* Right: Campaign Switcher & Actions */}
-          <div className="flex items-center space-x-2">
-            {/* Global Campaign Switcher */}
-            <div className="hidden xl:flex items-center space-x-1.5 pr-2">
-              <span className="text-[11px] text-[#86868B] font-medium">Filter:</span>
-              <select
-                value={activeCampaignFilter}
-                onChange={(e) => onSelectCampaignFilter(e.target.value)}
-                className="text-xs bg-[#F5F5F7] text-[#1D1D1F] font-medium py-1.5 px-2.5 rounded-xl border border-black/[0.04] focus:ring-2 focus:ring-[#FF4500]/20 max-w-[190px] truncate cursor-pointer"
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <button
+              onClick={onOpenAiGenerator}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#FF4500] px-3 text-[11px] font-semibold text-white shadow-lg shadow-[#FF4500]/15 transition hover:bg-[#F05A1E] active:scale-[.98]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Create campaign</span>
+            </button>
+
+            <div className="relative" data-autonoma-menu>
+              <button
+                onClick={() => {
+                  setMoreOpen((v) => !v);
+                  setWorkspaceOpen(false);
+                  setAccountOpen(false);
+                }}
+                className={`flex h-9 items-center gap-1 rounded-xl border px-2.5 text-[11px] transition ${
+                  moreOpen
+                    ? 'border-white/[0.14] bg-white/[0.08] text-white'
+                    : 'border-white/[0.07] bg-white/[0.025] text-[#777A83] hover:bg-white/[0.05] hover:text-white'
+                }`}
               >
-                <option value="all">All Campaigns ({assetCount})</option>
-                {campaigns.map((c) => (
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="hidden xl:inline">More</span>
+              </button>
+
+              {moreOpen && (
+                <div className="absolute right-0 top-full mt-2 w-60 overflow-hidden rounded-2xl border border-white/[0.1] bg-[#111318] p-1.5 shadow-2xl">
+                  <div className="px-3 pb-1.5 pt-1 text-[9px] font-semibold uppercase tracking-[0.17em] text-[#555861]">
+                    Tools
+                  </div>
+
+                  {secondary.map((item) => {
+                    const Icon = item.icon;
+                    const active = activeTab === item.id;
+
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => selectTab(item.id)}
+                        className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[11px] ${
+                          active
+                            ? 'bg-white/[0.07] text-white'
+                            : 'text-[#8C8F98] hover:bg-white/[0.04] hover:text-white'
+                        }`}
+                      >
+                        <Icon
+                          className={`h-3.5 w-3.5 ${
+                            active ? 'text-[#FF6A2A]' : ''
+                          }`}
+                        />
+                        {item.label}
+                        <span className="ml-auto text-[9px] text-[#555861]">
+                          {item.count || ''}
+                        </span>
+                      </button>
+                    );
+                  })}
+
+                  <div className="my-1 h-px bg-white/[0.06]" />
+
+                  <button
+                    onClick={() => {
+                      onExportCsv();
+                      setMoreOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-[#8C8F98] hover:bg-white/[0.04] hover:text-white"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Export content CSV
+                  </button>
+
+                  {canManage && onOpenCompanyManagement && (
+                    <button
+                      onClick={() => {
+                        onOpenCompanyManagement();
+                        setMoreOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-[#8C8F98] hover:bg-white/[0.04] hover:text-white"
+                    >
+                      <Users className="h-3.5 w-3.5" />
+                      Team & company
+                    </button>
+                  )}
+
+                  {currentUser?.isSuperAdmin &&
+                    onOpenSuperAdminWorkspace && (
+                      <>
+                        <div className="my-1 h-px bg-white/[0.06]" />
+
+                        <button
+                          onClick={() => {
+                            onOpenSuperAdminWorkspace();
+                            setMoreOpen(false);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-xl bg-[#FF4500]/[0.06] px-3 py-2 text-[11px] font-medium text-[#FF6A2A] hover:bg-[#FF4500]/10"
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          Admin console
+                        </button>
+                      </>
+                    )}
+                </div>
+              )}
+            </div>
+
+            <div className="relative" data-autonoma-menu>
+              <button
+                onClick={() => {
+                  setAccountOpen((v) => !v);
+                  setWorkspaceOpen(false);
+                  setMoreOpen(false);
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.025] text-[11px] font-semibold text-white transition hover:bg-white/[0.06]"
+              >
+                {currentUser?.name?.[0]?.toUpperCase() || 'U'}
+              </button>
+
+              {accountOpen && (
+                <div className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-2xl border border-white/[0.1] bg-[#111318] shadow-2xl">
+                  <div className="border-b border-white/[0.06] px-4 py-3">
+                    <div className="truncate text-xs font-semibold text-white">
+                      {currentUser?.name || 'Autonoma user'}
+                    </div>
+
+                    <div className="mt-0.5 truncate text-[10px] text-[#6D7078]">
+                      {currentUser?.email}
+                    </div>
+
+                    <div className="mt-2 inline-flex rounded-md bg-[#FF4500]/10 px-1.5 py-0.5 text-[9px] font-semibold text-[#FF6A2A]">
+                      {currentUser?.isSuperAdmin
+                        ? 'SUPER ADMIN'
+                        : userRole || 'MEMBER'}
+                    </div>
+                  </div>
+
+                  <div className="p-1.5">
+                    <button
+                      onClick={() => {
+                        onOpenSettings();
+                        setAccountOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-[#8C8F98] hover:bg-white/[0.04] hover:text-white"
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                      Settings & integrations
+                    </button>
+
+                    {onSignOut && (
+                      <button
+                        onClick={() => {
+                          onSignOut();
+                          setAccountOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[11px] text-red-400 hover:bg-red-500/[0.08]"
+                      >
+                        <LogOut className="h-3.5 w-3.5" />
+                        Sign out
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {mobileOpen && (
+          <div className="border-t border-white/[0.06] bg-[#0E1014] p-3 md:hidden">
+            <div className="grid grid-cols-2 gap-1.5">
+              {primary.map((item) => {
+                const Icon = item.icon;
+
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => selectTab(item.id)}
+                    className={`flex min-h-11 items-center gap-2 rounded-xl px-3 text-xs ${
+                      activeTab === item.id
+                        ? 'bg-white/[0.08] text-white'
+                        : 'text-[#777A83]'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="my-3 h-px bg-white/[0.06]" />
+
+            <div className="grid grid-cols-2 gap-1.5">
+              {secondary.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => selectTab(item.id)}
+                  className="min-h-10 rounded-xl px-3 text-left text-xs text-[#777A83] hover:bg-white/[0.04] hover:text-white"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {currentUser?.isSuperAdmin &&
+              onOpenSuperAdminWorkspace && (
+                <button
+                  onClick={() => {
+                    onOpenSuperAdminWorkspace();
+                    setMobileOpen(false);
+                  }}
+                  className="mt-2 w-full rounded-xl border border-[#FF4500]/20 bg-[#FF4500]/[0.07] px-3 py-2.5 text-xs font-semibold text-[#FF6A2A]"
+                >
+                  Admin console
+                </button>
+              )}
+          </div>
+        )}
+      </header>
+
+      {filterRelevant && (
+        <div className="border-b border-black/[0.055] bg-white/95 backdrop-blur-xl">
+          <div className="mx-auto flex min-h-11 max-w-[1500px] items-center gap-3 px-3 sm:px-5 lg:px-7">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="hidden text-[9px] font-semibold uppercase tracking-[0.15em] text-[#A0A0A5] sm:block">
+                Campaign
+              </span>
+
+              <select
+                value={(campaigns || []).some(c => c.id === activeCampaignFilter) ? activeCampaignFilter : 'all'}
+                onChange={(e) => onSelectCampaignFilter(e.target.value)}
+                className="max-w-[250px] rounded-lg border border-black/[0.07] bg-[#F5F5F7] px-2.5 py-1.5 text-[11px] font-medium text-[#33343A] outline-none focus:border-[#FF4500]/35 sm:max-w-[360px]"
+              >
+                <option value="all">
+                  All campaigns · {assetCount || 0} assets
+                </option>
+
+                {(campaigns || []).map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.campaignCode}: {c.name}
+                    {c.campaignCode ? `${c.campaignCode} · ` : ''}
+                    {c.name}
                   </option>
                 ))}
               </select>
@@ -222,117 +612,33 @@ export const Header: React.FC<HeaderProps> = ({
               {activeCampaignFilter !== 'all' && (
                 <button
                   onClick={() => onSelectCampaignFilter('all')}
-                  title="Reset filter to all campaigns"
-                  className="p-1 text-[#86868B] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-lg text-[10px]"
+                  className="rounded-lg p-1.5 text-[#999BA1] hover:bg-black/[0.04] hover:text-[#33343A]"
+                  title="Clear campaign filter"
                 >
-                  ✕
+                  <X className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
 
-            <button
-              onClick={onExportCsv}
-              title="Export Content Sheet to CSV"
-              className="hidden sm:flex items-center space-x-1 px-3 py-1.5 bg-white hover:bg-black/[0.02] border border-black/[0.08] text-xs font-medium text-[#1D1D1F] rounded-xl transition-all shadow-sm active:scale-95"
-            >
-              <Download className="w-3.5 h-3.5 text-[#6E6E73]" />
-              <span>Export</span>
-            </button>
+            <div className="ml-auto hidden min-w-0 items-center gap-2 text-[10px] text-[#A0A0A5] sm:flex">
+              <span className="truncate">
+                {selectedCampaign
+                  ? selectedCampaign.name
+                  : activeCompany?.name}
+              </span>
 
-            <button
-              onClick={onOpenAiGenerator}
-              className="flex items-center space-x-1.5 px-2.5 sm:px-3.5 py-1.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm active:scale-95 shrink-0"
-              title="Create a new campaign"
-            >
-              <Sparkles className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">Create campaign</span>
-              <span className="sm:hidden">Create</span>
-            </button>
-
-            <button
-              onClick={onOpenSettings}
-              title="Settings & Integrations"
-              className="p-2 text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors active:scale-95 shrink-0"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
+              {activeTab === 'master_sheet' && (
+                <button
+                  onClick={onExportCsv}
+                  className="rounded-lg border border-black/[0.06] bg-white px-2 py-1 text-[#6D6F75] hover:text-[#1D1D1F]"
+                >
+                  Export
+                </button>
+              )}
+            </div>
           </div>
         </div>
-
-        {/* Mobile Slide-down Navigation */}
-        {mobileMenuOpen && (
-          <div className="lg:hidden border-t border-black/[0.06] bg-white p-4 space-y-4 shadow-xl max-h-[85vh] overflow-y-auto animate-in slide-in-from-top-2 duration-200">
-            {/* Mobile Campaign Filter */}
-            <div className="space-y-1 pb-3 border-b border-black/[0.04]">
-              <label className="text-[11px] font-semibold text-[#86868B] block">
-                ACTIVE CAMPAIGN
-              </label>
-              <select
-                value={activeCampaignFilter}
-                onChange={(e) => onSelectCampaignFilter(e.target.value)}
-                className="w-full text-xs bg-[#F5F5F7] text-[#1D1D1F] font-medium py-2.5 px-3 rounded-xl border-0 focus:ring-2 focus:ring-[#FF4500]/20 cursor-pointer"
-              >
-                <option value="all">All Campaigns ({assetCount} assets)</option>
-                {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.campaignCode}: {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {navGroups.map((group) => (
-              <div key={group.group} className="space-y-1">
-                <span className="text-[11px] font-semibold text-[#86868B] tracking-wider px-2 block">
-                  {group.group}
-                </span>
-                <div className="grid grid-cols-2 gap-1.5 pt-1">
-                  {group.items.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = activeTab === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => {
-                          setActiveTab(item.id);
-                          setMobileMenuOpen(false);
-                        }}
-                        className={`flex items-center space-x-2 px-3 py-2.5 min-h-[44px] rounded-xl text-xs transition-colors ${
-                          isActive
-                            ? 'bg-orange-50 text-[#FF4500] font-medium'
-                            : 'text-[#6E6E73] hover:bg-black/[0.03] hover:text-[#1D1D1F]'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4 shrink-0" />
-                        <span className="truncate">{item.label}</span>
-                        {item.count !== null && (
-                          <span className="text-[10px] ml-auto opacity-70 shrink-0 font-mono">
-                            {item.count}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-
-            {/* Mobile Export Action */}
-            <div className="pt-2 border-t border-black/[0.04]">
-              <button
-                onClick={() => {
-                  onExportCsv();
-                  setMobileMenuOpen(false);
-                }}
-                className="w-full flex items-center justify-center space-x-2 py-2.5 px-3 bg-[#F5F5F7] hover:bg-black/[0.05] text-xs font-medium text-[#1D1D1F] rounded-xl transition-colors min-h-[44px]"
-              >
-                <Download className="w-4 h-4 text-[#6E6E73]" />
-                <span>Export Content Sheet to CSV</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </header>
-    </>
+      )}
+    </div>
   );
 };

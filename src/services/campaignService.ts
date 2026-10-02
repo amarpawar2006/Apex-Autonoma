@@ -19,6 +19,9 @@ export const STORAGE_KEY_ACTIVE_CAMPAIGN = 'apex_autonoma_active_campaign_filter
 
 export interface CampaignCreationOptions {
   brief: string;
+  primaryGoal?: string;
+  secondaryGoals?: string[];
+  companyContext?: any;
   platforms: Platform[];
   autoPlatforms?: boolean;
   formats: ContentFormat[];
@@ -27,6 +30,12 @@ export interface CampaignCreationOptions {
   startDate?: string;
   endDate?: string;
   languages: string[];
+  customLanguage?: string;
+  customPlatform?: string;
+  languageStyle?: string;
+  additionalInstructions?: string;
+  campaignIdOverride?: string;
+  campaignCodeOverride?: string;
   advancedOptions?: {
     targetAudience?: string;
     primaryCta?: string;
@@ -34,6 +43,10 @@ export interface CampaignCreationOptions {
     assetCount?: number;
     postingFrequency?: string;
     tone?: string;
+    customLanguage?: string;
+    customPlatform?: string;
+    languageStyle?: string;
+    additionalInstructions?: string;
   };
 }
 
@@ -339,20 +352,32 @@ export async function createAutonomaCampaign(
   );
 
   const campaignCodeSuffix = Math.floor(100 + Math.random() * 900);
-  const campaignCode = `CMP-2026-${campaignCodeSuffix}`;
-  const campaignId = `cmp-${Date.now()}`;
+  const campaignCode = options.campaignCodeOverride || `CMP-2026-${campaignCodeSuffix}`;
+  const campaignId = options.campaignIdOverride || `cmp-${Date.now()}`;
   let campaignName = deriveCampaignName(brief);
+
+  const customLanguage = options.customLanguage || advancedOptions?.customLanguage;
+  const customPlatform = options.customPlatform || advancedOptions?.customPlatform;
+  const languageStyle = options.languageStyle || advancedOptions?.languageStyle;
+  const additionalInstructions = options.additionalInstructions || advancedOptions?.additionalInstructions;
 
   // Attempt real server-side Gemini multi-asset campaign synthesis
   try {
     const aiSynthesis = await synthesizeFullCampaignWithAI({
       brief,
+      primaryGoal: options.primaryGoal,
+      secondaryGoals: options.secondaryGoals,
+      companyContext: options.companyContext,
       platforms: finalPlatforms,
       formats: finalFormats,
       duration,
       daysSpan,
       assetCount,
       languages,
+      customLanguage,
+      customPlatform,
+      languageStyle,
+      additionalInstructions,
       advancedOptions
     });
 
@@ -366,20 +391,20 @@ export async function createAutonomaCampaign(
 
       const strategy: CampaignStrategy = {
         objectiveSummary: brief,
-        targetAudience: aiSynthesis.targetAudience || advancedOptions?.targetAudience || 'Small business owners, local product merchants & home businesses taking orders on chat',
+        targetAudience: aiSynthesis.targetAudience || advancedOptions?.targetAudience || 'Target audience derived from campaign brief',
         buyerPersonas: aiSynthesis.buyerPersonas || [
-          'Home-food businesses & bakeries taking orders on WhatsApp',
-          'Local boutique & apparel merchants handling manual bank transfers',
-          'Small manufacturers & distributors coordinating dispatches in chat'
+          `Key stakeholders and decision-makers for ${campaignName}`,
+          `Active practitioners evaluating ${campaignName}`,
+          `Growth-oriented operators seeking solutions in this domain`
         ],
-        coreInsight: aiSynthesis.coreInsight || 'Businesses lose orders not from lack of interest, but from the friction of manual messaging, delayed responses, and lost payment screenshots.',
-        valueProposition: aiSynthesis.valueProposition || 'A simple 1-link order flow that turns chat conversations into clear, confirmed orders with zero spreadsheet chaos.',
+        coreInsight: aiSynthesis.coreInsight || `${campaignName}: Addressing critical operational challenges through focused strategy.`,
+        valueProposition: aiSynthesis.valueProposition || `${campaignName}: Clear, actionable workflow improvement with measurable outcomes.`,
         contentPillars: aiSynthesis.contentPillars || [
-          'Problem Recognition: The hidden cost of managing orders in chat',
-          'Operational Simplicity: The 10-second customer order and payment flow',
-          'Pragmatic Transformation: Small business success stories with zero complex tech'
+          'Problem Recognition & Market Reality',
+          'System Principles & Practical Education',
+          'Transformation & Direct Action'
         ],
-        contentStreams: [inferredStream, 'commerce_operations'],
+        contentStreams: [inferredStream],
         speciesCodes: [primarySpecies, 'SPEC-02_SYSTEM_BLUEPRINT'],
         funnelDistribution: {
           topOfFunnel: 40,
@@ -387,13 +412,14 @@ export async function createAutonomaCampaign(
           bottomOfFunnel: 20
         },
         platformStrategy: {
-          instagram: 'Visual carousels showing step-by-step order flows and punchy relatable reels.',
-          facebook: 'Relatable stories about daily business friction and conversational community questions.',
-          linkedin: 'Founder reflections on operational simplicity and small business unit economics.'
+          instagram: 'Visual carousels showing step-by-step concepts and punchy relatable reels.',
+          facebook: 'Relatable scenarios, community discussion, and practical takeaways.',
+          linkedin: 'Professional reflections, systems thinking, and operational efficiency.'
         },
         formatMix: finalFormats.map(f => f.replace('_', ' ')),
-        postingSequence: aiSynthesis.postingSequence || 'Problem Recognition -> Consequence -> Education -> System Flow -> Case Study -> Direct Conversion',
-        recommendedPostingSchedule: 'Daily at 11:30 AM IST (Peak business review window)'
+        postingSequence: aiSynthesis.postingSequence || 'Problem Recognition -> Stakes -> Education -> Demonstration -> Proof -> Objection Handling -> Action',
+        recommendedPostingSchedule: 'Daily at 11:30 AM IST (Peak business review window)',
+        languageGuidance: customLanguage ? `${customLanguage} (${languageStyle || 'Natural'})` : (languages.join(', ') + (languageStyle ? ` · ${languageStyle}` : ''))
       };
 
       const newCampaign: Campaign = {
@@ -401,7 +427,9 @@ export async function createAutonomaCampaign(
         campaignCode,
         name: campaignName,
         brief,
-        objective: advancedOptions?.primaryCta ? `${brief} (CTA: ${advancedOptions.primaryCta})` : brief,
+        objective: options.primaryGoal 
+          ? `${options.primaryGoal}${options.secondaryGoals && options.secondaryGoals.length > 0 ? ` · Secondary: ${options.secondaryGoals.join(', ')}` : ''}`
+          : (advancedOptions?.primaryCta ? `${brief} (CTA: ${advancedOptions.primaryCta})` : brief),
         status: 'ACTIVE',
         platforms: finalPlatforms,
         formats: finalFormats,
@@ -411,6 +439,10 @@ export async function createAutonomaCampaign(
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         assetCount: aiSynthesis.assets.length,
+        customLanguage,
+        customPlatform,
+        languageStyle,
+        additionalInstructions,
         strategy
       };
 
@@ -422,9 +454,6 @@ export async function createAutonomaCampaign(
         // Normalize platform and format
         const platform: Platform = (item.platform?.toLowerCase() as Platform) || finalPlatforms[idx % finalPlatforms.length];
         const format: ContentFormat = (item.format?.toLowerCase() as ContentFormat) || finalFormats[idx % finalFormats.length];
-
-        const viralityScore = item.viralityScore || (84 + (idx % 8));
-        const metrics = calculateRealisticAssetMetrics(platform, format, viralityScore);
 
         return {
           id: `APEX-${Date.now()}-${idx + 1}`,
@@ -445,20 +474,22 @@ export async function createAutonomaCampaign(
           productionStatus: 'NOT_GENERATED', // ZERO image/video calls triggered
           hook: item.hook,
           caption: item.caption,
-          hashtags: Array.isArray(item.hashtags) && item.hashtags.length > 0 ? item.hashtags : ['ApexMicrocommerce', 'SmallBusinessIndia', 'OrderManagement', 'WhatsAppCommerce'],
-          callToAction: item.CTA || advancedOptions?.primaryCta || "Visit apex-engineering.co.in or comment 'ORDER' for the demo link",
-          viralityScore: metrics.viralityScore,
-          viralityRationale: item.viralityRationale || 'Relatable operational friction trigger driving shares among business peers.',
-          targetReach: item.targetReach || metrics.targetReach,
-          estimatedImpressions: item.estimatedImpressions || metrics.estimatedImpressions,
-          expectedLeads: item.expectedLeads || metrics.expectedLeads,
-          targetBuyerPersona: strategy.targetAudience || 'Small business owners, local product merchants & home businesses taking orders on chat',
+          hashtags: Array.isArray(item.hashtags) && item.hashtags.length > 0 
+            ? item.hashtags 
+            : [campaignName.replace(/[^a-zA-Z0-9]/g, ''), 'Strategy', 'Growth'],
+          callToAction: item.CTA || advancedOptions?.primaryCta || "Visit website or comment to learn more",
+          viralityScore: 0,
+          viralityRationale: item.viralityRationale || 'Resonance driven by problem-first audience alignment.',
+          targetReach: 0,
+          estimatedImpressions: 0,
+          expectedLeads: 0,
+          targetBuyerPersona: strategy.targetAudience || 'Audience derived from campaign brief',
           designSystemVerified: true,
           colorScheme: 'carbon_orange',
           slides: item.carouselSlides && item.carouselSlides.length > 0 ? item.carouselSlides.map(s => ({
             slideNumber: s.slideNumber,
             layout: (s.layout as any) || 'title_hook',
-            badge: s.badge || 'APEX MICROCOMMERCE',
+            badge: s.badge || campaignName.toUpperCase(),
             headline: s.headline,
             subtext: s.subtext,
             body: s.body
@@ -470,9 +501,9 @@ export async function createAutonomaCampaign(
             bRollPrompt: sc.bRollPrompt,
             narrationVoiceover: sc.narrationVoiceover,
             onScreenCaption: sc.onScreenCaption,
-            visualFocus: sc.visualFocus || 'Crisp AES-DS telemetry badges'
+            visualFocus: sc.visualFocus || 'Crisp visual focus'
           })) : undefined,
-          posterVisualPrompt: item.posterVisualPrompt || `High-contrast AES-DS graphic for "${item.title}". Bold stark typography, carbon background, vibrant Apex orange accents highlighting simplicity.`
+          posterVisualPrompt: item.posterVisualPrompt || `High-contrast AES-DS graphic for "${item.title}". Bold typography, carbon background, vibrant orange accents.`
         };
       });
 
@@ -481,29 +512,14 @@ export async function createAutonomaCampaign(
         assets: generatedAssets
       };
     }
-  } catch (err) {
-    console.info('Server-side campaign synthesis fell back to expert deterministic narrative engine:', err);
-  }
 
-  // Fallback: Expert Deterministic Narrative Arc Generator
-  // Strictly guarantees 7 distinct narrative stages, platform-native executions,
-  // zero "Part 2/3/4" titles, and anti-jargon audience language.
-  return generateDeterministicNarrativeCampaign({
-    brief,
-    platforms: finalPlatforms,
-    formats: finalFormats,
-    duration,
-    daysSpan,
-    assetCount,
-    startDateStr,
-    endDateStr,
-    languages,
-    campaignCode,
-    campaignCodeSuffix,
-    campaignId,
-    campaignName,
-    advancedOptions
-  });
+    throw new Error('AI generation returned an empty or invalid campaign structure.');
+  } catch (err: any) {
+    console.error('[Campaign Director] AI campaign synthesis failed:', err);
+    // CRITICAL: Do NOT silently return sample content when AI generation fails.
+    // Throw an actionable error and preserve the draft.
+    throw new Error(err?.message || 'Campaign generation could not complete. Please check your brief and retry.');
+  }
 }
 
 interface DeterministicParams {
@@ -520,6 +536,10 @@ interface DeterministicParams {
   campaignCodeSuffix: number;
   campaignId: string;
   campaignName: string;
+  customLanguage?: string;
+  customPlatform?: string;
+  languageStyle?: string;
+  additionalInstructions?: string;
   advancedOptions?: CampaignCreationOptions['advancedOptions'];
 }
 
@@ -658,6 +678,10 @@ function generateDeterministicNarrativeCampaign(params: DeterministicParams): { 
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     assetCount: assetCount,
+    customLanguage: params.customLanguage,
+    customPlatform: params.customPlatform,
+    languageStyle: params.languageStyle,
+    additionalInstructions: params.additionalInstructions,
     strategy
   };
 

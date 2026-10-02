@@ -1,10 +1,20 @@
-export type Platform = 'instagram' | 'youtube' | 'linkedin' | 'twitter' | 'facebook';
+export type Platform =
+  | 'instagram'
+  | 'facebook'
+  | 'linkedin'
+  | 'twitter'
+  | 'youtube'
+  | 'threads'
+  | 'reddit'
+  | 'snapchat'
+  | 'pinterest'
+  | (string & {});
 
 export type ContentFormat = 'carousel' | 'reel_short' | 'static_poster' | 'infographic_flyer' | 'founder_card' | 'story' | 'short_video';
 
 export type PostStatus = 'draft' | 'in_review' | 'approved' | 'scheduled' | 'published';
 
-export type CampaignStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED';
+export type CampaignStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED' | 'GENERATING' | 'READY' | 'GENERATION_FAILED';
 
 export interface CampaignStrategy {
   objectiveSummary?: string;
@@ -24,6 +34,7 @@ export interface CampaignStrategy {
   formatMix?: string[];
   postingSequence?: string;
   recommendedPostingSchedule?: string;
+  languageGuidance?: string;
 }
 
 export interface Campaign {
@@ -40,8 +51,18 @@ export interface Campaign {
   endDate: string;
   createdAt: string;
   updatedAt: string;
+  archivedAt?: string;
   assetCount: number;
   strategy?: CampaignStrategy;
+  customLanguage?: string;
+  customPlatform?: string;
+  languageStyle?: string;
+  additionalInstructions?: string;
+  // Part 1 Reliability & Retry Fields
+  generationStatus?: 'GENERATING' | 'READY' | 'GENERATION_FAILED';
+  lastGenerationError?: string;
+  lastGenerationAttemptAt?: string;
+  generationOptions?: any;
 }
 
 export type ContentStream = 
@@ -95,6 +116,8 @@ export interface SocialAsset {
   stream: ContentStream;
   speciesCode: SpeciesCode;
   status: PostStatus;
+  isArchived?: boolean;
+  archivedAt?: string;
   
   // Production Workflow State
   productionStatus?: ProductionStatus;

@@ -1,5 +1,6 @@
 import { CarouselSlide, SocialAsset } from '../types/campaign';
 import { APEX_COMPANY_DATA } from '../data/apexCompanyData';
+import { getAuthHeaders } from './autonomaDataService';
 
 export interface ImageGenerationResult {
   success: boolean;
@@ -32,7 +33,7 @@ export async function generateAssetImage(
   try {
     const res = await fetch('/api/media/generate-image', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         prompt,
         aspectRatio,
@@ -78,7 +79,7 @@ export async function generateAssetVideo(
   try {
     const res = await fetch('/api/media/generate-video', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         prompt,
         aspectRatio,
@@ -119,7 +120,7 @@ export async function pollVideoStatus(
 ): Promise<{ done: boolean; error?: string }> {
   const res = await fetch('/api/media/video-status', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ operationName, customApiKey })
   });
   return await res.json();

@@ -36,7 +36,7 @@ interface ContentMasterSheetViewProps {
 }
 
 export const ContentMasterSheetView: React.FC<ContentMasterSheetViewProps> = ({
-  assets,
+  assets = [],
   onSelectAsset,
   onUpdateStatus,
   onOpenAiGenerator,
@@ -267,9 +267,14 @@ export const ContentMasterSheetView: React.FC<ContentMasterSheetViewProps> = ({
               >
                 <option value="all">All platforms</option>
                 <option value="instagram">Instagram</option>
+                <option value="facebook">Facebook</option>
                 <option value="linkedin">LinkedIn</option>
                 <option value="twitter">X / Twitter</option>
                 <option value="youtube">YouTube</option>
+                <option value="threads">Threads</option>
+                <option value="reddit">Reddit</option>
+                <option value="snapchat">Snapchat</option>
+                <option value="pinterest">Pinterest</option>
               </select>
 
               <select

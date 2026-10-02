@@ -20,10 +20,13 @@ import {
   Share2, 
   Plus, 
   ChevronRight,
-  Filter
+  Filter,
+  Archive,
+  Globe
 } from 'lucide-react';
-import { Campaign, CampaignStatus, SocialAsset, ContentFormat, Platform } from '../types/campaign';
+import { Campaign, CampaignStatus, SocialAsset, ContentFormat, Platform, PostStatus } from '../types/campaign';
 import { getCampaignAssetMetrics } from '../services/campaignService';
+import { WhatsAppPostingPackModal } from './WhatsAppPostingPackModal';
 
 interface CampaignDetailViewProps {
   campaign: Campaign;
@@ -34,6 +37,11 @@ interface CampaignDetailViewProps {
   onOpenProductionModal: (asset: SocialAsset) => void;
   onUpdateCampaignStatus: (campaignId: string, status: CampaignStatus) => void;
   onNavigateToMasterSheet: (campaignId: string) => void;
+  onUpdateStatus?: (assetId: string, newStatus: PostStatus) => void;
+  onArchiveCampaign?: (campaignId: string) => Promise<void> | void;
+  onArchiveAsset?: (assetId: string) => Promise<void> | void;
+  companyName?: string;
+  defaultWhatsAppRecipient?: string;
 }
 
 export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
@@ -45,11 +53,20 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
   onOpenProductionModal,
   onUpdateCampaignStatus,
   onNavigateToMasterSheet,
+  onUpdateStatus,
+  onArchiveCampaign,
+  onArchiveAsset,
+  companyName,
+  defaultWhatsAppRecipient,
 }) => {
   const [assetFilter, setAssetFilter] = useState<'all' | 'needs_media' | 'ready' | 'approved'>('all');
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState<boolean>(false);
+  const [isArchiveCampaignModalOpen, setIsArchiveCampaignModalOpen] = useState(false);
+  const [assetToArchive, setAssetToArchive] = useState<SocialAsset | null>(null);
+  const [isArchiving, setIsArchiving] = useState(false);
 
-  // Filter assets specifically belonging to this campaign
-  const campaignAssets = assets.filter((a) => a.campaignId === campaign.id);
+  // Filter assets specifically belonging to this active campaign (excluding individually archived)
+  const campaignAssets = assets.filter((a) => a.campaignId === campaign.id && !a.isArchived);
   const metrics = getCampaignAssetMetrics(campaignAssets);
 
   const displayedAssets = campaignAssets.filter((a) => {
@@ -127,6 +144,26 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
                 <Calendar className="w-3.5 h-3.5 mr-1 text-[#86868B]" />
                 {campaign.startDate} to {campaign.endDate}
               </span>
+
+              <span className="text-xs text-[#86868B]">·</span>
+              <span className="text-xs text-[#86868B] flex items-center" title="Campaign Language">
+                <Globe className="w-3.5 h-3.5 mr-1 text-[#86868B]" />
+                {campaign.customLanguage || (campaign.languages && campaign.languages.length > 0 ? campaign.languages.join(', ') : 'English')}
+                {campaign.languageStyle ? ` (${campaign.languageStyle})` : ''}
+              </span>
+
+              {campaign.platforms && campaign.platforms.length > 0 && (
+                <>
+                  <span className="text-xs text-[#86868B]">·</span>
+                  <div className="flex items-center gap-1">
+                    {campaign.platforms.map((plat) => (
+                      <span key={plat} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-[#F5F5F7] text-[#1D1D1F] border border-black/[0.04] capitalize">
+                        {plat}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#1D1D1F] break-words">
@@ -140,11 +177,29 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto self-start lg:self-auto">
             <button
+              onClick={() => setIsWhatsAppModalOpen(true)}
+              className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-sm transition-all active:scale-95 min-h-[38px]"
+              title="Share entire campaign's posting pack to WhatsApp"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Share entire campaign ({campaignAssets.length})</span>
+            </button>
+
+            <button
               onClick={() => onNavigateToMasterSheet(campaign.id)}
               className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-white hover:bg-black/[0.03] border border-black/[0.08] text-xs font-medium text-[#1D1D1F] rounded-xl shadow-sm transition-all min-h-[38px]"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-[#6E6E73]" />
               <span>Open in Master Sheet</span>
+            </button>
+
+            <button
+              onClick={() => setIsArchiveCampaignModalOpen(true)}
+              className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-white hover:bg-black/[0.03] border border-black/[0.08] text-xs font-medium text-[#6E6E73] hover:text-[#1D1D1F] rounded-xl shadow-sm transition-all min-h-[38px]"
+              title="Archive this campaign and its content"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span>Archive</span>
             </button>
 
             <button
@@ -181,22 +236,22 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
         </div>
 
         <div className="bg-white rounded-2xl border border-black/[0.06] p-5 space-y-1 shadow-sm">
-          <span className="text-xs font-medium text-[#86868B]">Est. Total Reach</span>
-          <div className="text-2xl font-semibold tracking-tight text-[#1D1D1F]">
-            {metrics.totalReach.toLocaleString()}
+          <span className="text-xs font-medium text-[#86868B]">Est. Reach & Impressions</span>
+          <div className="text-base font-semibold tracking-tight text-[#86868B] pt-1">
+            Not available
           </div>
-          <span className="text-[11px] text-[#6E6E73]">
-            ~{metrics.totalImpressions.toLocaleString()} impressions
+          <span className="text-[11px] text-[#86868B]">
+            Awaiting empirical tracking
           </span>
         </div>
 
         <div className="bg-white rounded-2xl border border-black/[0.06] p-5 space-y-1 shadow-sm">
-          <span className="text-xs font-medium text-[#86868B]">Avg. Virality Index</span>
-          <div className="text-2xl font-semibold tracking-tight text-[#FF4500]">
-            {metrics.averageVirality}<span className="text-xs font-normal text-[#86868B]">/100</span>
+          <span className="text-xs font-medium text-[#86868B]">Virality Prediction</span>
+          <div className="text-base font-semibold tracking-tight text-[#86868B] pt-1">
+            Not available
           </div>
-          <span className="text-[11px] text-[#6E6E73]">
-            High problem-first resonance
+          <span className="text-[11px] text-[#86868B]">
+            Requires verified analytics
           </span>
         </div>
       </div>
@@ -226,7 +281,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
                 Core Market Insight
               </span>
               <p className="text-xs text-[#1D1D1F] leading-relaxed bg-[#F5F5F7] p-3.5 rounded-2xl">
-                {campaign.strategy.coreInsight || 'Businesses lose 60% of potential conversions due to friction in manual messaging and delayed follow-ups.'}
+                {campaign.strategy.coreInsight || 'Campaign core insight defined from client brief and market analysis.'}
               </p>
             </div>
 
@@ -237,7 +292,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
                 Value Proposition
               </span>
               <p className="text-xs text-[#1D1D1F] leading-relaxed bg-[#F5F5F7] p-3.5 rounded-2xl">
-                {campaign.strategy.valueProposition || 'Turn WhatsApp chats into an automated commerce engine with instant UPI checkout and zero spreadsheet chaos.'}
+                {campaign.strategy.valueProposition || 'Core value proposition aligned with target audience.'}
               </p>
             </div>
 
@@ -379,11 +434,11 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
                     </p>
                   </div>
 
-                  {/* Realistic Organic Reach & Virality */}
+                  {/* Planned Timing & Estimates Status */}
                   <div className="flex items-center space-x-2 text-[11px] text-[#86868B] pt-0.5">
-                    <span>Est. Reach: <strong className="text-[#1D1D1F] font-medium">{asset.targetReach ? asset.targetReach.toLocaleString() : '1,850'}</strong></span>
+                    <span>Planned Time: <strong className="text-[#1D1D1F] font-medium">{asset.postTimeIST || '11:30 AM'}</strong></span>
                     <span>·</span>
-                    <span>Resonance: <strong className="text-[#FF4500] font-medium">{asset.viralityScore}/100</strong></span>
+                    <span>Reach predictions: <strong className="text-[#86868B] font-medium">Not available</strong></span>
                   </div>
                 </div>
 
@@ -409,6 +464,13 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
                       {hasMedia ? 'View Media' : 'Generate'}
                     </button>
                     <button
+                      onClick={() => setAssetToArchive(asset)}
+                      title="Archive Content Deliverable"
+                      className="p-1 text-[#86868B] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-lg transition-colors"
+                    >
+                      <Archive className="w-3.5 h-3.5" />
+                    </button>
+                    <button
                       onClick={() => onSelectAsset(asset)}
                       className="p-1 text-[#86868B] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-lg transition-colors"
                     >
@@ -421,6 +483,136 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
           })}
         </div>
       </div>
+
+      {/* WhatsApp Campaign Posting Pack Modal */}
+      {isWhatsAppModalOpen && (
+        <WhatsAppPostingPackModal
+          isOpen={isWhatsAppModalOpen}
+          onClose={() => setIsWhatsAppModalOpen(false)}
+          scope="campaign"
+          campaign={campaign}
+          assets={campaignAssets}
+          selectedDate={campaign.startDate}
+          campaigns={[campaign]}
+          companyName={companyName || 'Company'}
+          defaultRecipientNumber={defaultWhatsAppRecipient || ''}
+          onUpdateStatus={onUpdateStatus}
+        />
+      )}
+
+      {/* Confirmation Modal: Archive Campaign */}
+      {isArchiveCampaignModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150 text-[#1D1D1F]">
+            <div className="flex items-center space-x-3 text-zinc-900">
+              <div className="w-10 h-10 rounded-2xl bg-zinc-100 flex items-center justify-center shrink-0">
+                <Archive className="w-5 h-5 text-zinc-700" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-[#1D1D1F]">
+                  Archive Campaign
+                </h3>
+                <p className="text-xs text-[#6E6E73]">
+                  {campaign.name}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#6E6E73] leading-relaxed">
+              Archiving this campaign will exclude it and all <strong>{campaignAssets.length} associated content deliverables</strong> from active views (Content Master Sheet, Calendar, Today, and posting packs). You can review or restore it anytime from the <strong>Archive</strong>.
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-black/[0.06]">
+              <button
+                onClick={() => setIsArchiveCampaignModalOpen(false)}
+                disabled={isArchiving}
+                className="px-4 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-[#1D1D1F] text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setIsArchiving(true);
+                  try {
+                    if (onArchiveCampaign) {
+                      await onArchiveCampaign(campaign.id);
+                    } else {
+                      onUpdateCampaignStatus(campaign.id, 'ARCHIVED');
+                    }
+                    setIsArchiveCampaignModalOpen(false);
+                    onBack();
+                  } catch (e) {
+                    console.error('Failed to archive campaign:', e);
+                  } finally {
+                    setIsArchiving(false);
+                  }
+                }}
+                disabled={isArchiving}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#1D1D1F] hover:bg-black text-white text-xs font-semibold rounded-xl shadow-xs transition-colors disabled:opacity-50"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span>{isArchiving ? 'Archiving…' : 'Archive'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal: Archive Asset */}
+      {assetToArchive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150 text-[#1D1D1F]">
+            <div className="flex items-center space-x-3 text-zinc-900">
+              <div className="w-10 h-10 rounded-2xl bg-zinc-100 flex items-center justify-center shrink-0">
+                <Archive className="w-5 h-5 text-zinc-700" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-[#1D1D1F]">
+                  Archive Content Item
+                </h3>
+                <p className="text-xs text-[#6E6E73]">
+                  {assetToArchive.assetCode}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#6E6E73] leading-relaxed">
+              Archiving <strong>"{assetToArchive.title}"</strong> will remove it from active views, Calendar, Today, and posting packs. The parent campaign will remain active, and you can restore this deliverable anytime from the <strong>Archive</strong>.
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-black/[0.06]">
+              <button
+                onClick={() => setAssetToArchive(null)}
+                disabled={isArchiving}
+                className="px-4 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-[#1D1D1F] text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!assetToArchive) return;
+                  setIsArchiving(true);
+                  try {
+                    if (onArchiveAsset) {
+                      await onArchiveAsset(assetToArchive.id);
+                    }
+                    setAssetToArchive(null);
+                  } catch (e) {
+                    console.error('Failed to archive asset:', e);
+                  } finally {
+                    setIsArchiving(false);
+                  }
+                }}
+                disabled={isArchiving}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#1D1D1F] hover:bg-black text-white text-xs font-semibold rounded-xl shadow-xs transition-colors disabled:opacity-50"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span>{isArchiving ? 'Archiving…' : 'Archive'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

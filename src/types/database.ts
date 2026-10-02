@@ -21,6 +21,17 @@ export interface DbCampaignRow {
   postingCadence: string;
   createdAt: string;
   updatedAt: string;
+  archivedAt?: string;
+  languages?: string;
+  targetLanguage?: string;
+  platformsJson?: string;
+  customLanguage?: string;
+  customPlatform?: string;
+  languageStyle?: string;
+  generationStatus?: string;
+  lastGenerationError?: string;
+  lastGenerationAttemptAt?: string;
+  generationOptionsJson?: string;
 }
 
 export interface DbAssetRow {
@@ -50,6 +61,8 @@ export interface DbAssetRow {
   mediaStatus: string;
   aiContentScore: number;
   aiScoreRationale: string;
+  isArchived?: boolean;
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -132,6 +145,58 @@ export interface DbSettingsRow {
   updatedAt: string;
 }
 
+export interface DbCompanyRow {
+  companyId: string;
+  name: string;
+  status: 'ACTIVE' | 'SUSPENDED';
+  profileJson?: string;
+  profile?: any;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DbUserRow {
+  userId: string;
+  email: string;
+  name: string;
+  avatarUrl?: string;
+  isSuperAdmin: boolean;
+  status: 'ACTIVE' | 'SUSPENDED';
+  createdAt: string;
+  lastLoginAt: string;
+}
+
+export interface DbMembershipRow {
+  membershipId: string;
+  userId: string;
+  companyId: string;
+  role: 'COMPANY_ADMIN' | 'MEMBER';
+  status: 'ACTIVE' | 'SUSPENDED';
+  assignedAt: string;
+  assignedBy: string;
+}
+
+export interface DbApprovalRequestRow {
+  requestId: string;
+  email: string;
+  name: string;
+  proposedCompanyName: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  requestedAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  assignedCompanyId?: string;
+  assignedRole?: 'COMPANY_ADMIN' | 'MEMBER';
+}
+
+export interface DbSessionRow {
+  sessionToken: string;
+  userId: string;
+  activeCompanyId?: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
 export interface DbActivityLogRow {
   logId: string;
   organizationId: string;
@@ -148,6 +213,11 @@ export interface AutonomaDatabaseStore {
   organizationId: string;
   lastSyncAt: string | null;
   googleSheetsUrl: string;
+  companies?: DbCompanyRow[];
+  users?: DbUserRow[];
+  memberships?: DbMembershipRow[];
+  approvalRequests?: DbApprovalRequestRow[];
+  sessions?: DbSessionRow[];
   campaigns: DbCampaignRow[];
   assets: DbAssetRow[];
   media: DbMediaRow[];
@@ -156,6 +226,9 @@ export interface AutonomaDatabaseStore {
   dailySnapshots: DbDailySnapshotRow[];
   settings: DbSettingsRow;
   activityLog: DbActivityLogRow[];
+  deletedCampaignIds?: string[];
+  deletedAssetIds?: string[];
+  initialized?: boolean;
 }
 
 export type AppsScriptAction =
@@ -164,11 +237,14 @@ export type AppsScriptAction =
   | 'GET_CAMPAIGN'
   | 'CREATE_CAMPAIGN'
   | 'UPDATE_CAMPAIGN'
+  | 'DELETE_CAMPAIGN'
   | 'GET_ASSETS'
   | 'GET_ASSETS_BY_CAMPAIGN'
   | 'CREATE_ASSET'
   | 'UPDATE_ASSET'
+  | 'DELETE_ASSET'
   | 'BATCH_SAVE_ASSETS'
+  | 'BATCH_DELETE_ASSETS'
   | 'CREATE_MEDIA_RECORD'
   | 'UPDATE_MEDIA_RECORD'
   | 'CREATE_PUBLICATION'

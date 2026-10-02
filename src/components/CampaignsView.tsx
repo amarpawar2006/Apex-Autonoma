@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Sparkles, 
   Layers, 
@@ -19,10 +19,14 @@ import {
   PauseCircle,
   PlayCircle,
   Archive,
-  BarChart3
+  BarChart3,
+  Globe,
+  RotateCcw,
+  Loader2
 } from 'lucide-react';
 import { Campaign, CampaignStatus, SocialAsset, Platform } from '../types/campaign';
 import { getCampaignAssetMetrics } from '../services/campaignService';
+import { isCampaignActive } from '../utils/archiveUtils';
 
 interface CampaignsViewProps {
   campaigns: Campaign[];
@@ -31,21 +35,30 @@ interface CampaignsViewProps {
   onSelectCampaign: (campaign: Campaign) => void;
   onFilterByCampaign: (campaignId: string) => void;
   onUpdateCampaignStatus: (campaignId: string, status: CampaignStatus) => void;
+  onArchiveCampaign?: (campaignId: string) => Promise<void> | void;
 }
 
 export const CampaignsView: React.FC<CampaignsViewProps> = ({
-  campaigns,
-  assets,
+  campaigns = [],
+  assets = [],
   onOpenCreateCampaign,
   onSelectCampaign,
   onFilterByCampaign,
   onUpdateCampaignStatus,
+  onArchiveCampaign,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | CampaignStatus>('ALL');
+  const [archiveTarget, setArchiveTarget] = useState<{ campaign: Campaign; assetCount: number } | null>(null);
+  const [isArchiving, setIsArchiving] = useState(false);
+
+  // Active campaigns (exclude archived by default from active list)
+  const activeCampaigns = useMemo(() => {
+    return campaigns.filter(isCampaignActive);
+  }, [campaigns]);
 
   // Filter campaigns
-  const filteredCampaigns = campaigns.filter(c => {
+  const filteredCampaigns = activeCampaigns.filter(c => {
     if (statusFilter !== 'ALL' && c.status !== statusFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -106,8 +119,16 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
         return <span key={platform} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200">X</span>;
       case 'facebook':
         return <span key={platform} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100">FB</span>;
+      case 'threads':
+        return <span key={platform} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200">Threads</span>;
+      case 'reddit':
+        return <span key={platform} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-orange-50 text-orange-700 border border-orange-200">Reddit</span>;
+      case 'snapchat':
+        return <span key={platform} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-yellow-50 text-yellow-800 border border-yellow-200">Snap</span>;
+      case 'pinterest':
+        return <span key={platform} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200">Pin</span>;
       default:
-        return null;
+        return <span key={platform} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-zinc-50 text-zinc-700 border border-zinc-200 capitalize">{String(platform)}</span>;
     }
   };
 
@@ -214,11 +235,16 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                       <Calendar className="w-3.5 h-3.5 mr-1 shrink-0" />
                       <span>{camp.startDate} to {camp.endDate}</span>
                     </span>
+                    <span className="text-xs text-[#86868B]">·</span>
+                    <span className="text-xs text-[#86868B] flex items-center" title="Campaign Language">
+                      <Globe className="w-3.5 h-3.5 mr-1 shrink-0 text-[#86868B]" />
+                      <span>{camp.customLanguage || (camp.languages && camp.languages.length > 0 ? camp.languages.join(', ') : 'English')}</span>
+                    </span>
                   </div>
 
                   {/* Platforms */}
                   <div className="flex items-center space-x-1.5 shrink-0">
-                    {camp.platforms.map((p) => getPlatformIcon(p))}
+                    {(camp.platforms || []).map((p) => getPlatformIcon(p))}
                   </div>
                 </div>
 
@@ -317,6 +343,15 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     ) : null}
 
                     <button
+                      onClick={() => setArchiveTarget({ campaign: camp, assetCount: campAssets.length })}
+                      title="Archive Campaign"
+                      className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-lg transition-colors text-xs flex items-center space-x-1"
+                    >
+                      <Archive className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Archive</span>
+                    </button>
+
+                    <button
                       onClick={() => onSelectCampaign(camp)}
                       className="inline-flex items-center space-x-1 text-xs font-medium text-[#FF4500] hover:text-[#EA3E00] px-2 py-1"
                     >
@@ -330,6 +365,64 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
           })
         )}
       </div>
+
+      {/* Confirmation Modal: Archive Campaign */}
+      {archiveTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150 text-[#1D1D1F]">
+            <div className="flex items-center space-x-3 text-zinc-900">
+              <div className="w-10 h-10 rounded-2xl bg-zinc-100 flex items-center justify-center shrink-0">
+                <Archive className="w-5 h-5 text-zinc-700" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-[#1D1D1F]">
+                  Archive Campaign
+                </h3>
+                <p className="text-xs text-[#6E6E73]">
+                  {archiveTarget.campaign.name}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#6E6E73] leading-relaxed">
+              Archiving this campaign will exclude it and all <strong>{archiveTarget.assetCount} associated content deliverables</strong> from active views (Content Master Sheet, Calendar, Today, and posting packs). You can review or restore it anytime from the <strong>Archive</strong>.
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-black/[0.06]">
+              <button
+                onClick={() => setArchiveTarget(null)}
+                disabled={isArchiving}
+                className="px-4 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-[#1D1D1F] text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!archiveTarget) return;
+                  setIsArchiving(true);
+                  try {
+                    if (onArchiveCampaign) {
+                      await onArchiveCampaign(archiveTarget.campaign.id);
+                    } else {
+                      onUpdateCampaignStatus(archiveTarget.campaign.id, 'ARCHIVED');
+                    }
+                    setArchiveTarget(null);
+                  } catch (e) {
+                    console.error('Failed to archive campaign:', e);
+                  } finally {
+                    setIsArchiving(false);
+                  }
+                }}
+                disabled={isArchiving}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#1D1D1F] hover:bg-black text-white text-xs font-semibold rounded-xl shadow-xs transition-colors disabled:opacity-50"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span>{isArchiving ? 'Archiving…' : 'Archive'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

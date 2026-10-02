@@ -1,19 +1,31 @@
 import { SocialAsset, ContentFormat, ContentStream, SpeciesCode, CarouselSlide, VideoScene, Platform, CampaignStrategy } from '../types/campaign';
+import { getAuthHeaders } from './autonomaDataService';
 
 export interface CampaignSynthesisRequest {
   brief: string;
+  primaryGoal?: string;
+  secondaryGoals?: string[];
+  companyContext?: any;
   platforms: Platform[];
   formats: ContentFormat[];
   duration: 'single' | '3_days' | '7_days' | '30_days' | 'custom';
   daysSpan: number;
   assetCount: number;
   languages: string[];
+  customLanguage?: string;
+  customPlatform?: string;
+  languageStyle?: string;
+  additionalInstructions?: string;
   advancedOptions?: {
     targetAudience?: string;
     primaryCta?: string;
     productsEmphasized?: string;
     postingFrequency?: string;
     tone?: string;
+    customLanguage?: string;
+    customPlatform?: string;
+    languageStyle?: string;
+    additionalInstructions?: string;
   };
 }
 
@@ -123,9 +135,9 @@ export async function generateApexCampaignWithAI(
 ): Promise<GeneratedAssetResponse> {
   const response = await fetch('/api/campaign/generate', {
     method: 'POST',
-    headers: {
+    headers: getAuthHeaders({
       'Content-Type': 'application/json',
-    },
+    }),
     body: JSON.stringify({
       topic: req.topic,
       targetPlatform: req.targetPlatform,
@@ -252,9 +264,9 @@ export async function synthesizeFullCampaignWithAI(
   try {
     const response = await fetch('/api/campaign/synthesize-campaign', {
       method: 'POST',
-      headers: {
+      headers: getAuthHeaders({
         'Content-Type': 'application/json',
-      },
+      }),
       body: JSON.stringify(req),
       signal: controller.signal,
     });
@@ -288,4 +300,77 @@ export async function synthesizeFullCampaignWithAI(
     throw err;
   }
 }
+
+export interface ImproveBriefRequest {
+  brief: string;
+  primaryGoal?: string;
+  secondaryGoals?: string[];
+  companyContext?: {
+    organizationName?: string;
+    brandName?: string;
+    website?: string;
+    industry?: string;
+    brandSummary?: string;
+  };
+}
+
+export interface ImproveBriefResponse {
+  rewrittenBrief: string;
+  suggestedAudience?: string;
+  suggestedPrimaryCta?: string;
+  keyImprovements: string[];
+  focusedQuestions: string[];
+}
+
+/**
+ * Calls the server-side Gemini brief improvement endpoint (/api/campaign/improve-brief).
+ * Improves clarity, audience targeting, and measurable direction with strict guardrails
+ * that never invent products, prices, or numerical targets, and never assumes industry.
+ */
+export async function improveBriefWithAI(
+  req: ImproveBriefRequest
+): Promise<ImproveBriefResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  try {
+    const response = await fetch('/api/campaign/improve-brief', {
+      method: 'POST',
+      headers: getAuthHeaders({
+        'Content-Type': 'application/json',
+      }),
+      body: JSON.stringify(req),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      let errorMessage = `Server error (${response.status})`;
+      try {
+        const errJson = await response.json();
+        if (errJson?.message) {
+          errorMessage = errJson.message;
+        }
+      } catch {
+        // ignore
+      }
+      throw new Error(errorMessage);
+    }
+
+    const result = await response.json();
+    if (!result?.success || !result?.data) {
+      throw new Error(result?.message || 'Server did not return improved brief data.');
+    }
+
+    return result.data as ImproveBriefResponse;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Brief improvement request timed out.');
+    }
+    throw err;
+  }
+}
+
 
