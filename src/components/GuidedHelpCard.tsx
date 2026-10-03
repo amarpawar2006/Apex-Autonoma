@@ -107,12 +107,12 @@ export const GuidedHelpCard: React.FC<GuidedHelpCardProps> = ({
       icon: FolderKanban
     },
     {
-      id: 'generate_image',
+      id: 'generate_media',
       number: 5,
-      title: 'Generate first creative image',
-      description: 'Produce high-converting visuals using your saved company design system.',
+      title: 'Produce first media asset',
+      description: 'Render or generate the first carousel, post image, or video using the saved Brand System.',
       completed: hasGeneratedMedia,
-      actionLabel: 'Open studio',
+      actionLabel: 'Open Studio',
       action: () => onNavigate('creative_studio'),
       icon: ImageIcon
     },

@@ -54,7 +54,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
   
   // AI & Media Providers State
   const [providersSettings, setProvidersSettings] = useState<AiProvidersSettings>({
-    defaults: { text: 'gemini', image: 'openai', video: 'nvidia' },
+    defaults: { text: 'gemini', image: 'openai', video: 'google_veo' },
     providers: {
       gemini: {
         id: 'gemini',
@@ -68,24 +68,24 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
         id: 'openai',
         name: 'OpenAI',
         capabilities: ['text', 'image'],
-        selectedModel: 'dall-e-3',
-        availableModels: ['dall-e-3', 'dall-e-2', 'gpt-4o', 'gpt-4o-mini'],
+        selectedModel: 'gpt-image-2',
+        availableModels: ['gpt-image-2', 'dall-e-3'],
         status: 'UNCONFIGURED'
       },
       nvidia: {
         id: 'nvidia',
         name: 'NVIDIA NIM',
         capabilities: ['image', 'video'],
-        selectedModel: 'stabilityai/stable-diffusion-xl-base-1.0',
-        availableModels: ['stabilityai/stable-diffusion-xl-base-1.0', 'black-forest-labs/flux-1-schnell', 'nvidia/genai-video-mvp'],
+        selectedModel: 'stabilityai/stable-diffusion-3-medium',
+        availableModels: ['stabilityai/stable-diffusion-3-medium', 'stabilityai/stable-diffusion-xl'],
         status: 'UNCONFIGURED'
       },
       google_veo: {
         id: 'google_veo',
         name: 'Google Veo',
         capabilities: ['video'],
-        selectedModel: 'veo-3.1-lite-generate-preview',
-        availableModels: ['veo-3.1-lite-generate-preview', 'veo-2.0-generate-001'],
+        selectedModel: 'veo-3.1-generate-preview',
+        availableModels: ['veo-3.1-generate-preview'],
         status: 'CONFIGURED'
       }
     },
@@ -267,7 +267,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4">
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4">
       <div className="relative w-full max-w-3xl rounded-3xl border border-black/[0.08] bg-white shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
         
         {/* Modal Header */}
@@ -283,7 +283,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-xl p-1.5 text-[#6E6E73] hover:bg-black/[0.05] hover:text-[#1D1D1F]">
+          <button onClick={onClose} aria-label="Close dialog" className="rounded-xl p-1.5 text-[#6E6E73] hover:bg-black/[0.05] hover:text-[#1D1D1F]">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -364,8 +364,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                       }))}
                       className="w-full rounded-xl border border-black/[0.08] bg-white px-2.5 py-2 text-xs font-semibold outline-none"
                     >
-                      <option value="openai">OpenAI (DALL-E 3)</option>
-                      <option value="nvidia">NVIDIA NIM (SDXL / Flux)</option>
+                      <option value="openai">OpenAI (GPT Image 2)</option>
+                      <option value="nvidia">NVIDIA NIM (Stable Diffusion 3)</option>
                       <option value="gemini">Google Gemini Flash Image</option>
                     </select>
                   </div>
@@ -380,8 +380,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                       }))}
                       className="w-full rounded-xl border border-black/[0.08] bg-white px-2.5 py-2 text-xs font-semibold outline-none"
                     >
-                      <option value="nvidia">NVIDIA NIM Video MVP</option>
-                      <option value="google_veo">Google Veo (3.1 Lite)</option>
+                      <option value="google_veo">Google Veo 3.1</option>
                     </select>
                   </div>
                 </div>
@@ -451,7 +450,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-xs text-[#1D1D1F]">OpenAI</span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-50 text-emerald-700">IMAGE (DALL-E) · TEXT</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-50 text-emerald-700">IMAGE · TEXT</span>
                     </div>
                     <button
                       onClick={() => handleTestProvider('openai')}
@@ -476,7 +475,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                     <label className="space-y-1 block">
                       <span className="text-[10px] text-[#6E6E73]">Image Model</span>
                       <select
-                        value={providersSettings.providers.openai?.selectedModel || 'dall-e-3'}
+                        value={providersSettings.providers.openai?.selectedModel || 'gpt-image-2'}
                         onChange={(e) => setProvidersSettings((prev) => ({
                           ...prev,
                           providers: {
@@ -486,8 +485,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                         }))}
                         className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
                       >
-                        <option value="dall-e-3">dall-e-3 (High definition)</option>
-                        <option value="dall-e-2">dall-e-2</option>
+                        <option value="gpt-image-2">gpt-image-2 (Recommended)</option>
+                        <option value="dall-e-3">dall-e-3 (Legacy)</option>
                       </select>
                     </label>
                   </div>
@@ -503,7 +502,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-xs text-[#1D1D1F]">NVIDIA NIM</span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-50 text-purple-700">IMAGE (SDXL/FLUX) · VIDEO</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-50 text-purple-700">IMAGE</span>
                     </div>
                     <button
                       onClick={() => handleTestProvider('nvidia')}
@@ -528,7 +527,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                     <label className="space-y-1 block">
                       <span className="text-[10px] text-[#6E6E73]">Model selector</span>
                       <select
-                        value={providersSettings.providers.nvidia?.selectedModel || 'stabilityai/stable-diffusion-xl-base-1.0'}
+                        value={providersSettings.providers.nvidia?.selectedModel || 'stabilityai/stable-diffusion-3-medium'}
                         onChange={(e) => setProvidersSettings((prev) => ({
                           ...prev,
                           providers: {
@@ -538,9 +537,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                         }))}
                         className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
                       >
-                        <option value="stabilityai/stable-diffusion-xl-base-1.0">stabilityai/stable-diffusion-xl-base-1.0</option>
-                        <option value="black-forest-labs/flux-1-schnell">black-forest-labs/flux-1-schnell</option>
-                        <option value="nvidia/genai-video-mvp">nvidia/genai-video-mvp</option>
+                        <option value="stabilityai/stable-diffusion-3-medium">stabilityai/stable-diffusion-3-medium</option>
+                        <option value="stabilityai/stable-diffusion-xl">stabilityai/stable-diffusion-xl</option>
                       </select>
                     </label>
                   </div>

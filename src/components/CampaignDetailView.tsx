@@ -263,7 +263,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
         </div>
 
         <div className="bg-white rounded-2xl border border-black/[0.06] p-5 space-y-1 shadow-sm">
-          <span className="text-xs font-medium text-[#86868B]">Virality Prediction</span>
+          <span className="text-xs font-medium text-[#86868B]">AI Content Score</span>
           <div className="text-base font-semibold tracking-tight text-[#86868B] pt-1">
             Not available
           </div>
@@ -420,7 +420,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
                       </span>
 
                       <span className="font-mono text-[10px] text-[#86868B]">
-                        {asset.assetCode}
+                        {asset.assetCode.replace(/^APEX-/, 'AUTO-')}
                       </span>
                     </div>
 
@@ -519,7 +519,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
 
       {/* Confirmation Modal: Archive Campaign */}
       {isArchiveCampaignModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150 text-[#1D1D1F]">
             <div className="flex items-center space-x-3 text-zinc-900">
               <div className="w-10 h-10 rounded-2xl bg-zinc-100 flex items-center justify-center shrink-0">
@@ -577,7 +577,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
 
       {/* Confirmation Modal: Archive Asset */}
       {assetToArchive && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150 text-[#1D1D1F]">
             <div className="flex items-center space-x-3 text-zinc-900">
               <div className="w-10 h-10 rounded-2xl bg-zinc-100 flex items-center justify-center shrink-0">
@@ -588,7 +588,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
                   Archive Content Item
                 </h3>
                 <p className="text-xs text-[#6E6E73]">
-                  {assetToArchive.assetCode}
+                  {assetToArchive.assetCode.replace(/^APEX-/, 'AUTO-')}
                 </p>
               </div>
             </div>

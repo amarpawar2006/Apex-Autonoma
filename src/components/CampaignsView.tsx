@@ -306,9 +306,9 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-2 text-[11px] shrink-0">
-                      <span>Est. Reach: <strong className="text-[#1D1D1F]">{metrics.totalReach.toLocaleString()}</strong></span>
+                      <span>AI-est. Reach: <strong className="text-[#1D1D1F]">{metrics.totalReach.toLocaleString()}</strong></span>
                       <span>·</span>
-                      <span>Virality: <strong className="text-[#FF4500]">{metrics.averageVirality}/100</strong></span>
+                      <span>AI Content Score: <strong className="text-[#FF4500]">{metrics.averageVirality}/100</strong></span>
                     </div>
                   </div>
 
@@ -410,7 +410,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
 
       {/* Confirmation Modal: Archive Campaign */}
       {archiveTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150 text-[#1D1D1F]">
             <div className="flex items-center space-x-3 text-zinc-900">
               <div className="w-10 h-10 rounded-2xl bg-zinc-100 flex items-center justify-center shrink-0">

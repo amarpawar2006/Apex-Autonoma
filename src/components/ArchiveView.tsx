@@ -549,7 +549,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
                           {/* Badges */}
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono text-xs font-semibold text-[#FF4500] bg-orange-50 px-1.5 py-0.5 rounded">
-                              {asset.assetCode}
+                              {asset.assetCode.replace(/^APEX-/, 'AUTO-')}
                             </span>
                             <span className="inline-flex items-center space-x-1 text-[11px] font-medium text-[#1D1D1F] capitalize bg-black/[0.04] px-2 py-0.5 rounded">
                               {getFormatIcon(asset.format)}
@@ -633,7 +633,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
 
       {/* MODAL 1: PERMANENT DELETE CAMPAIGN CONFIRMATION */}
       {campaignToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in zoom-in-95 duration-150 text-[#1D1D1F]">
             <div className="flex items-center space-x-3 text-red-600">
               <div className="w-10 h-10 rounded-2xl bg-red-50 flex items-center justify-center shrink-0">
@@ -692,7 +692,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
 
       {/* MODAL 2: PERMANENT DELETE SINGLE ASSET CONFIRMATION */}
       {assetToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in zoom-in-95 duration-150 text-[#1D1D1F]">
             <div className="flex items-center space-x-3 text-red-600">
               <div className="w-10 h-10 rounded-2xl bg-red-50 flex items-center justify-center shrink-0">
@@ -710,7 +710,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
 
             <div className="p-4 bg-[#FBFBFD] rounded-2xl border border-black/[0.06] text-xs space-y-1.5 text-[#1D1D1F]">
               <span className="font-mono font-semibold text-[#FF4500] text-[11px] block">
-                {assetToDelete.assetCode}
+                {assetToDelete.assetCode.replace(/^APEX-/, 'AUTO-')}
               </span>
               <p className="font-semibold text-sm">
                 {assetToDelete.title}
@@ -746,7 +746,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
 
       {/* MODAL 3: BATCH PERMANENT DELETE CONFIRMATION */}
       {batchDeleteConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in zoom-in-95 duration-150 text-[#1D1D1F]">
             <div className="flex items-center space-x-3 text-red-600">
               <div className="w-10 h-10 rounded-2xl bg-red-50 flex items-center justify-center shrink-0">
@@ -794,7 +794,7 @@ export const ArchiveView: React.FC<ArchiveViewProps> = ({
 
       {/* MODAL 4: PARENT CAMPAIGN ARCHIVED BLOCKER */}
       {blockedRestoreAsset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in zoom-in-95 duration-150 text-[#1D1D1F]">
             <div className="flex items-center space-x-3 text-amber-600">
               <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center shrink-0">

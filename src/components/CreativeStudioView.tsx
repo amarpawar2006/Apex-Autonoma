@@ -225,7 +225,7 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
           <div className="flex items-center gap-2 rounded-xl border border-black/[0.07] bg-white px-3.5 py-2 text-xs shadow-sm">
             <span className="text-[#86868B]">Asset:</span>
             <select value={activeAsset.id} onChange={(e) => setActiveAssetId(e.target.value)} className="max-w-[260px] bg-transparent font-medium text-[#1D1D1F] outline-none">
-              {assets.map((a) => <option key={a.id} value={a.id}>[{a.assetCode}] {a.title.slice(0, 42)}</option>)}
+              {assets.map((a) => <option key={a.id} value={a.id}>[{a.assetCode.replace(/^APEX-/, 'AUTO-')}] {a.title.slice(0, 42)}</option>)}
             </select>
           </div>
           <button
@@ -305,16 +305,16 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
             {isVideo ? (
               <div className="flex w-full items-center justify-between">
                 <div className="flex gap-2">
-                  <button onClick={handleTogglePlay} className="rounded-xl p-2.5 text-white" style={{ backgroundColor: palette.primary }}>{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</button>
-                  <button onClick={handleRestart} className="rounded-xl border border-black/[0.08] bg-white p-2.5 text-[#1D1D1F]"><RotateCcw className="h-4 w-4" /></button>
-                  <button onClick={() => setIsMuted(!isMuted)} className="rounded-xl border border-black/[0.08] bg-white p-2.5 text-[#1D1D1F]">{isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
+                  <button onClick={handleTogglePlay} aria-label={isPlaying ? 'Pause preview' : 'Play preview'} className="rounded-xl p-2.5 text-white" style={{ backgroundColor: palette.primary }}>{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</button>
+                  <button onClick={handleRestart} aria-label="Restart preview" className="rounded-xl border border-black/[0.08] bg-white p-2.5 text-[#1D1D1F]"><RotateCcw className="h-4 w-4" /></button>
+                  <button onClick={() => setIsMuted(!isMuted)} aria-label={isMuted ? 'Unmute preview narration' : 'Mute preview narration'} className="rounded-xl border border-black/[0.08] bg-white p-2.5 text-[#1D1D1F]">{isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
                 </div>
                 <span className="text-[#6E6E73]">Scene {currentSceneIndex + 1} of {scenes.length || 1}</span>
               </div>
             ) : (
               <div className="flex w-full items-center justify-between">
                 <button disabled={currentSlideIndex === 0} onClick={() => setCurrentSlideIndex((prev) => Math.max(0, prev - 1))} className="inline-flex items-center gap-1 rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-[#1D1D1F] disabled:opacity-30"><ChevronLeft className="h-3.5 w-3.5" />Prev</button>
-                <div className="flex gap-1">{slides.map((_, idx) => <button key={idx} onClick={() => setCurrentSlideIndex(idx)} className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-medium" style={currentSlideIndex === idx ? { backgroundColor: palette.primary, color: inverseText } : { backgroundColor: '#F5F5F7', color: '#6E6E73' }}>{idx + 1}</button>)}</div>
+                <div className="flex gap-1">{slides.map((_, idx) => <button key={idx} onClick={() => setCurrentSlideIndex(idx)} aria-label={`Go to slide ${idx + 1}`} aria-current={currentSlideIndex === idx ? 'true' : undefined} className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-medium" style={currentSlideIndex === idx ? { backgroundColor: palette.primary, color: inverseText } : { backgroundColor: '#F5F5F7', color: '#6E6E73' }}>{idx + 1}</button>)}</div>
                 <button disabled={currentSlideIndex >= Math.max(0, slides.length - 1)} onClick={() => setCurrentSlideIndex((prev) => Math.min(Math.max(0, slides.length - 1), prev + 1))} className="inline-flex items-center gap-1 rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-[#1D1D1F] disabled:opacity-30">Next<ChevronRight className="h-3.5 w-3.5" /></button>
               </div>
             )}
@@ -324,8 +324,8 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
         <div className="space-y-5 lg:col-span-5">
           <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between border-b border-black/[0.06] pb-3">
-              <span className="font-mono text-xs font-semibold" style={{ color: palette.primary }}>{activeAsset.assetCode}</span>
-              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">AI Content Score {activeAsset.viralityScore || 85}/100</span>
+              <span className="font-mono text-xs font-semibold" style={{ color: palette.primary }}>{activeAsset.assetCode.replace(/^APEX-/, 'AUTO-')}</span>
+              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">AI Content Score {activeAsset.viralityScore > 0 ? `${activeAsset.viralityScore}/100` : 'Not available'}</span>
             </div>
             <div className="mt-4">
               <span className="text-[11px] text-[#86868B]">Hook</span>
@@ -333,11 +333,11 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
             </div>
             <div className="mt-4">
               <span className="text-[11px] text-[#86868B]">Target Persona</span>
-              <p className="mt-1 text-xs text-[#1D1D1F]">{activeAsset.targetBuyerPersona || 'Target customer segment'}</p>
+              <p className="mt-1 text-xs text-[#1D1D1F]">{activeAsset.targetBuyerPersona || 'Audience from campaign context'}</p>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-              <div className="rounded-xl bg-[#F5F5F7] p-3"><span className="text-[11px] text-[#86868B]">Est. Reach</span><span className="mt-0.5 block font-semibold text-[#1D1D1F]">{(activeAsset.estimatedImpressions || activeAsset.targetReach || 0).toLocaleString()}</span></div>
-              <div className="rounded-xl bg-[#F5F5F7] p-3"><span className="text-[11px] text-[#86868B]">Expected Leads</span><span className="mt-0.5 block font-semibold text-[#1D1D1F]">{activeAsset.expectedLeads || 0} inquiries</span></div>
+              <div className="rounded-xl bg-[#F5F5F7] p-3"><span className="text-[11px] text-[#86868B]">AI-est. Reach</span><span className="mt-0.5 block font-semibold text-[#1D1D1F]">{(activeAsset.estimatedImpressions || activeAsset.targetReach) ? (activeAsset.estimatedImpressions || activeAsset.targetReach).toLocaleString() : 'Not available'}</span></div>
+              <div className="rounded-xl bg-[#F5F5F7] p-3"><span className="text-[11px] text-[#86868B]">AI-est. Leads</span><span className="mt-0.5 block font-semibold text-[#1D1D1F]">{activeAsset.expectedLeads ? `${activeAsset.expectedLeads} inquiries` : 'Not available'}</span></div>
             </div>
           </div>
 

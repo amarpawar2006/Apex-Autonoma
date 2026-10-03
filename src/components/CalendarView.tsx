@@ -288,7 +288,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
                       <div>
                         <span className="text-[10px] font-mono text-[#86868B] block">
-                          {asset.assetCode} · {getFormatBadge(asset.format)}
+                          {asset.assetCode.replace(/^APEX-/, 'AUTO-')} · {getFormatBadge(asset.format)}
                         </span>
                         <h4 className="text-sm font-bold text-[#1D1D1F] leading-snug group-hover:text-[#FF4500] transition-colors line-clamp-1 pt-0.5">
                           {asset.title}
@@ -307,7 +307,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       <div className="flex items-center gap-1.5 text-right">
                         <span className="text-[10px] text-[#6E6E73]">AI Score:</span>
                         <strong className="text-xs font-bold text-[#FF4500]">
-                          {asset.viralityScore || 88}
+                          {asset.viralityScore > 0 ? asset.viralityScore : '—'}
                         </strong>
                       </div>
                     </div>
@@ -355,7 +355,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   </span>
                   <div className="text-right">
                     <span className="text-[10px] text-[#86868B] block">AI Score</span>
-                    <strong className="text-xs font-bold text-[#FF4500]">{asset.viralityScore || 88}</strong>
+                    <strong className="text-xs font-bold text-[#FF4500]">{asset.viralityScore > 0 ? asset.viralityScore : '—'}</strong>
                   </div>
                   <ChevronRight className="w-4 h-4 text-[#86868B]" />
                 </div>
@@ -387,7 +387,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
                 <div className="space-y-1">
                   <span className="text-[11px] font-mono text-[#86868B] block">
-                    {asset.assetCode} · {getFormatBadge(asset.format)}
+                    {asset.assetCode.replace(/^APEX-/, 'AUTO-')} · {getFormatBadge(asset.format)}
                   </span>
                   <h4 className="text-sm font-bold text-[#1D1D1F] leading-snug group-hover:text-[#FF4500] transition-colors">
                     {asset.title}
@@ -404,7 +404,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 </span>
 
                 <span className="text-[#6E6E73] text-[11px]">
-                  AI Score: <strong className="text-[#FF4500] font-bold">{asset.viralityScore || 88}</strong>
+                  AI Content Score: <strong className="text-[#FF4500] font-bold">{asset.viralityScore > 0 ? asset.viralityScore : '—'}</strong>
                 </span>
               </div>
             </div>

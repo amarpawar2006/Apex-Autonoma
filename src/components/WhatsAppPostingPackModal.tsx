@@ -212,7 +212,7 @@ export const WhatsAppPostingPackModal: React.FC<WhatsAppPostingPackModalProps> =
 
     let postBlock = 
       `📌 *DELIVERABLE ${postNumber} OF ${totalPosts}*\n` +
-      `🆔 *Asset Code:* ${asset.assetCode || asset.id}\n` +
+      `🆔 *Asset Code:* ${(asset.assetCode || asset.id).replace(/^APEX-/, 'AUTO-')}\n` +
       `📋 *Campaign:* ${campName}\n` +
       `📅 *Planned Date:* ${formatFriendlyDate(asset.targetDate || selectedDate)} · ⏰ *Time:* ${plannedTime}\n` +
       `📱 *Channels:* ${allChannels.join(', ')} (Primary: ${primaryPlatform})\n` +
@@ -505,7 +505,7 @@ export const WhatsAppPostingPackModal: React.FC<WhatsAppPostingPackModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
       <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
         {/* Modal Top Bar */}
@@ -532,6 +532,7 @@ export const WhatsAppPostingPackModal: React.FC<WhatsAppPostingPackModalProps> =
           <div className="flex items-center space-x-2">
             <button
               onClick={onClose}
+              aria-label="Close dialog"
               className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors"
             >
               <X className="w-5 h-5" />
@@ -927,7 +928,7 @@ export const WhatsAppPostingPackModal: React.FC<WhatsAppPostingPackModalProps> =
                           <div className="space-y-1">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-mono text-[10px] text-[#86868B] uppercase">
-                                {asset.assetCode}
+                                {asset.assetCode.replace(/^APEX-/, 'AUTO-')}
                               </span>
                               <span className="text-[11px] font-semibold text-[#1D1D1F]">
                                 {allChannels.join(', ')} · {asset.format.replace('_', ' ')}

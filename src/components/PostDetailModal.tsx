@@ -66,13 +66,13 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
       <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-4 sm:p-7 space-y-6 max-h-[92vh] overflow-y-auto text-[#1D1D1F] animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-black/[0.06]">
           <div className="flex items-center space-x-2 text-xs">
             <span className="font-mono font-semibold text-[#FF4500]">
-              {asset.assetCode}
+              {asset.assetCode.replace(/^APEX-/, 'AUTO-')}
             </span>
             <span className="text-[#86868B]">·</span>
             <span className="capitalize font-medium text-[#1D1D1F]">
@@ -86,6 +86,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
 
           <button 
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors"
           >
             <X className="w-4 h-4" />
@@ -152,7 +153,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({
           <div className="p-3.5 bg-[#FBFBFD] rounded-2xl border border-black/[0.04]">
             <span className="text-[#86868B] text-[11px] block">AI Content Score</span>
             <span className="font-semibold text-[#FF4500] mt-0.5 block">
-              {asset.viralityScore || (asset as any).aiContentScore || 88} / 100
+              {(asset.viralityScore || (asset as any).aiContentScore) ? `${asset.viralityScore || (asset as any).aiContentScore} / 100` : 'Not available'}
             </span>
             <span className="text-[10px] text-[#86868B]">Opportunity index</span>
           </div>

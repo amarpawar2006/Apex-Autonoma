@@ -32,6 +32,7 @@ import {
   generateAssetVideo,
   pollVideoStatus,
   downloadGeneratedVideo,
+  uploadAssetMedia,
   renderDeterministicSlideCanvas,
   renderDeterministicPosterCanvas,
   downloadDataUrl,
@@ -50,6 +51,21 @@ interface AssetProductionModalProps {
 }
 
 type ProductionModalTab = 'preview' | 'content' | 'generation' | 'posting';
+
+function formatScheduleTime(raw?: string): string {
+  if (!raw) return 'Time not set';
+  if (/^1899-12-30T\d{2}:\d{2}:\d{2}/.test(raw)) {
+    const match = raw.match(/T(\d{2}):(\d{2})/);
+    if (match) {
+      let hour = Number(match[1]);
+      const minute = match[2];
+      const suffix = hour >= 12 ? 'PM' : 'AM';
+      hour = hour % 12 || 12;
+      return `${String(hour).padStart(2, '0')}:${minute} ${suffix}`;
+    }
+  }
+  return raw;
+}
 
 export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   asset,
@@ -79,6 +95,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
 
   // Media previews
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(asset?.generatedImageUrl || null);
+  const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(asset?.generatedVideoUrl || null);
   const [deterministicCanvasUrl, setDeterministicCanvasUrl] = useState<string | null>(null);
 
   // Carousel slide state
@@ -103,6 +120,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   const [activeImageModel, setActiveImageModel] = useState<string | undefined>();
   const [activeVideoModel, setActiveVideoModel] = useState<string | undefined>();
   const [brandRenderOptions, setBrandRenderOptions] = useState<BrandRenderOptions>({});
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -144,6 +162,20 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     });
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isGenerating && !isUploadingMedia) onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isOpen, isGenerating, isUploadingMedia, onClose]);
+
   const isCarousel = asset?.format === 'carousel';
   const isVideo = asset?.format === 'reel_short';
   const isImageOrPoster = !isCarousel && !isVideo;
@@ -153,6 +185,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     if (!asset) return;
     setProductionStatus(asset.productionStatus || 'NOT_GENERATED');
     setGeneratedImageUrl(asset.generatedImageUrl || null);
+    setGeneratedVideoUrl(asset.generatedVideoUrl || null);
     setSlideVisuals(asset.carouselSlideVisuals || {});
     setGenerationError(asset.productionError || null);
     setActivePrompt(
@@ -216,13 +249,14 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       campaignId: asset.campaignId
     });
 
-    if (result.success && result.dataUrl) {
-      setGeneratedImageUrl(result.dataUrl);
+    const generatedUrl = result.dataUrl || result.fileUrl;
+    if (result.success && generatedUrl) {
+      setGeneratedImageUrl(generatedUrl);
       setProductionStatus('READY');
       const updated: SocialAsset = {
         ...asset,
         productionStatus: 'READY',
-        generatedImageUrl: result.dataUrl,
+        generatedImageUrl: generatedUrl,
         generatedImagePrompt: activePrompt,
         productionError: undefined
       };
@@ -252,7 +286,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       slide?.visualPrompt ||
       `Create a clean brand-aligned supporting visual for ${slide?.headline || asset.title}. Follow the active company's saved Brand Design System. Avoid unrelated brand colors or identities.`;
 
-    const result = await generateAssetImage(slidePrompt, '16:9', `${asset.assetCode}-S${slideNumber}`, customApiKey, {
+    const result = await generateAssetImage(slidePrompt, '16:9', `${asset.assetCode.replace(/^APEX-/, 'AUTO-')}-S${slideNumber}`, customApiKey, {
       providerId: activeImageProviderId,
       modelName: activeImageModel,
       platform: asset.platform,
@@ -262,8 +296,9 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       campaignId: asset.campaignId
     });
 
-    if (result.success && result.dataUrl) {
-      const nextVisuals = { ...slideVisuals, [slideNumber]: result.dataUrl };
+    const generatedUrl = result.dataUrl || result.fileUrl;
+    if (result.success && generatedUrl) {
+      const nextVisuals = { ...slideVisuals, [slideNumber]: generatedUrl };
       setSlideVisuals(nextVisuals);
       const updated: SocialAsset = {
         ...asset,
@@ -295,9 +330,19 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       campaignId: asset.campaignId
     });
 
-    if (result.success && result.operationName) {
+    if (result.success && result.fileUrl && !result.operationName) {
+      setProductionStatus('READY');
+      const updated: SocialAsset = {
+        ...asset,
+        productionStatus: 'READY',
+        generatedVideoUrl: result.fileUrl,
+        videoGenerationPrompt: activePrompt,
+        productionError: undefined
+      };
+      onUpdateAsset(updated);
+      setIsGenerating(false);
+    } else if (result.success && result.operationName) {
       setProductionStatus('GENERATING');
-      // Begin polling
       pollVideoOperation(result.operationName);
     } else {
       setProductionStatus('FAILED');
@@ -318,7 +363,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     let attempts = 0;
     const interval = setInterval(async () => {
       attempts++;
-      const status = await pollVideoStatus(opName);
+      const status = await pollVideoStatus(opName, customApiKey);
       if (status.done) {
         clearInterval(interval);
         setIsGenerating(false);
@@ -350,12 +395,22 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
             onUpdateAsset(updated);
           }
         }
-      } else if (attempts > 30) {
+      } else if (attempts >= 36) {
         clearInterval(interval);
         setIsGenerating(false);
-        setGenerationError('Video generation timed out while polling.');
+        const timeoutMessage = 'Video generation is taking longer than expected. The provider may still finish the job; retry status later or generate again.';
+        setProductionStatus('FAILED');
+        setGenerationError(timeoutMessage);
+        if (asset) {
+          onUpdateAsset({
+            ...asset,
+            productionStatus: 'FAILED',
+            videoJobOperationName: opName,
+            productionError: timeoutMessage
+          });
+        }
       }
-    }, 5000);
+    }, 10000);
   };
 
   // Handler: Approve Asset
@@ -375,9 +430,9 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   const handleDownloadSingle = () => {
     if (!asset) return;
     if (generatedImageUrl) {
-      downloadDataUrl(`${asset.assetCode}-production.png`, generatedImageUrl);
+      downloadDataUrl(`${asset.assetCode.replace(/^APEX-/, 'AUTO-')}-production.png`, generatedImageUrl);
     } else if (deterministicCanvasUrl) {
-      downloadDataUrl(`${asset.assetCode}-canvas.png`, deterministicCanvasUrl);
+      downloadDataUrl(`${asset.assetCode.replace(/^APEX-/, 'AUTO-')}-canvas.png`, deterministicCanvasUrl);
     }
   };
 
@@ -385,6 +440,44 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   const handleDownloadAllSlides = async () => {
     if (!asset) return;
     await downloadAllCarouselSlides(asset, slideVisuals, brandRenderOptions);
+  };
+
+  const handleUploadFinishedMedia = async (file: File) => {
+    if (!asset) return;
+    setIsUploadingMedia(true);
+    setGenerationError(null);
+    try {
+      const uploaded = await uploadAssetMedia(file, {
+        assetId: asset.id,
+        campaignId: asset.campaignId,
+        assetCode: asset.assetCode,
+        mediaType: file.type.startsWith('video/') ? 'VIDEO' : 'IMAGE'
+      });
+      if (!uploaded.success || !uploaded.fileUrl) {
+        throw new Error(uploaded.error || 'Media upload failed');
+      }
+      const isUploadedVideo = file.type.startsWith('video/');
+      const updated: SocialAsset = {
+        ...asset,
+        productionStatus: 'READY',
+        productionError: undefined,
+        ...(isUploadedVideo
+          ? { generatedVideoUrl: uploaded.fileUrl }
+          : { generatedImageUrl: uploaded.fileUrl })
+      };
+      if (isUploadedVideo) {
+        setGeneratedVideoUrl(uploaded.fileUrl);
+      } else {
+        setGeneratedImageUrl(uploaded.fileUrl);
+      }
+      setProductionStatus('READY');
+      onUpdateAsset(updated);
+    } catch (err: any) {
+      setGenerationError(err?.message || 'Media upload failed');
+      setProductionStatus('FAILED');
+    } finally {
+      setIsUploadingMedia(false);
+    }
   };
 
   // Apply deterministic design directly
@@ -418,7 +511,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   const isReady = productionStatus === 'READY';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
+    <div role="dialog" aria-modal="true" aria-label="Asset production" onMouseDown={(e) => { if (e.target === e.currentTarget && !isGenerating && !isUploadingMedia) onClose(); }} className="fixed inset-0 z-[500] flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
       <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl w-full max-w-5xl my-4 text-[#1D1D1F] flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Top Header Deck */}
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-black/[0.06] flex items-center justify-between gap-4 bg-white sticky top-0 z-10">
@@ -427,7 +520,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
             <div className="min-w-0">
               <div className="flex items-center space-x-2 text-xs">
                 <span className="font-mono font-semibold text-[#FF4500]">
-                  {asset.assetCode}
+                  {asset.assetCode.replace(/^APEX-/, 'AUTO-')}
                 </span>
                 <span className="text-[#86868B]">·</span>
                 <span className="capitalize text-[#1D1D1F] font-medium">
@@ -481,6 +574,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
 
             <button
               onClick={onClose}
+              aria-label="Close dialog"
               className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors"
             >
               <X className="w-5 h-5" />
@@ -535,9 +629,9 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
 
           {/* Quick Schedule Metadata */}
           <div className="hidden sm:flex items-center space-x-3 text-xs text-[#86868B]">
-            <span>Scheduled: <strong className="text-[#1D1D1F] font-medium">{asset.targetDate}</strong> ({asset.postTimeIST})</span>
+            <span>Scheduled: <strong className="text-[#1D1D1F] font-medium">{asset.targetDate}</strong> ({formatScheduleTime(asset.postTimeIST)})</span>
             <span>·</span>
-            <span>Virality Score: <strong className="text-[#FF4500] font-medium">{asset.viralityScore}/100</strong></span>
+            <span>AI Content Score: <strong className="text-[#FF4500] font-medium">{asset.viralityScore}/100</strong></span>
           </div>
         </div>
 
@@ -627,6 +721,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                         <button
                           disabled={activeSlideIndex === 0}
                           onClick={() => setActiveSlideIndex((prev) => Math.max(0, prev - 1))}
+                          aria-label="Previous carousel slide"
                           className="p-1.5 bg-white rounded-lg border border-black/[0.08] shadow-sm disabled:opacity-30 hover:bg-neutral-50"
                         >
                           <ChevronLeft className="w-4 h-4" />
@@ -642,6 +737,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                               Math.min((asset.slides?.length || 1) - 1, prev + 1)
                             )
                           }
+                          aria-label="Next carousel slide"
                           className="p-1.5 bg-white rounded-lg border border-black/[0.08] shadow-sm disabled:opacity-30 hover:bg-neutral-50"
                         >
                           <ChevronRight className="w-4 h-4" />
@@ -824,7 +920,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
               {/* Hook Card */}
               <div className="bg-[#FBFBFD] p-5 rounded-2xl border border-black/[0.06] space-y-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-[#FF4500]">
-                  Viral Hook (First 3 Seconds / Slide 1)
+                  Primary Hook (First 3 Seconds / Slide 1)
                 </span>
                 <p className="text-base font-semibold text-[#1D1D1F] leading-snug">
                   "{asset.hook}"
@@ -893,7 +989,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                 </div>
               </div>
 
-              {/* Target Persona & Virality Intelligence */}
+              {/* Target Persona & Content Intelligence */}
               <div className="bg-[#FBFBFD] p-5 rounded-2xl border border-black/[0.06] space-y-2 text-xs">
                 <span className="text-xs font-semibold uppercase tracking-wider text-[#86868B]">
                   Target Buyer Persona & Intelligence
@@ -1070,6 +1166,26 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
               </div>
             </div>
           )}
+        </div>
+
+        <div className="px-4 sm:px-6 py-3 border-t border-black/[0.06] bg-white flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-[#6E6E73] mr-1">Already generated media elsewhere?</span>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-black/[0.08] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#1D1D1F] hover:bg-black/[0.03]">
+            <ArrowUpRight className="h-3.5 w-3.5 text-[#FF4500]" />
+            <span>{isUploadingMedia ? 'Uploading…' : 'Upload finished media'}</span>
+            <input
+              type="file"
+              className="sr-only"
+              accept="image/png,image/jpeg,image/webp,video/mp4"
+              disabled={isUploadingMedia || isGenerating}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUploadFinishedMedia(file);
+                e.currentTarget.value = '';
+              }}
+            />
+          </label>
+          <span className="text-[10px] text-[#86868B]">PNG, JPG, WEBP or MP4 · max 100 MB</span>
         </div>
 
         {/* Modal Bottom Operational Footer */}

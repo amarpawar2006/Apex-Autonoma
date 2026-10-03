@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Sparkles, 
   X, 
@@ -84,6 +84,20 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
   // Primary field: Natural Language Business Objective
   const [brief, setBrief] = useState<string>('');
+  const modalScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    requestAnimationFrame(() => {
+      modalScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+      modalScrollRef.current?.focus();
+    });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   // AI Brief Improvement & Rewriting State
   const [isImprovingBrief, setIsImprovingBrief] = useState<boolean>(false);
@@ -540,8 +554,8 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   const showViralityNote = primaryGoal === 'More reach and shares' || secondaryGoals.includes('More reach and shares');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
-      <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-4 sm:p-7 space-y-6 max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
+    <div role="dialog" aria-modal="true" aria-labelledby="create-campaign-title" className="fixed inset-0 z-[300] flex items-start sm:items-center justify-center p-3 sm:p-6 bg-black/45 backdrop-blur-md overflow-y-auto">
+      <div ref={modalScrollRef} tabIndex={-1} className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-4 sm:p-7 space-y-6 max-h-[calc(100vh-1.5rem)] sm:max-h-[92vh] overflow-y-auto overscroll-contain animate-in fade-in zoom-in-95 duration-200">
         
         {/* If Campaign was just created, show Apple-style summary confirmation */}
         {createdResult ? (
@@ -568,6 +582,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
               </div>
               <button
                 onClick={handleResetAndClose}
+                aria-label="Close campaign dialog"
                 className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -673,7 +688,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
             {/* Header */}
             <div className="flex items-start justify-between">
               <div className="space-y-1">
-                <h2 className="text-2xl font-semibold tracking-tight text-[#1D1D1F]">
+                <h2 id="create-campaign-title" className="text-2xl font-semibold tracking-tight text-[#1D1D1F]">
                   Create a campaign
                 </h2>
                 <p className="text-sm text-[#6E6E73] font-normal leading-relaxed">
@@ -683,6 +698,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
               <button 
                 onClick={onClose}
                 disabled={isLoading}
+                aria-label="Close campaign dialog"
                 className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-black/[0.04] rounded-xl transition-colors -mr-2"
               >
                 <X className="w-5 h-5" />
@@ -820,13 +836,13 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                   onChange={(e) => setBrief(e.target.value)}
                   disabled={isLoading}
                   rows={3}
-                  placeholder={GOAL_EXAMPLES[primaryGoal] || 'Describe what you want to achieve...'}
+                  placeholder={`Example only — ${GOAL_EXAMPLES[primaryGoal] || 'Describe what you want to achieve...'}`}
                   className="w-full bg-[#F5F5F7] border-0 rounded-2xl p-4 text-sm text-[#1D1D1F] placeholder-[#86868B] focus:outline-none focus:ring-2 focus:ring-[#FF4500]/20 resize-none transition-all leading-relaxed"
                 />
 
                 {/* Contextual guidance prompt */}
                 <p className="text-[11px] text-[#86868B] flex items-center justify-between">
-                  <span>Contextual example: {GOAL_EXAMPLES[primaryGoal]?.slice(0, 75)}…</span>
+                  <span>{brief.length === 0 ? 'Example shown above — enter your own campaign objective.' : 'Your campaign brief'}</span>
                   <span>{brief.length} characters</span>
                 </p>
 

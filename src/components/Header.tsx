@@ -22,7 +22,8 @@ import {
   Users,
   X,
   Sparkles,
-  Compass
+  Compass,
+  HelpCircle
 } from 'lucide-react';
 import { Campaign } from '../types/campaign';
 import { Company, User, UserRole } from '../types/auth';
@@ -68,6 +69,8 @@ export interface HeaderProps {
   onSwitchCompany?: (companyId: string) => void | Promise<void>;
   guidedHelpEnabled?: boolean;
   onToggleGuidedHelp?: () => void;
+  onOpenHelp?: () => void;
+  uiBlocked?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -90,13 +93,24 @@ export const Header: React.FC<HeaderProps> = ({
   availableCompanies = [],
   onSwitchCompany,
   guidedHelpEnabled,
-  onToggleGuidedHelp
+  onToggleGuidedHelp,
+  onOpenHelp,
+  uiBlocked = false
 }) => {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [switchingCompanyId, setSwitchingCompanyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (uiBlocked) {
+      setWorkspaceOpen(false);
+      setMoreOpen(false);
+      setAccountOpen(false);
+      setMobileOpen(false);
+    }
+  }, [uiBlocked]);
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -114,14 +128,14 @@ export const Header: React.FC<HeaderProps> = ({
   const primary = [
     { id: 'todays_production' as AppNavTab, label: 'Today', icon: Clock3 },
     { id: 'campaigns' as AppNavTab, label: 'Campaigns', icon: FolderKanban },
+    { id: 'master_sheet' as AppNavTab, label: 'Content', icon: FileSpreadsheet },
     { id: 'calendar' as AppNavTab, label: 'Calendar', icon: Calendar },
     { id: 'design_system' as AppNavTab, label: 'Brand', icon: Palette },
     { id: 'creative_studio' as AppNavTab, label: 'Studio', icon: Layers }
   ];
 
   const secondary = [
-    { id: 'master_sheet' as AppNavTab, label: 'Content', icon: FileSpreadsheet },
-    { id: 'virality' as AppNavTab, label: 'Virality Engine', icon: TrendingUp },
+    { id: 'virality' as AppNavTab, label: 'Growth Mechanics', icon: TrendingUp },
     { id: 'publishing' as AppNavTab, label: 'Publishing', icon: Send },
     { id: 'archive' as AppNavTab, label: 'Archive', icon: Archive, count: archivedCount || 0 }
   ];
@@ -223,11 +237,16 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Workspace Switcher */}
           <div className="relative min-w-0" data-autonoma-menu>
             <button
+              disabled={uiBlocked}
               onClick={() => {
+                if (uiBlocked) return;
                 setWorkspaceOpen((v) => !v);
                 setMoreOpen(false);
                 setAccountOpen(false);
               }}
+              aria-haspopup="menu"
+              aria-expanded={workspaceOpen}
+              aria-label="Switch company workspace"
               className="flex max-w-[170px] sm:max-w-[240px] items-center gap-2 rounded-xl border border-black/[0.08] bg-black/[0.025] hover:bg-black/[0.05] px-2.5 py-1.5 text-left transition-all shadow-2xs"
             >
               <Building2 className="h-3.5 w-3.5 shrink-0 text-[#FF4500]" />
@@ -249,7 +268,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {workspaceOpen && (
-              <div className="absolute left-0 top-full mt-2 w-[310px] overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl z-[120] animate-in fade-in zoom-in-95 duration-100">
+              <div role="menu" aria-label="Company workspaces" className="absolute left-0 top-full mt-2 w-[310px] overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl z-[120] animate-in fade-in zoom-in-95 duration-100">
                 <div className="border-b border-black/[0.05] px-4 py-3 bg-[#FBFBFD]">
                   <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#86868B]">
                     Switch workspace
@@ -352,25 +371,24 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Actions & Utilities Right Bar */}
           <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
             
-            {/* Guided Help Quick Toggle */}
-            {onToggleGuidedHelp && (
+            {/* Contextual Help */}
+            {onOpenHelp && (
               <button
-                onClick={onToggleGuidedHelp}
-                className={`hidden xl:inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium transition-all ${
-                  guidedHelpEnabled
-                    ? 'border-orange-200 bg-orange-50/70 text-[#FF4500]'
-                    : 'border-black/[0.06] bg-black/[0.02] text-[#86868B] hover:text-[#1D1D1F]'
-                }`}
-                title="Toggle Guided Help"
+                onClick={onOpenHelp}
+                disabled={uiBlocked}
+                className="hidden xl:inline-flex items-center gap-1.5 rounded-xl border border-black/[0.06] bg-white px-2.5 py-1.5 text-[11px] font-medium text-[#6E6E73] hover:bg-black/[0.03] hover:text-[#1D1D1F] disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Open contextual help"
+                aria-label="Open contextual help"
               >
-                <Compass className="h-3.5 w-3.5" />
-                <span>Guide {guidedHelpEnabled ? 'ON' : 'OFF'}</span>
+                <HelpCircle className="h-3.5 w-3.5 text-[#FF4500]" />
+                <span>Help</span>
               </button>
             )}
 
             {/* Create Campaign CTA */}
             <button
               onClick={onOpenAiGenerator}
+              disabled={uiBlocked}
               className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#FF4500] px-3.5 text-[11px] font-semibold text-white shadow-sm hover:bg-[#EA3E00] active:scale-95 transition-all shrink-0"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -380,11 +398,16 @@ export const Header: React.FC<HeaderProps> = ({
             {/* More Tools Menu */}
             <div className="relative" data-autonoma-menu>
               <button
+                disabled={uiBlocked}
                 onClick={() => {
+                  if (uiBlocked) return;
                   setMoreOpen((v) => !v);
                   setWorkspaceOpen(false);
                   setAccountOpen(false);
                 }}
+                aria-haspopup="menu"
+                aria-expanded={moreOpen}
+                aria-label="Open more tools"
                 className={`flex h-9 items-center gap-1 rounded-xl border px-2.5 text-[11px] transition-all ${
                   moreOpen
                     ? 'border-black/20 bg-black/[0.06] text-[#1D1D1F]'
@@ -396,7 +419,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
 
               {moreOpen && (
-                <div className="absolute right-0 top-full mt-2 w-60 overflow-hidden rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-xl z-[120] animate-in fade-in zoom-in-95 duration-100">
+                <div role="menu" aria-label="More tools" className="absolute right-0 top-full mt-2 w-60 overflow-hidden rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-xl z-[120] animate-in fade-in zoom-in-95 duration-100">
                   <div className="px-3 pb-1.5 pt-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-[#86868B]">
                     Studio & Growth Tools
                   </div>
@@ -474,18 +497,23 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Account Profile Avatar & Settings */}
             <div className="relative" data-autonoma-menu>
               <button
+                disabled={uiBlocked}
                 onClick={() => {
+                  if (uiBlocked) return;
                   setAccountOpen((v) => !v);
                   setWorkspaceOpen(false);
                   setMoreOpen(false);
                 }}
+                aria-haspopup="menu"
+                aria-expanded={accountOpen}
+                aria-label="Open account menu"
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/[0.08] bg-black/[0.03] text-[11px] font-bold text-[#1D1D1F] transition hover:bg-black/[0.06]"
               >
                 {currentUser?.name?.[0]?.toUpperCase() || 'U'}
               </button>
 
               {accountOpen && (
-                <div className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl z-[120] animate-in fade-in zoom-in-95 duration-100">
+                <div role="menu" aria-label="Account" className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl z-[120] animate-in fade-in zoom-in-95 duration-100">
                   <div className="border-b border-black/[0.05] px-4 py-3 bg-[#FBFBFD]">
                     <div className="truncate text-xs font-semibold text-[#1D1D1F]">
                       {currentUser?.name || 'Autonoma User'}

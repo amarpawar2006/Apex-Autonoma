@@ -217,7 +217,7 @@ export const TodaysProductionView: React.FC<TodaysProductionViewProps> = ({
       case 'GENERATING':
         return { label: 'Generating…', color: 'text-amber-600 font-medium' };
       case 'FAILED':
-        return { label: 'Needs retry', color: 'text-red-600 font-medium' };
+        return { label: 'Generation failed', color: 'text-red-600 font-medium' };
       default:
         return { label: 'Not generated', color: 'text-[#86868B]' };
     }
@@ -259,7 +259,7 @@ export const TodaysProductionView: React.FC<TodaysProductionViewProps> = ({
 
         let p = 
           `📌 *POST ${idx + 1} OF ${todaysAssets.length}*\n` +
-          `🆔 *Code:* ${asset.assetCode || asset.id}\n` +
+          `🆔 *Code:* ${(asset.assetCode || asset.id).replace(/^APEX-/, 'AUTO-')}\n` +
           `📋 *Campaign:* ${campName}\n` +
           `📱 *Platform:* ${asset.platform.toUpperCase()} · *Format:* ${asset.format.replace('_', ' ').toUpperCase()}\n` +
           `⏰ *Planned Posting Time:* ${formatPostTime(asset.postTimeIST)}\n` +
@@ -550,7 +550,7 @@ export const TodaysProductionView: React.FC<TodaysProductionViewProps> = ({
                     <p className="text-xs text-[#86868B] flex flex-wrap items-center gap-2 font-normal">
                       <span>{getFormatLabel(asset.format)}</span>
                       <span>·</span>
-                      <span className="font-mono text-[11px] text-[#6E6E73]">{asset.assetCode}</span>
+                      <span className="font-mono text-[11px] text-[#6E6E73]">{asset.assetCode.replace(/^APEX-/, 'AUTO-')}</span>
                       {asset.hook && (
                         <>
                           <span>·</span>

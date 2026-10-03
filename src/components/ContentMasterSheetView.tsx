@@ -139,7 +139,7 @@ export const ContentMasterSheetView: React.FC<ContentMasterSheetViewProps> = ({
       case 'GENERATING':
         return { label: 'Generating…', dot: 'bg-amber-500 animate-pulse', pill: 'bg-amber-50 text-amber-700' };
       case 'FAILED':
-        return { label: 'Needs retry', dot: 'bg-red-500', pill: 'bg-red-50 text-red-700' };
+        return { label: 'Generation failed', dot: 'bg-red-500', pill: 'bg-red-50 text-red-700' };
       default:
         return { label: 'Needs media', dot: 'bg-neutral-400', pill: 'bg-black/[0.04] text-[#6E6E73]' };
     }
@@ -312,7 +312,7 @@ export const ContentMasterSheetView: React.FC<ContentMasterSheetViewProps> = ({
                 <option value="GENERATING">Generating…</option>
                 <option value="READY">Ready for review</option>
                 <option value="APPROVED">Approved</option>
-                <option value="FAILED">Needs retry</option>
+                <option value="FAILED">Generation failed</option>
               </select>
             </div>
 
@@ -375,7 +375,7 @@ export const ContentMasterSheetView: React.FC<ContentMasterSheetViewProps> = ({
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <div className="flex items-center space-x-2 min-w-0">
                         <span className="font-mono font-semibold text-[#FF4500] text-[11px]">
-                          {asset.assetCode}
+                          {asset.assetCode.replace(/^APEX-/, 'AUTO-')}
                         </span>
                         <span className="capitalize font-medium text-[#1D1D1F] flex items-center space-x-1">
                           {getFormatIcon(asset.format)}
@@ -506,7 +506,7 @@ export const ContentMasterSheetView: React.FC<ContentMasterSheetViewProps> = ({
                           </td>
 
                           <td className="py-3.5 px-3.5 font-mono text-[11px] font-semibold text-[#1D1D1F]">
-                            {asset.assetCode}
+                            {asset.assetCode.replace(/^APEX-/, 'AUTO-')}
                           </td>
 
                           <td className="py-3.5 px-4 max-w-sm truncate">
@@ -674,7 +674,7 @@ export const ContentMasterSheetView: React.FC<ContentMasterSheetViewProps> = ({
 
       {/* Google Apps Script Modal */}
       {showAppsScriptModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-md">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/40 backdrop-blur-md">
           <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-black/[0.06]">
               <div className="flex items-center space-x-2">
