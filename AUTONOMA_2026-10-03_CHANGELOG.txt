@@ -1,0 +1,44 @@
+APEX AUTONOMA — 3 OCT 2026 CONTROLLED UPDATE
+
+SOURCE
+- Built from the user's synced working project ZIP: apex-autonoma---social-&-video-growth-engine (3).zip
+- Supabase production persistence bootstrap retained.
+
+FIXED — PRIORITIES 3–6
+1. Brand system is authoritative for new campaign creative direction.
+2. Non-Apex companies no longer inherit Apex/AES-DS deterministic rendering.
+3. Google Sheets unavailable banner/startup health ping removed from normal app UX.
+4. Primary navigation is Today / Campaigns / Calendar / Brand / Studio.
+5. Content moved under More.
+6. Header/dropdown stacking raised to prevent menus hiding under the campaign bar.
+7. Brand save refreshes app active-company state immediately.
+8. Autonoma's Understanding light cards use readable dark text.
+9. Deterministic poster/carousel rendering is company/brand aware with neutral fallback.
+
+NEXT PHASE — MEDIA
+1. Image generation request now sends actual selected provider/model + asset/campaign context.
+2. OpenAI image provider defaults to current gpt-image-2, with dall-e-3 retained as legacy option.
+3. OpenAI response handles base64 or returned image URL.
+4. Video success is no longer faked for NVIDIA. NVIDIA video returns an explicit unsupported message.
+5. Google Veo returns a real operationName to the frontend.
+6. Video polling uses the configured server-side Google/Veo key.
+7. Completed Veo video is downloaded server-side and attached as generatedVideoUrl for review.
+8. Generated video can render in the Production modal.
+9. Media prompts and deterministic previews use company brand context instead of hardcoded Apex styling.
+
+VALIDATION PERFORMED
+- TypeScript transpile/syntax validation: PASS for all modified TS/TSX files.
+- Full npm install/build could not be completed in the sandbox because dependency installation timed out.
+- No Supabase schema/auth/admin invite changes were made.
+
+FILES MODIFIED
+- server.ts
+- server/aiProviderService.ts
+- src/App.tsx
+- src/components/Header.tsx
+- src/components/DesignSystemView.tsx
+- src/components/admin/CompanyManagementModal.tsx
+- src/components/AssetProductionModal.tsx
+- src/components/ApiKeySettingsModal.tsx
+- src/services/campaignService.ts
+- src/services/mediaProductionService.ts

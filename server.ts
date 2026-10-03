@@ -2610,7 +2610,8 @@ CUSTOMER BRAND DESIGN SYSTEM — AUTHORITATIVE:
 - Logo Reference: ${brandSys.logoUrl || 'No logo supplied'}
 
 The saved Brand Design System above is the authoritative creative specification.
-Do not substitute Autonoma or Apex styling. All visual prompts, carousel directions, poster prompts, tone, and creative recommendations must follow it.
+Do not substitute Autonoma or Apex styling.
+All visual prompts, carousel directions, poster prompts, tone and creative recommendations must follow it.
 `;
       }
 
@@ -2749,7 +2750,7 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
   - CTA: Specific action prompt
   - carouselSlides: If format is carousel, array of slides (slideNumber, layout, headline, subtext, body)
   - reelScript: If format is reel_short, array of scenes (sceneNumber, timestamp, hookText, narrationVoiceover, onScreenCaption, bRollPrompt)
-  - posterVisualPrompt: Production-ready visual prompt following the saved customer Brand Design System. If no saved system exists, use neutral professional brand-safe styling.
+  - posterVisualPrompt: Production-ready visual prompt following the saved customer Brand Design System. If no saved system exists, use clean neutral professional brand-safe styling.
   - viralityScore: Score between 80 and 96
   - viralityRationale: Specific reason for engagement potential
   - targetReach: Integer estimate
@@ -3009,7 +3010,8 @@ CUSTOMER BRAND DESIGN SYSTEM — AUTHORITATIVE:
 - Logo Reference: ${brandSys.logoUrl || 'No logo supplied'}
 
 The saved Brand Design System above is the authoritative creative specification.
-Do not substitute Autonoma or Apex styling. All visual prompts, carousel directions, poster prompts, tone, and creative recommendations must follow it.
+Do not substitute Autonoma or Apex styling.
+All visual prompts, carousel directions, poster prompts, tone and creative recommendations must follow it.
 `;
       }
 
@@ -3111,7 +3113,7 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
           expectedLeads: item.expectedLeads || 15,
           targetBuyerPersona: parsedData.targetAudience || 'Audience derived from campaign brief',
           designSystemVerified: true,
-          colorScheme: brandSys ? 'brand_custom' : 'clean_white',
+          colorScheme: (brandSys ? 'brand_custom' : 'clean_white') as const,
           slides: item.carouselSlides && item.carouselSlides.length > 0 ? item.carouselSlides.map((s: any) => ({
             slideNumber: s.slideNumber,
             layout: (s.layout as any) || 'title_hook',
@@ -3419,9 +3421,9 @@ STRICT GUARDRAILS:
           model: result.model,
           prompt,
           version: '1',
-          fileUrl: result.fileUrl || '',
-          thumbnailUrl: result.fileUrl || '',
-          generationStatus: 'GENERATED',
+          fileUrl: result.fileUrl && !result.operationName ? result.fileUrl : '',
+          thumbnailUrl: '',
+          generationStatus: result.operationName ? 'GENERATING' : 'GENERATED',
           approvalStatus: 'PENDING_APPROVAL',
           createdAt: new Date().toISOString()
         });
@@ -3439,7 +3441,7 @@ STRICT GUARDRAILS:
   });
 
   // 2. REAL SERVER-SIDE VIDEO GENERATION ENDPOINT
-  // Supports NVIDIA video generation MVP and Google Veo with Company Brand System injection
+  // Uses a real configured video provider (Google Veo in this build) with Company Brand System injection
   app.post('/api/media/generate-video', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
     try {
       const activeCompany = (req as any).activeCompany;
@@ -3512,10 +3514,15 @@ STRICT GUARDRAILS:
   // 3. VIDEO STATUS POLLING ENDPOINT
   app.post('/api/media/video-status', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
     try {
-      const apiKey = req.body.customApiKey || process.env.GEMINI_API_KEY;
+      const apiKey =
+        aiProviderService.getRawProviderKey('google_veo') ||
+        aiProviderService.getRawProviderKey('gemini');
       const { operationName } = req.body;
       if (!operationName) {
         return res.status(400).json({ success: false, message: 'operationName required' });
+      }
+      if (!apiKey) {
+        return res.status(500).json({ success: false, error: 'Google Veo API key is not configured on the server.' });
       }
 
       const ai = new GoogleGenAI({ apiKey });
@@ -3539,10 +3546,15 @@ STRICT GUARDRAILS:
   // 4. VIDEO DOWNLOAD ENDPOINT
   app.post('/api/media/video-download', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
     try {
-      const apiKey = req.body.customApiKey || process.env.GEMINI_API_KEY;
+      const apiKey =
+        aiProviderService.getRawProviderKey('google_veo') ||
+        aiProviderService.getRawProviderKey('gemini');
       const { operationName, assetCode = 'VIDEO' } = req.body;
       if (!operationName) {
         return res.status(400).json({ success: false, message: 'operationName required' });
+      }
+      if (!apiKey) {
+        return res.status(500).json({ success: false, error: 'Google Veo API key is not configured on the server.' });
       }
 
       const ai = new GoogleGenAI({ apiKey });
@@ -3559,6 +3571,9 @@ STRICT GUARDRAILS:
       const videoRes = await fetch(uri, {
         headers: { 'x-goog-api-key': apiKey! }
       });
+      if (!videoRes.ok) {
+        throw new Error(`Generated video download failed (HTTP ${videoRes.status})`);
+      }
       const buffer = Buffer.from(await videoRes.arrayBuffer());
 
       // Save to disk
