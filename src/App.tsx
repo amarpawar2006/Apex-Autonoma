@@ -34,8 +34,8 @@ import { LoginPage } from './components/auth/LoginPage';
 import { AwaitingApprovalView } from './components/auth/AwaitingApprovalView';
 import { SuperAdminWorkspace } from './components/admin/SuperAdminWorkspace';
 import { CompanyManagementModal } from './components/admin/CompanyManagementModal';
-import { CompanySetupChecklist } from './components/CompanySetupChecklist';
 import { GuidedHelpCard } from './components/GuidedHelpCard';
+import { ContextualHelpDrawer } from './components/ContextualHelpDrawer';
 
 // Modals
 import { AiCampaignGeneratorModal } from './components/AiCampaignGeneratorModal';
@@ -80,6 +80,7 @@ export default function App() {
   // Modals state
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
+  const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
 
   // Guided Help state (Defaults to ON per Controlled Batch 1)
   const [guidedHelpEnabled, setGuidedHelpEnabled] = useState<boolean>(() => {
@@ -430,6 +431,7 @@ export default function App() {
     : assets;
 
   const approvedCount = assets.filter((a) => a.status === 'approved' || a.status === 'scheduled' || a.status === 'published').length;
+  const uiBlocked = Boolean(selectedAsset || productionModalAsset || isAiModalOpen || isSettingsModalOpen || isCompanyManagementOpen || isHelpOpen);
   const archivedCount = assets.filter((a) => a.isArchived).length;
 
   // ==========================================
@@ -487,8 +489,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F5F5F7] text-[#1D1D1F] flex flex-col font-sans selection:bg-[#FF4500] selection:text-white">
       {workspaceSwitching && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#090A0D]/45 backdrop-blur-[2px]">
-          <div className="flex items-center gap-3 rounded-2xl border border-white/[0.1] bg-[#111318] px-5 py-3 text-xs font-medium text-white shadow-2xl">
+        <div role="status" aria-live="polite" aria-busy="true" className="fixed inset-0 z-[400] flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+          <div className="flex items-center gap-3 rounded-2xl border border-black/[0.08] bg-white px-5 py-3 text-xs font-medium text-[#1D1D1F] shadow-2xl">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#FF4500] border-t-transparent" />
             Switching workspace…
           </div>
@@ -525,11 +527,14 @@ export default function App() {
         onSwitchCompany={handleSwitchCompany}
         guidedHelpEnabled={guidedHelpEnabled}
         onToggleGuidedHelp={toggleGuidedHelp}
+        onOpenHelp={() => setIsHelpOpen(true)}
+        uiBlocked={Boolean(selectedAsset || productionModalAsset || isAiModalOpen || isSettingsModalOpen || isCompanyManagementOpen)}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-6">
         {/* Contextual Guided Help across the App (Default ON per Controlled Batch 1) */}
+        {activeTab === 'todays_production' && (
         <GuidedHelpCard
           company={activeCompany}
           campaigns={campaigns}
@@ -551,20 +556,7 @@ export default function App() {
             } catch {}
           }}
         />
-        {/* Resumable "Complete Company Setup" Checklist for Incomplete Profiles */}
-        {activeCompany && (
-          <div className="mb-6">
-            <CompanySetupChecklist
-              company={activeCompany}
-              canEdit={userRole === 'COMPANY_ADMIN' || currentUser?.isSuperAdmin}
-              onOpenSetup={(targetTab) => {
-                setCompanyManagementInitialTab(targetTab || 'ai_context');
-                setIsCompanyManagementOpen(true);
-              }}
-            />
-          </div>
         )}
-
         {/* 1. Today's Production */}
         {activeTab === 'todays_production' && (
           <TodaysProductionView
@@ -715,6 +707,23 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      <ContextualHelpDrawer
+        isOpen={isHelpOpen}
+        activeTab={activeTab}
+        companyName={activeCompany?.name}
+        onClose={() => setIsHelpOpen(false)}
+        onNavigate={(tab) => {
+          setActiveTab(tab);
+          if (tab !== 'campaigns') setViewingCampaign(null);
+        }}
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        onOpenCompanySetup={() => {
+          setCompanyManagementInitialTab('profile');
+          setIsCompanyManagementOpen(true);
+        }}
+        onOpenCampaignGenerator={() => setIsAiModalOpen(true)}
+      />
 
       {/* Deep-Dive Post Inspector Modal */}
       {selectedAsset && (
