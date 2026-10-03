@@ -106,17 +106,6 @@ export default function App() {
   const [geminiPaidKey, setGeminiPaidKey] = useState<string>('');
   const [sheetsWebhookUrl, setSheetsWebhookUrl] = useState<string>('');
 
-  // Google Sheets connection health status on startup
-  const [sheetsHealth, setSheetsHealth] = useState<{
-    checked: boolean;
-    connected: boolean;
-    checking: boolean;
-  }>({
-    checked: false,
-    connected: true,
-    checking: false
-  });
-
   // Compute available companies for Header switcher at top level (Rules of Hooks)
   const availableCompanies = React.useMemo<CompanyOption[]>(() => {
     if (session?.memberships && session.memberships.length > 0) {
@@ -146,25 +135,6 @@ export default function App() {
     }
     return [];
   }, [session?.memberships, activeCompany, userRole]);
-
-  const checkSheetsConnection = async () => {
-    setSheetsHealth((prev) => ({ ...prev, checking: true }));
-    try {
-      const health = await autonomaDataService.checkHealth();
-      const isConnected = Boolean(health?.googleSheets?.connected);
-      setSheetsHealth({
-        checked: true,
-        connected: isConnected,
-        checking: false
-      });
-    } catch {
-      setSheetsHealth({
-        checked: true,
-        connected: false,
-        checking: false
-      });
-    }
-  };
 
   // Restore session across devices on startup
   const restoreSession = async () => {
@@ -196,7 +166,6 @@ export default function App() {
   };
 
   const loadCompanyData = async () => {
-    checkSheetsConnection();
     try {
       const [loadedCampaigns, loadedAssets, settingsInfo] = await Promise.all([
         autonomaDataService.loadCampaigns(),
@@ -582,26 +551,6 @@ export default function App() {
             } catch {}
           }}
         />
-        {/* Startup Connection Health Warning (Non-blocking) */}
-        {sheetsHealth.checked && !sheetsHealth.connected && (
-          <div className="mb-4 p-3 sm:p-3.5 bg-amber-50 rounded-2xl border border-amber-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-amber-900 animate-in fade-in duration-200">
-            <div className="flex items-center space-x-2 min-w-0">
-              <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-              <span className="font-semibold text-amber-950 shrink-0">Google Sheets connection unavailable</span>
-              <span className="hidden sm:inline text-amber-800 text-[11px] truncate">
-                — Operations will persist to server database. Reconnect to resume Sheets sync.
-              </span>
-            </div>
-            <button
-              onClick={checkSheetsConnection}
-              disabled={sheetsHealth.checking}
-              className="px-3 py-1 bg-white hover:bg-amber-100/60 border border-amber-300 text-amber-900 font-semibold rounded-xl text-[11px] transition-colors shrink-0 disabled:opacity-50 self-start sm:self-auto"
-            >
-              {sheetsHealth.checking ? 'Checking…' : 'RETRY CONNECTION'}
-            </button>
-          </div>
-        )}
-
         {/* Resumable "Complete Company Setup" Checklist for Incomplete Profiles */}
         {activeCompany && (
           <div className="mb-6">
@@ -676,6 +625,7 @@ export default function App() {
         {/* 4. Creative Studio */}
         {activeTab === 'creative_studio' && (
           <CreativeStudioView
+            key={activeCompany?.companyId || activeCompany?.id || activeCompany?.name || 'studio'}
             assets={filteredAssets}
             onUpdateStatus={handleUpdateStatus}
             selectedAssetId={studioSelectedAssetId}
@@ -693,7 +643,15 @@ export default function App() {
 
         {/* 6. Design System */}
         {activeTab === 'design_system' && (
-          <DesignSystemView />
+          <DesignSystemView
+            key={activeCompany?.companyId || activeCompany?.id || activeCompany?.name || 'brand'}
+            onCompanyUpdated={(updatedCompany) => {
+              setActiveCompany(updatedCompany);
+              setSession((prev) =>
+                prev ? { ...prev, activeCompany: updatedCompany } : prev
+              );
+            }}
+          />
         )}
 
         {/* 7. Virality Engine */}
