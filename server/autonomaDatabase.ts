@@ -371,14 +371,90 @@ export class AutonomaDatabaseManager {
   private isHydrating: Promise<any> | null = null;
   private dbFilePath: string;
 
-  constructor(customFilePath?: string) {
-    this.dbFilePath = customFilePath || DB_FILE_PATH;
-    this.store = this.loadFromDisk();
-    // Idempotent migration to Supabase production persistence
-    supabaseStorage.migrateStore(this.store).catch((err) => {
-      console.warn('[Autonoma DB] Background Supabase store sync note:', err?.message);
-    });
+constructor(customFilePath?: string) {
+  this.dbFilePath = customFilePath || DB_FILE_PATH;
+  this.store = this.loadFromDisk();
+}
+
+public async initializeProductionPersistence(): Promise<{
+  source: 'supabase' | 'local';
+  companies: number;
+  users: number;
+  memberships: number;
+  campaigns: number;
+  assets: number;
+  migrated?: boolean;
+}> {
+  if (!supabaseStorage.ready) {
+    console.warn('[Autonoma DB] Supabase not configured; serving local cache.');
+
+    return {
+      source: 'local',
+      companies: this.store.companies?.length || 0,
+      users: this.store.users?.length || 0,
+      memberships: this.store.memberships?.length || 0,
+      campaigns: this.store.campaigns?.length || 0,
+      assets: this.store.assets?.length || 0
+    };
   }
+
+  const remote = await supabaseStorage.loadStoreFromSupabase();
+
+  const hasRemoteData = Boolean(
+    (remote?.companies && remote.companies.length > 0) ||
+    (remote?.users && remote.users.length > 0) ||
+    (remote?.campaigns && remote.campaigns.length > 0) ||
+    (remote?.assets && remote.assets.length > 0)
+  );
+
+  if (hasRemoteData && remote) {
+    this.store = {
+      ...this.store,
+      ...(remote.companies ? { companies: remote.companies } : {}),
+      ...(remote.users ? { users: remote.users } : {}),
+      ...(remote.memberships ? { memberships: remote.memberships } : {}),
+      ...(remote.campaigns ? { campaigns: remote.campaigns } : {}),
+      ...(remote.assets ? { assets: remote.assets } : {}),
+      initialized: true
+    };
+
+    this.persistToDisk();
+    this.hasHydrated = true;
+
+    console.log(
+      `[Autonoma DB] Supabase authoritative bootstrap complete: ${
+        this.store.companies?.length || 0
+      } companies, ${this.store.users?.length || 0} users, ${
+        this.store.campaigns.length
+      } campaigns, ${this.store.assets.length} assets.`
+    );
+
+    return {
+      source: 'supabase',
+      companies: this.store.companies?.length || 0,
+      users: this.store.users?.length || 0,
+      memberships: this.store.memberships?.length || 0,
+      campaigns: this.store.campaigns.length,
+      assets: this.store.assets.length
+    };
+  }
+
+  const migration = await supabaseStorage.migrateStore(this.store);
+
+  if (migration.migrated) {
+    this.hasHydrated = true;
+  }
+
+  return {
+    source: migration.migrated ? 'supabase' : 'local',
+    companies: this.store.companies?.length || 0,
+    users: this.store.users?.length || 0,
+    memberships: this.store.memberships?.length || 0,
+    campaigns: this.store.campaigns.length,
+    assets: this.store.assets.length,
+    migrated: migration.migrated
+  };
+}
 
   private loadFromDisk(): AutonomaDatabaseStore {
     try {

@@ -235,7 +235,22 @@ async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 
   app.use(express.json({ limit: '25mb' }));
+try {
+  const persistence = await autonomaDb.initializeProductionPersistence();
 
+  console.log(
+    `[Server Startup] Persistence ready via ${persistence.source}: ` +
+    `${persistence.companies} companies, ` +
+    `${persistence.campaigns} campaigns, ` +
+    `${persistence.assets} assets.`
+  );
+} catch (err: any) {
+  console.error(
+    '[Server Startup] Production persistence bootstrap failed:',
+    err?.message || err
+  );
+  throw err;
+}
   // Hydrate AI Provider and Email Services from persisted settings
   try {
     const currentSettings = autonomaDb.getSettings()?.settings;
@@ -3580,22 +3595,12 @@ STRICT GUARDRAILS:
     });
   }
 
-  // Start HTTP server immediately on 0.0.0.0:PORT to guarantee instant readiness
+  // Start HTTP server after durable persistence is ready.
+  // Google Sheets remains an optional secondary sync target and never hydrates over Supabase at startup.
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Apex Autonoma] Full-Stack server running on http://0.0.0.0:${PORT}`);
-
-    // Authoritative background hydration from Google Sheets (non-blocking)
-    autonomaDb.hydrateFromGoogleSheets()
-      .then((hydration) => {
-        if (hydration.success) {
-          console.log(`[Apex Autonoma] Startup hydration complete: ${hydration.campaigns} campaigns, ${hydration.assets} assets from Google Sheets.`);
-        } else {
-          console.warn(`[Apex Autonoma] Background hydration note: ${hydration.error || 'Serving persistent disk store'}`);
-        }
-      })
-      .catch((err) => {
-        console.warn('[Apex Autonoma] Startup Google Sheets hydration non-blocking warning:', err?.message || err);
-      });
+    console.log(
+      `[Apex Autonoma] Full-Stack server running on http://0.0.0.0:${PORT}`
+    );
   });
 }
 
