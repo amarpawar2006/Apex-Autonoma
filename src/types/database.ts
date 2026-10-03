@@ -62,6 +62,15 @@ export interface DbAssetRow {
   videoPrompt: string;
   approvalStatus: string;
   mediaStatus: string;
+  generatedImageUrl?: string;
+  generatedVideoUrl?: string;
+  carouselVisualsJson?: string;
+  productionError?: string;
+  videoOperationName?: string;
+  targetBuyerPersona?: string;
+  targetReach?: number;
+  estimatedImpressions?: number;
+  expectedLeads?: number;
   aiContentScore: number;
   aiScoreRationale: string;
   isArchived?: boolean;
