@@ -51,18 +51,18 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0B0E] text-[#F5F5F7] flex flex-col justify-between selection:bg-[#FF4500] selection:text-white">
+    <div className="min-h-screen bg-[#F5F5F7] text-[#1D1D1F] flex flex-col justify-between selection:bg-[#FF4500] selection:text-white">
       {/* Background blueprint grid */}
       <div 
         className="fixed inset-0 pointer-events-none opacity-20"
         style={{
-          backgroundImage: `linear-gradient(#181B22 1px, transparent 1px), linear-gradient(90deg, #181B22 1px, transparent 1px)`,
+          backgroundImage: `linear-gradient(rgba(29,29,31,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(29,29,31,0.045) 1px, transparent 1px)`,
           backgroundSize: '40px 40px'
         }}
       />
 
       {/* Header with visible account identity & working Sign out */}
-      <header className="relative z-10 border-b border-white/[0.08] bg-[#0A0B0E]/80 backdrop-blur-md px-6 py-4 flex items-center justify-between">
+      <header className="relative z-10 border-b border-black/[0.07] bg-white/90 backdrop-blur-md px-6 py-4 flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <ApexLogo variant="lockup" size="md" />
         </div>
@@ -70,12 +70,12 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
         <div className="flex items-center space-x-4 text-xs">
           <div className="hidden sm:flex items-center space-x-2 text-[#86868B]">
             <span className="w-2 h-2 rounded-full bg-amber-400" />
-            <span>Account: <strong className="text-white font-mono">{user?.email}</strong></span>
+            <span>Account: <strong className="text-[#1D1D1F] font-mono">{user?.email}</strong></span>
           </div>
 
           <button
             onClick={onSignOut}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-white border border-white/[0.08] transition-colors"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-black/[0.03] text-[#1D1D1F] border border-black/[0.08] transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Sign Out</span>
@@ -85,7 +85,7 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
 
       {/* Main Status Container */}
       <main className="relative z-10 flex-1 flex items-center justify-center p-4 sm:p-6 my-8">
-        <div className="w-full max-w-lg bg-[#14161B] border border-white/[0.08] rounded-2xl p-6 sm:p-8 shadow-2xl shadow-black/80 space-y-6">
+        <div className="w-full max-w-lg bg-white border border-black/[0.08] rounded-2xl p-6 sm:p-8 shadow-xl space-y-6">
           {/* Card Icon & Header */}
           <div className="text-center space-y-2">
             <div className={`inline-flex p-3 rounded-2xl border ${
@@ -96,7 +96,7 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
               {isRejected ? <ShieldAlert className="w-8 h-8" /> : <Clock className="w-8 h-8 animate-pulse" />}
             </div>
 
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#1D1D1F]">
               {isRejected ? 'Access Request Not Approved' : 'Awaiting Super Admin Approval'}
             </h1>
 
@@ -116,8 +116,8 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
           )}
 
           {/* Submission Record Details Card */}
-          <div className="p-4 bg-black/40 border border-white/[0.06] rounded-xl space-y-3 font-mono text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
+          <div className="p-4 bg-[#FBFBFD] border border-black/[0.06] rounded-xl space-y-3 font-mono text-xs">
+            <div className="flex items-center justify-between pb-2 border-b border-black/[0.06]">
               <span className="text-[#86868B]">Status:</span>
               <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
                 isRejected 
@@ -133,7 +133,7 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
                 <User className="w-3.5 h-3.5 text-[#6E6E73]" />
                 <span>Verified Name:</span>
               </span>
-              <span className="text-white font-medium">{user?.name || pendingReq?.name || 'User'}</span>
+              <span className="text-[#1D1D1F] font-medium">{user?.name || pendingReq?.name || 'User'}</span>
             </div>
 
             <div className="flex items-center justify-between">
@@ -141,7 +141,7 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
                 <Mail className="w-3.5 h-3.5 text-[#6E6E73]" />
                 <span>Verified Email:</span>
               </span>
-              <span className="text-white font-medium">{user?.email || pendingReq?.email}</span>
+              <span className="text-[#1D1D1F] font-medium">{user?.email || pendingReq?.email}</span>
             </div>
 
             <div className="flex items-center justify-between">
@@ -154,7 +154,7 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
               </span>
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-white/[0.06] text-[10px] text-[#6E6E73]">
+            <div className="flex items-center justify-between pt-2 border-t border-black/[0.06] text-[10px] text-[#6E6E73]">
               <span>Requested At:</span>
               <span>{pendingReq?.requestedAt ? new Date(pendingReq.requestedAt).toLocaleString() : 'Just now'}</span>
             </div>
@@ -173,7 +173,7 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
 
             <button
               onClick={onSignOut}
-              className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-[#86868B] hover:text-white text-xs font-medium border border-white/[0.08] transition-colors flex items-center justify-center space-x-1.5"
+              className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-[#FBFBFD] hover:bg-black/[0.03] text-[#6E6E73] hover:text-[#1D1D1F] text-xs font-medium border border-black/[0.08] transition-colors flex items-center justify-center space-x-1.5"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Sign Out</span>
@@ -181,8 +181,8 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
           </div>
 
           {/* Security Information */}
-          <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] text-[11px] text-[#86868B] space-y-1">
-            <div className="flex items-center space-x-1.5 text-white font-medium">
+          <div className="p-3 rounded-xl bg-[#FBFBFD] border border-black/[0.05] text-[11px] text-[#86868B] space-y-1">
+            <div className="flex items-center space-x-1.5 text-[#1D1D1F] font-medium">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
               <span>Access Gate Security</span>
             </div>
@@ -194,7 +194,7 @@ export const AwaitingApprovalView: React.FC<AwaitingApprovalViewProps> = ({
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-white/[0.08] px-6 py-4 text-center text-xs text-[#86868B]">
+      <footer className="relative z-10 border-t border-black/[0.07] px-6 py-4 text-center text-xs text-[#86868B]">
         <span>Apex Autonoma • Server-Enforced Company Isolation</span>
       </footer>
     </div>
