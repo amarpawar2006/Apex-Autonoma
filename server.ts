@@ -20,6 +20,7 @@ import { CompanyProfile, CompanyUnderstoodSummary } from './src/types/auth.js';
 import { Campaign, SocialAsset, Platform, ContentFormat, ContentStream, SpeciesCode } from './src/types/campaign.js';
 import { emailService } from './server/emailService.js';
 import { aiProviderService } from './server/aiProviderService.js';
+import { supabaseStorage } from './server/supabaseStorage.js';
 import { analyzeBrandGuidelinesPdf } from './server/brandPdfService.js';
 import { generateDynamicSchedule } from './server/schedulingEngine.js';
 
@@ -3356,7 +3357,7 @@ STRICT GUARDRAILS:
   app.use('/generated-media', express.static(publicMediaDir));
 
   // Direct attachment download endpoint
-  app.get('/api/media/download/:filename', (req: Request, res: Response) => {
+  app.get('/api/media/download/:filename', authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
     const filename = path.basename(req.params.filename);
     const filePath = path.join(publicMediaDir, filename);
     if (!fs.existsSync(filePath)) {
@@ -3409,6 +3410,22 @@ STRICT GUARDRAILS:
 
       if (!result.success) {
         return res.status(result.isBillingRequired ? 429 : 500).json(result);
+      }
+
+      // Move generated image into durable Supabase Storage when available.
+      if (result.dataUrl && result.filename) {
+        try {
+          const base64Part = String(result.dataUrl).split(',').pop() || '';
+          const durableUrl = await supabaseStorage.uploadGeneratedMedia(
+            result.filename,
+            Buffer.from(base64Part, 'base64'),
+            String(result.dataUrl).startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png',
+            activeCompany?.companyId || 'unscoped'
+          );
+          if (durableUrl) result.fileUrl = durableUrl;
+        } catch (storageErr: any) {
+          console.warn('[Media Gen] Durable image upload note:', storageErr?.message);
+        }
       }
 
       // Persist internal DB media metadata record
@@ -3494,7 +3511,7 @@ STRICT GUARDRAILS:
           version: '1',
           fileUrl: result.fileUrl || '',
           thumbnailUrl: result.fileUrl || '',
-          generationStatus: 'GENERATED',
+          generationStatus: result.operationName ? 'GENERATING' : (result.fileUrl ? 'GENERATED' : 'PENDING'),
           approvalStatus: 'PENDING_APPROVAL',
           createdAt: new Date().toISOString()
         });
@@ -3526,14 +3543,13 @@ STRICT GUARDRAILS:
       }
 
       const ai = new GoogleGenAI({ apiKey });
-      const op = new GenerateVideosOperation();
-      op.name = operationName;
+      const op = { name: operationName } as GenerateVideosOperation;
       const updated = await ai.operations.getVideosOperation({ operation: op });
 
       return res.json({
         success: true,
         done: Boolean(updated.done),
-        error: updated.error || null
+        error: updated.error ? (updated.error.message || JSON.stringify(updated.error)) : null
       });
     } catch (error: any) {
       return res.status(500).json({
@@ -3558,8 +3574,7 @@ STRICT GUARDRAILS:
       }
 
       const ai = new GoogleGenAI({ apiKey });
-      const op = new GenerateVideosOperation();
-      op.name = operationName;
+      const op = { name: operationName } as GenerateVideosOperation;
       const updated = await ai.operations.getVideosOperation({ operation: op });
       const uri = updated.response?.generatedVideos?.[0]?.video?.uri;
 
@@ -3576,14 +3591,17 @@ STRICT GUARDRAILS:
       }
       const buffer = Buffer.from(await videoRes.arrayBuffer());
 
-      // Save to disk
       const filename = `${assetCode.replace(/[^a-zA-Z0-9_-]/g, '_')}-${Date.now()}.mp4`;
+      const activeCompany = (req as any).activeCompany;
+      const durableUrl = await supabaseStorage.uploadGeneratedMedia(filename, buffer, 'video/mp4', activeCompany?.companyId || 'unscoped');
+
+      // Keep a local copy as a fallback for non-Supabase/dev environments.
       const filePath = path.join(publicMediaDir, filename);
       fs.writeFileSync(filePath, buffer);
 
       return res.json({
         success: true,
-        videoUrl: `/generated-media/${filename}`,
+        videoUrl: durableUrl || `/generated-media/${filename}`,
         filename
       });
     } catch (error: any) {
