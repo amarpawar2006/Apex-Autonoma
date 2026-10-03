@@ -25,16 +25,21 @@ const publishing = read('src/components/PublishingOrchestratorView.tsx');
 const growth = read('src/components/ViralityEngineView.tsx');
 const login = read('src/components/auth/LoginPage.tsx');
 const awaiting = read('src/components/auth/AwaitingApprovalView.tsx');
+const help = read('src/components/ContextualHelpDrawer.tsx');
 
 check('Sheets warning removed', !app.includes('Google Sheets connection unavailable'));
 check('Duplicate setup checklist removed from main workspace', !app.includes('<CompanySetupChecklist'));
 check('Guided setup is the single main onboarding surface', app.includes('<GuidedHelpCard'));
 check('Guided media step is format-neutral', guided.includes('Produce first media asset') && !guided.includes('Generate first creative image'));
 check('Primary navigation contains Brand', header.includes("label: 'Brand'"));
-check('Content moved to secondary menu', header.indexOf("label: 'Content'") > header.indexOf('const secondary'));
+check('Content is directly accessible in primary navigation', header.indexOf("label: 'Content'") < header.indexOf('const secondary'));
 check('Growth tool is not mislabeled Virality Engine', header.includes("label: 'Growth Mechanics'"));
 check('Header stacking below modal layer', header.includes('z-[100]') && header.includes('z-[120]'));
 check('Header menus expose ARIA expanded state', header.includes('aria-expanded={workspaceOpen}') && header.includes('aria-expanded={moreOpen}') && header.includes('aria-expanded={accountOpen}'));
+check('Header exposes contextual Help', header.includes('Open contextual help') && app.includes('<ContextualHelpDrawer'));
+check('Help drawer is searchable and contextual', help.includes('How can I help?') && help.includes('Search help: image, video, content, brand') && help.includes('Video generation and Veo billing'));
+check('Header controls lock while dialogs are open', header.includes('uiBlocked') && app.includes('uiBlocked={Boolean'));
+
 check('Create campaign modal is top-layer dialog', aiModal.includes('z-[300]') && aiModal.includes('aria-modal="true"'));
 check('Create campaign modal starts at scroll top', aiModal.includes('scrollTo({ top: 0'));
 check('Create campaign modal has keyboard close/focus', aiModal.includes("event.key === 'Escape'") && aiModal.includes('tabIndex={-1}'));
@@ -46,6 +51,12 @@ check('Media renderer is company-aware', mediaService.includes('companyName') &&
 check('Media renderer contains no hardcoded Apex company label', !mediaService.includes('APEX ENGINEERING'));
 check('Production modal passes provider/model context', production.includes('providerId: activeImageProviderId') && production.includes('modelName: activeImageModel'));
 check('Production modal handles image URL or base64', production.includes('result.dataUrl || result.fileUrl'));
+check('Production modal sits above global header menus', production.includes('z-[500]'));
+check('Production modal closes with Escape and backdrop', production.includes("event.key === 'Escape'") && production.includes('e.target === e.currentTarget'));
+check('External finished media can be uploaded', production.includes('Upload finished media') && mediaService.includes('/api/media/upload') && server.includes("'/api/media/upload'"));
+check('Image generation automatically falls back to another configured provider', server.includes('Automatic provider fallback') && server.includes("cfg.capabilities.includes('image')"));
+check('Excel-style 1899 time values are normalized for display', production.includes('1899-12-30T') && production.includes('formatScheduleTime'));
+
 check('Video polling allows long-running Veo jobs', production.includes('attempts >= 36') && production.includes('10000'));
 check('OpenAI recommended image model is GPT Image 2', provider.includes("selectedModel: 'gpt-image-2'"));
 check('Google Veo is real default video provider', provider.includes("video: 'google_veo'") && provider.includes('veo-3.1-generate-preview'));
