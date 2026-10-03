@@ -1,9 +1,9 @@
 import { CarouselSlide, SocialAsset } from '../types/campaign';
-import { APEX_COMPANY_DATA } from '../data/apexCompanyData';
 import { getAuthHeaders } from './autonomaDataService';
 
 export interface ImageGenerationResult {
   success: boolean;
+  provider?: string;
   model: string;
   dataUrl?: string;
   fileUrl?: string;
@@ -14,21 +14,43 @@ export interface ImageGenerationResult {
 
 export interface VideoGenerationResult {
   success: boolean;
+  provider?: string;
   model: string;
   operationName?: string;
+  fileUrl?: string;
   error?: string;
   isBillingRequired?: boolean;
 }
 
-/**
- * Invokes real server-side image generation using Google's gemini-3.1-flash-lite-image model.
- * Never exposes credentials to the browser.
- */
+export interface MediaRequestContext {
+  providerId?: string;
+  modelName?: string;
+  platform?: string;
+  language?: string;
+  objective?: string;
+  assetId?: string;
+  campaignId?: string;
+}
+
+export interface BrandRenderOptions {
+  companyName?: string;
+  website?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
+  backgroundColor?: string;
+  textColor?: string;
+  headingFont?: string;
+  bodyFont?: string;
+}
+
+/** Server-side image generation. Credentials remain on the server. */
 export async function generateAssetImage(
   prompt: string,
   aspectRatio: string = '3:4',
   assetCode: string = 'ASSET',
-  customApiKey?: string
+  customApiKey?: string,
+  context: MediaRequestContext = {}
 ): Promise<ImageGenerationResult> {
   try {
     const res = await fetch('/api/media/generate-image', {
@@ -38,7 +60,8 @@ export async function generateAssetImage(
         prompt,
         aspectRatio,
         assetCode,
-        customApiKey
+        customApiKey,
+        ...context
       })
     });
 
@@ -46,7 +69,8 @@ export async function generateAssetImage(
     if (!res.ok || !data.success) {
       return {
         success: false,
-        model: data.model || 'gemini-3.1-flash-lite-image',
+        provider: data.provider,
+        model: data.model || context.modelName || 'configured image provider',
         error: data.error || data.message || 'Image generation failed',
         isBillingRequired: Boolean(data.isBillingRequired)
       };
@@ -54,7 +78,8 @@ export async function generateAssetImage(
 
     return {
       success: true,
-      model: data.model || 'gemini-3.1-flash-lite-image',
+      provider: data.provider,
+      model: data.model || context.modelName || 'configured image provider',
       dataUrl: data.dataUrl,
       fileUrl: data.fileUrl,
       filename: data.filename
@@ -62,19 +87,19 @@ export async function generateAssetImage(
   } catch (err: any) {
     return {
       success: false,
-      model: 'gemini-3.1-flash-lite-image',
-      error: err.message || 'Network error connecting to image generation endpoint'
+      model: context.modelName || 'configured image provider',
+      error: err?.message || 'Network error connecting to image generation endpoint'
     };
   }
 }
 
-/**
- * Invokes real server-side video generation using Google's veo-3.1-lite-generate-preview model.
- */
+/** Server-side video generation. Only providers with a real callable endpoint return success. */
 export async function generateAssetVideo(
   prompt: string,
   aspectRatio: string = '9:16',
-  customApiKey?: string
+  assetCode: string = 'ASSET',
+  customApiKey?: string,
+  context: MediaRequestContext = {}
 ): Promise<VideoGenerationResult> {
   try {
     const res = await fetch('/api/media/generate-video', {
@@ -83,7 +108,9 @@ export async function generateAssetVideo(
       body: JSON.stringify({
         prompt,
         aspectRatio,
-        customApiKey
+        assetCode,
+        customApiKey,
+        ...context
       })
     });
 
@@ -91,7 +118,8 @@ export async function generateAssetVideo(
     if (!res.ok || !data.success) {
       return {
         success: false,
-        model: data.model || 'veo-3.1-lite-generate-preview',
+        provider: data.provider,
+        model: data.model || context.modelName || 'configured video provider',
         error: data.error || data.message || 'Video generation unavailable or failed',
         isBillingRequired: Boolean(data.isBillingRequired)
       };
@@ -99,36 +127,51 @@ export async function generateAssetVideo(
 
     return {
       success: true,
-      model: data.model || 'veo-3.1-lite-generate-preview',
-      operationName: data.operationName
+      provider: data.provider,
+      model: data.model || context.modelName || 'configured video provider',
+      operationName: data.operationName || data.fileUrl,
+      fileUrl: data.fileUrl && !String(data.fileUrl).startsWith('operations/') ? data.fileUrl : undefined
     };
   } catch (err: any) {
     return {
       success: false,
-      model: 'veo-3.1-lite-generate-preview',
-      error: err.message || 'Network error connecting to video generation endpoint'
+      model: context.modelName || 'configured video provider',
+      error: err?.message || 'Network error connecting to video generation endpoint'
     };
   }
 }
 
-/**
- * Polls video generation operation status
- */
 export async function pollVideoStatus(
   operationName: string,
   customApiKey?: string
-): Promise<{ done: boolean; error?: string }> {
+): Promise<{ success?: boolean; done: boolean; error?: string }> {
   const res = await fetch('/api/media/video-status', {
     method: 'POST',
     headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ operationName, customApiKey })
   });
-  return await res.json();
+  const data = await res.json();
+  if (!res.ok) return { done: false, error: data.error || data.message || 'Video status check failed' };
+  return data;
 }
 
-/**
- * Triggers browser download for a data URL or blob
- */
+export async function downloadGeneratedVideo(
+  operationName: string,
+  assetCode: string,
+  customApiKey?: string
+): Promise<{ success: boolean; videoUrl?: string; filename?: string; error?: string }> {
+  const res = await fetch('/api/media/video-download', {
+    method: 'POST',
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ operationName, assetCode, customApiKey })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    return { success: false, error: data.error || data.message || 'Video download failed' };
+  }
+  return data;
+}
+
 export function downloadDataUrl(filename: string, dataUrl: string) {
   const link = document.createElement('a');
   link.download = filename;
@@ -138,422 +181,267 @@ export function downloadDataUrl(filename: string, dataUrl: string) {
   document.body.removeChild(link);
 }
 
-/**
- * Deterministic AES-DS Canvas Renderer for Carousel Slides.
- * Renders pixel-perfect 1080x1350 (4:5) slide images with exact branding, typography, badges, and layout.
- * Ensures zero AI hallucination for critical copy and typography.
- */
+function isDark(hex: string): boolean {
+  const normalized = (hex || '').replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return false;
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 < 145;
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const normalized = (hex || '').replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return `rgba(107,114,128,${alpha})`;
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function resolveBrand(options: BrandRenderOptions = {}) {
+  const background = options.backgroundColor || '#FFFFFF';
+  const dark = isDark(background);
+  return {
+    companyName: options.companyName || 'YOUR BRAND',
+    website: options.website || '',
+    primary: options.primaryColor || (dark ? '#FFFFFF' : '#1D1D1F'),
+    secondary: options.secondaryColor || '#6B7280',
+    accent: options.accentColor || options.secondaryColor || '#6B7280',
+    background,
+    text: options.textColor || (dark ? '#FFFFFF' : '#1D1D1F'),
+    muted: dark ? '#B8BDC7' : '#6B7280',
+    card: dark ? '#16181D' : '#F5F5F7',
+    border: dark ? '#30343B' : '#DADDE2',
+    headingFont: options.headingFont || 'Inter',
+    bodyFont: options.bodyFont || 'Inter'
+  };
+}
+
+function drawWrappedText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number,
+  maxLines: number = 6
+): number {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  let line = '';
+  let lineCount = 0;
+  for (let i = 0; i < words.length; i++) {
+    const test = line ? `${line} ${words[i]}` : words[i];
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, y + lineCount * lineHeight);
+      lineCount++;
+      line = words[i];
+      if (lineCount >= maxLines - 1) break;
+    } else {
+      line = test;
+    }
+  }
+  if (line && lineCount < maxLines) {
+    ctx.fillText(line, x, y + lineCount * lineHeight);
+    lineCount++;
+  }
+  return y + lineCount * lineHeight;
+}
+
+/** Company-aware deterministic renderer for carousel slides. */
 export async function renderDeterministicSlideCanvas(
   slide: CarouselSlide,
   totalSlides: number,
-  options: {
+  options: BrandRenderOptions & {
     assetTitle: string;
     assetCode: string;
     supportingImageUrl?: string;
   }
 ): Promise<string> {
+  const brand = resolveBrand(options);
   const canvas = document.createElement('canvas');
   canvas.width = 1080;
   canvas.height = 1350;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not get 2d context');
 
-  // 1. Background: Void Black #0A0B0E
-  ctx.fillStyle = '#0A0B0E';
-  ctx.fillRect(0, 0, 1080, 1350);
+  ctx.fillStyle = brand.background;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // 2. Subtle architectural blueprint grid
-  ctx.strokeStyle = '#181B22';
+  ctx.strokeStyle = hexToRgba(brand.text, 0.07);
   ctx.lineWidth = 1;
-  const gridSize = 60;
-  for (let x = 0; x <= 1080; x += gridSize) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, 1350);
-    ctx.stroke();
+  for (let x = 0; x <= 1080; x += 72) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 1350); ctx.stroke();
   }
-  for (let y = 0; y <= 1350; y += gridSize) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(1080, y);
-    ctx.stroke();
+  for (let y = 0; y <= 1350; y += 72) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1080, y); ctx.stroke();
   }
 
-  // 3. Radial ambient glow (Apex Orange #FF4500 accent at 6%)
-  const gradient = ctx.createRadialGradient(900, 150, 10, 900, 150, 600);
-  gradient.addColorStop(0, 'rgba(255, 69, 0, 0.12)');
-  gradient.addColorStop(1, 'rgba(255, 69, 0, 0)');
-  ctx.fillStyle = gradient;
+  const glow = ctx.createRadialGradient(920, 100, 10, 920, 100, 560);
+  glow.addColorStop(0, hexToRgba(brand.accent, 0.16));
+  glow.addColorStop(1, hexToRgba(brand.accent, 0));
+  ctx.fillStyle = glow;
   ctx.fillRect(0, 0, 1080, 1350);
 
-  // 4. Safe Area Margins: 80px left/right
-  const leftMargin = 80;
-  const rightMargin = 1080 - 80;
-  const contentWidth = rightMargin - leftMargin;
+  const m = 80;
+  const right = 1000;
+  const width = right - m;
 
-  // 5. Top Header Bar
-  // Apex Delta Glyph
-  ctx.fillStyle = '#FF4500';
-  ctx.fillRect(leftMargin, 80, 44, 44);
-  ctx.fillStyle = '#000000';
-  ctx.font = '900 24px monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('/\\', leftMargin + 22, 80 + 22);
+  ctx.fillStyle = brand.primary;
+  ctx.fillRect(m, 80, 44, 44);
+  ctx.fillStyle = isDark(brand.primary) ? '#FFFFFF' : '#111111';
+  ctx.font = `800 22px ${brand.headingFont}, Arial, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('A', m + 22, 102);
 
-  // Brand Name
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 22px monospace';
+  ctx.fillStyle = brand.text;
+  ctx.font = `700 22px ${brand.headingFont}, Arial, sans-serif`;
   ctx.textAlign = 'left';
-  ctx.fillText('APEX ENGINEERING', leftMargin + 60, 102);
+  ctx.fillText(brand.companyName.toUpperCase().slice(0, 34), m + 62, 102);
 
-  // Asset Code & Slide Number
-  ctx.fillStyle = '#FF4500';
-  ctx.font = 'bold 20px monospace';
+  ctx.fillStyle = brand.accent;
+  ctx.font = `700 18px ${brand.bodyFont}, Arial, sans-serif`;
   ctx.textAlign = 'right';
-  ctx.fillText(`SLIDE ${slide.slideNumber} / ${totalSlides}`, rightMargin, 102);
+  ctx.fillText(`SLIDE ${slide.slideNumber} / ${totalSlides}`, right, 102);
 
-  // Header Divider Line
-  ctx.strokeStyle = '#22252E';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(leftMargin, 144);
-  ctx.lineTo(rightMargin, 144);
-  ctx.stroke();
+  ctx.strokeStyle = brand.border; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(m, 145); ctx.lineTo(right, 145); ctx.stroke();
 
-  let currentY = 220;
+  let y = 205;
+  const badge = slide.badge || options.assetCode || 'BRAND CONTENT';
+  ctx.font = `700 15px ${brand.bodyFont}, Arial, sans-serif`;
+  const bw = Math.min(width, ctx.measureText(badge).width + 32);
+  ctx.fillStyle = brand.card; ctx.fillRect(m, y, bw, 38);
+  ctx.strokeStyle = brand.accent; ctx.strokeRect(m, y, bw, 38);
+  ctx.fillStyle = brand.accent; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(badge.slice(0, 60), m + 16, y + 19);
+  y += 72;
 
-  // 6. Badge (if any)
-  const badgeText = slide.badge || `PHASE 0${slide.slideNumber} // SPEC-01`;
-  ctx.font = 'bold 16px monospace';
-  const badgeWidth = ctx.measureText(badgeText).width + 32;
-  ctx.fillStyle = '#14161B';
-  ctx.fillRect(leftMargin, currentY, badgeWidth, 36);
-  ctx.strokeStyle = '#FF4500';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(leftMargin, currentY, badgeWidth, 36);
-
-  ctx.fillStyle = '#FF4500';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(badgeText, leftMargin + 16, currentY + 18);
-  currentY += 75;
-
-  // 7. Supporting AI visual if provided
   if (options.supportingImageUrl) {
     try {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = options.supportingImageUrl;
-      await new Promise((resolve) => {
-        img.onload = resolve;
-        img.onerror = resolve; // Continue even if image fails to load
-      });
+      const img = new Image(); img.crossOrigin = 'anonymous'; img.src = options.supportingImageUrl;
+      await new Promise((resolve) => { img.onload = resolve; img.onerror = resolve; });
       if (img.complete && img.naturalWidth > 0) {
-        const imgH = 340;
-        ctx.save();
-        ctx.strokeStyle = '#323644';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(leftMargin, currentY, contentWidth, imgH);
-        ctx.drawImage(img, leftMargin, currentY, contentWidth, imgH);
-        ctx.restore();
-        currentY += imgH + 40;
+        const h = 330;
+        ctx.strokeStyle = brand.border; ctx.strokeRect(m, y, width, h);
+        ctx.drawImage(img, m, y, width, h);
+        y += h + 38;
       }
-    } catch (e) {
-      console.warn('Could not draw supporting visual on canvas:', e);
-    }
+    } catch {}
   }
 
-  // 8. Headline (Wrapped)
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '900 48px monospace';
-  ctx.textBaseline = 'top';
-  ctx.textAlign = 'left';
+  ctx.fillStyle = brand.text;
+  ctx.font = `800 46px ${brand.headingFont}, Arial, sans-serif`;
+  ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  y = drawWrappedText(ctx, (slide.headline || options.assetTitle).toUpperCase(), m, y, width, 56, 4) + 18;
 
-  const headline = (slide.headline || '').toUpperCase();
-  const headlineWords = headline.split(' ');
-  let line = '';
-  const headlineLineHeight = 58;
-
-  for (let i = 0; i < headlineWords.length; i++) {
-    const testLine = line + headlineWords[i] + ' ';
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > contentWidth && i > 0) {
-      ctx.fillText(line.trim(), leftMargin, currentY);
-      line = headlineWords[i] + ' ';
-      currentY += headlineLineHeight;
-    } else {
-      line = testLine;
-    }
-  }
-  ctx.fillText(line.trim(), leftMargin, currentY);
-  currentY += headlineLineHeight + 20;
-
-  // 9. Subtext (if any)
   if (slide.subtext) {
-    ctx.fillStyle = '#8E95A5';
-    ctx.font = '22px monospace';
-    ctx.fillText(slide.subtext, leftMargin, currentY);
-    currentY += 40;
+    ctx.fillStyle = brand.muted;
+    ctx.font = `400 21px ${brand.bodyFont}, Arial, sans-serif`;
+    y = drawWrappedText(ctx, slide.subtext, m, y, width, 30, 3) + 22;
   }
 
-  // Divider before body
-  ctx.strokeStyle = '#22252E';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(leftMargin, currentY);
-  ctx.lineTo(rightMargin, currentY);
-  ctx.stroke();
-  currentY += 35;
+  ctx.strokeStyle = brand.border; ctx.beginPath(); ctx.moveTo(m, y); ctx.lineTo(right, y); ctx.stroke(); y += 28;
 
-  // 10. Body Bullets or Step Cards
-  if (slide.body && slide.body.length > 0) {
-    for (const item of slide.body) {
-      // Draw dark card container
-      ctx.fillStyle = '#14161B';
-      ctx.fillRect(leftMargin, currentY, contentWidth, 76);
-      ctx.strokeStyle = '#22252E';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(leftMargin, currentY, contentWidth, 76);
-
-      // Left Accent Notch
-      ctx.fillStyle = '#FF4500';
-      ctx.fillRect(leftMargin, currentY, 5, 76);
-
-      // Item text
-      ctx.fillStyle = '#E4E7EB';
-      ctx.font = 'bold 20px monospace';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(item, leftMargin + 25, currentY + 38);
-
-      currentY += 92;
-    }
+  for (const item of slide.body || []) {
+    const cardH = 88;
+    ctx.fillStyle = brand.card; ctx.fillRect(m, y, width, cardH);
+    ctx.strokeStyle = brand.border; ctx.strokeRect(m, y, width, cardH);
+    ctx.fillStyle = brand.accent; ctx.fillRect(m, y, 5, cardH);
+    ctx.fillStyle = brand.text;
+    ctx.font = `600 18px ${brand.bodyFont}, Arial, sans-serif`;
+    ctx.textBaseline = 'top';
+    drawWrappedText(ctx, item, m + 24, y + 18, width - 48, 25, 2);
+    y += cardH + 16;
+    if (y > 1190) break;
   }
 
-  // 11. Footer Safe Area
-  const footerY = 1240;
-  ctx.strokeStyle = '#22252E';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(leftMargin, footerY);
-  ctx.lineTo(rightMargin, footerY);
-  ctx.stroke();
-
-  ctx.fillStyle = '#8E95A5';
-  ctx.font = '18px monospace';
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'left';
-  ctx.fillText('apex-engineering.co.in // PUNE, IN', leftMargin, footerY + 35);
-
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 18px monospace';
-  ctx.textAlign = 'right';
-  ctx.fillText('SWIPE NEXT ➔', rightMargin, footerY + 35);
+  const footY = 1240;
+  ctx.strokeStyle = brand.border; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(m, footY); ctx.lineTo(right, footY); ctx.stroke();
+  ctx.fillStyle = brand.muted; ctx.font = `16px ${brand.bodyFont}, Arial, sans-serif`; ctx.textAlign = 'left';
+  ctx.fillText((brand.website || brand.companyName).slice(0, 52), m, footY + 35);
+  ctx.fillStyle = brand.text; ctx.font = `700 16px ${brand.bodyFont}, Arial, sans-serif`; ctx.textAlign = 'right';
+  ctx.fillText('SWIPE NEXT →', right, footY + 35);
 
   return canvas.toDataURL('image/png');
 }
 
-/**
- * Downloads all slides of a carousel sequentially as pristine PNG files.
- */
 export async function downloadAllCarouselSlides(
   asset: SocialAsset,
-  slideVisuals?: Record<number, string>
+  slideVisuals?: Record<number, string>,
+  brandOptions: BrandRenderOptions = {}
 ) {
   const slides = asset.slides || [];
-  if (slides.length === 0) return;
-
-  for (let i = 0; i < slides.length; i++) {
-    const slide = slides[i];
-    const visual = slideVisuals ? slideVisuals[slide.slideNumber] : undefined;
+  for (const slide of slides) {
     const dataUrl = await renderDeterministicSlideCanvas(slide, slides.length, {
+      ...brandOptions,
       assetTitle: asset.title,
       assetCode: asset.assetCode,
-      supportingImageUrl: visual
+      supportingImageUrl: slideVisuals?.[slide.slideNumber]
     });
-
-    const filename = `${asset.assetCode}-slide-${slide.slideNumber}.png`;
-    downloadDataUrl(filename, dataUrl);
-    // Brief delay between downloads to prevent browser throttling
-    await new Promise((r) => setTimeout(r, 200));
+    downloadDataUrl(`${asset.assetCode}-slide-${slide.slideNumber}.png`, dataUrl);
+    await new Promise((r) => setTimeout(r, 180));
   }
 }
 
-/**
- * Deterministic Canvas Renderer for Static Posters & Founder Cards
- */
+/** Company-aware deterministic renderer for posters/founder cards. */
 export async function renderDeterministicPosterCanvas(
   asset: SocialAsset,
-  supportingImageUrl?: string
+  supportingImageUrl?: string,
+  brandOptions: BrandRenderOptions = {}
 ): Promise<string> {
+  const brand = resolveBrand(brandOptions);
   const canvas = document.createElement('canvas');
-  // 1080x1350 for 4:5 posters or 1080x1080 for founder cards
-  const isSquare = asset.format === 'founder_card';
   canvas.width = 1080;
-  canvas.height = isSquare ? 1080 : 1350;
+  canvas.height = asset.format === 'founder_card' ? 1080 : 1350;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('No canvas context');
 
-  // Void Black Background
-  ctx.fillStyle = '#0A0B0E';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = brand.background; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = hexToRgba(brand.text, 0.07); ctx.lineWidth = 1;
+  for (let x = 0; x <= canvas.width; x += 72) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+  for (let y = 0; y <= canvas.height; y += 72) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
 
-  // Subtle architectural grid
-  ctx.strokeStyle = '#181B22';
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= canvas.width; x += 60) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, canvas.height);
-    ctx.stroke();
-  }
-  for (let y = 0; y <= canvas.height; y += 60) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvas.width, y);
-    ctx.stroke();
-  }
+  const grad = ctx.createRadialGradient(canvas.width, 0, 10, canvas.width, 0, 520);
+  grad.addColorStop(0, hexToRgba(brand.accent, 0.16)); grad.addColorStop(1, hexToRgba(brand.accent, 0));
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Corner Accent Glow
-  const grad = ctx.createRadialGradient(canvas.width, 0, 10, canvas.width, 0, 500);
-  grad.addColorStop(0, 'rgba(255, 69, 0, 0.15)');
-  grad.addColorStop(1, 'rgba(255, 69, 0, 0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const m = 80; const w = canvas.width - m * 2;
+  ctx.fillStyle = brand.primary; ctx.fillRect(m, 80, 44, 44);
+  ctx.fillStyle = isDark(brand.primary) ? '#FFFFFF' : '#111111'; ctx.font = `800 22px ${brand.headingFont}, Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('A', m + 22, 102);
+  ctx.fillStyle = brand.text; ctx.font = `700 22px ${brand.headingFont}, Arial, sans-serif`; ctx.textAlign = 'left'; ctx.fillText(brand.companyName.toUpperCase().slice(0, 34), m + 62, 102);
+  ctx.fillStyle = brand.accent; ctx.font = `700 17px ${brand.bodyFont}, Arial, sans-serif`; ctx.textAlign = 'right'; ctx.fillText(asset.assetCode, canvas.width - m, 102);
 
-  const m = 80;
-  const w = canvas.width - m * 2;
+  let y = 178;
+  const badge = `${asset.platform.toUpperCase()} · ${asset.format.toUpperCase().replace('_', ' ')}`;
+  ctx.font = `700 15px ${brand.bodyFont}, Arial, sans-serif`; const bw = Math.min(w, ctx.measureText(badge).width + 32);
+  ctx.fillStyle = brand.card; ctx.fillRect(m, y, bw, 38); ctx.strokeStyle = brand.accent; ctx.strokeRect(m, y, bw, 38);
+  ctx.fillStyle = brand.accent; ctx.textAlign = 'left'; ctx.fillText(badge, m + 16, y + 24); y += 72;
 
-  // Header
-  ctx.fillStyle = '#FF4500';
-  ctx.fillRect(m, 80, 44, 44);
-  ctx.fillStyle = '#000000';
-  ctx.font = '900 24px monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('/\\', m + 22, 102);
-
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 22px monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText('APEX ENGINEERING', m + 60, 102);
-
-  ctx.fillStyle = '#FF4500';
-  ctx.font = 'bold 18px monospace';
-  ctx.textAlign = 'right';
-  ctx.fillText(asset.assetCode, canvas.width - m, 102);
-
-  let curY = 180;
-
-  // Badge
-  const badge = `${asset.speciesCode} // ${asset.format.toUpperCase().replace('_', ' ')}`;
-  ctx.font = 'bold 16px monospace';
-  const bw = ctx.measureText(badge).width + 32;
-  ctx.fillStyle = '#14161B';
-  ctx.fillRect(m, curY, bw, 36);
-  ctx.strokeStyle = '#FF4500';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(m, curY, bw, 36);
-  ctx.fillStyle = '#FF4500';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(badge, m + 16, curY + 18);
-  curY += 80;
-
-  // Supporting image if present
   if (supportingImageUrl) {
     try {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = supportingImageUrl;
-      await new Promise((resolve) => {
-        img.onload = resolve;
-        img.onerror = resolve;
-      });
+      const img = new Image(); img.crossOrigin = 'anonymous'; img.src = supportingImageUrl;
+      await new Promise((resolve) => { img.onload = resolve; img.onerror = resolve; });
       if (img.complete && img.naturalWidth > 0) {
-        const imgH = isSquare ? 360 : 420;
-        ctx.strokeStyle = '#323644';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(m, curY, w, imgH);
-        ctx.drawImage(img, m, curY, w, imgH);
-        curY += imgH + 40;
+        const h = asset.format === 'founder_card' ? 330 : 410;
+        ctx.strokeStyle = brand.border; ctx.strokeRect(m, y, w, h); ctx.drawImage(img, m, y, w, h); y += h + 36;
       }
-    } catch (e) {
-      console.warn('Canvas image draw error:', e);
-    }
+    } catch {}
   }
 
-  // Title
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '900 44px monospace';
-  ctx.textBaseline = 'top';
-  ctx.textAlign = 'left';
-  const words = asset.title.toUpperCase().split(' ');
-  let curLine = '';
-  for (let i = 0; i < words.length; i++) {
-    const test = curLine + words[i] + ' ';
-    if (ctx.measureText(test).width > w && i > 0) {
-      ctx.fillText(curLine.trim(), m, curY);
-      curLine = words[i] + ' ';
-      curY += 54;
-    } else {
-      curLine = test;
-    }
-  }
-  ctx.fillText(curLine.trim(), m, curY);
-  curY += 75;
+  ctx.fillStyle = brand.text; ctx.font = `800 43px ${brand.headingFont}, Arial, sans-serif`; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  y = drawWrappedText(ctx, asset.title.toUpperCase(), m, y, w, 52, 4) + 24;
 
-  // Hook quote
-  ctx.fillStyle = '#14161B';
-  ctx.fillRect(m, curY, w, 110);
-  ctx.strokeStyle = '#22252E';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(m, curY, w, 110);
-  ctx.fillStyle = '#FF4500';
-  ctx.fillRect(m, curY, 6, 110);
+  ctx.fillStyle = brand.card; ctx.fillRect(m, y, w, 120); ctx.strokeStyle = brand.border; ctx.strokeRect(m, y, w, 120); ctx.fillStyle = brand.accent; ctx.fillRect(m, y, 6, 120);
+  ctx.fillStyle = brand.text; ctx.font = `500 19px ${brand.bodyFont}, Arial, sans-serif`; ctx.textBaseline = 'top';
+  drawWrappedText(ctx, `“${asset.hook.slice(0, 220)}”`, m + 28, y + 24, w - 56, 27, 3);
+  y += 150;
 
-  ctx.fillStyle = '#E4E7EB';
-  ctx.font = '20px monospace';
-  ctx.textBaseline = 'top';
-  ctx.fillText(`"${asset.hook.slice(0, 140)}"`, m + 30, curY + 25);
-  curY += 150;
-
-  // Founder Lower Third
-  ctx.fillStyle = '#14161B';
-  ctx.fillRect(m, curY, w, 80);
-  ctx.strokeStyle = '#FF4500';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(m, curY, w, 80);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 20px monospace';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(APEX_COMPANY_DATA.founder.name.toUpperCase(), m + 25, curY + 28);
-  ctx.fillStyle = '#8E95A5';
-  ctx.font = '16px monospace';
-  ctx.fillText(
-    `${APEX_COMPANY_DATA.founder.role.toUpperCase()} • ${APEX_COMPANY_DATA.founder.experience.toUpperCase()}`,
-    m + 25,
-    curY + 54
-  );
-
-  // Footer
   const footY = canvas.height - 110;
-  ctx.strokeStyle = '#22252E';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(m, footY);
-  ctx.lineTo(canvas.width - m, footY);
-  ctx.stroke();
-
-  ctx.fillStyle = '#8E95A5';
-  ctx.font = '18px monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText('apex-engineering.co.in', m, footY + 40);
-
-  ctx.fillStyle = '#FF4500';
-  ctx.font = 'bold 18px monospace';
-  ctx.textAlign = 'right';
-  ctx.fillText('ENGINEERED FOR COMPOUNDING AUTHORITY', canvas.width - m, footY + 40);
+  ctx.strokeStyle = brand.border; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(m, footY); ctx.lineTo(canvas.width - m, footY); ctx.stroke();
+  ctx.fillStyle = brand.muted; ctx.font = `16px ${brand.bodyFont}, Arial, sans-serif`; ctx.textAlign = 'left'; ctx.fillText((brand.website || brand.companyName).slice(0, 52), m, footY + 40);
+  ctx.fillStyle = brand.accent; ctx.font = `700 16px ${brand.bodyFont}, Arial, sans-serif`; ctx.textAlign = 'right'; ctx.fillText(brand.companyName.slice(0, 34).toUpperCase(), canvas.width - m, footY + 40);
 
   return canvas.toDataURL('image/png');
 }
