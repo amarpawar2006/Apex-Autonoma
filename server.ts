@@ -3366,6 +3366,62 @@ STRICT GUARDRAILS:
     return res.download(filePath, filename);
   });
 
+  // Authenticated upload endpoint for externally generated finished media.
+  app.post(
+    '/api/media/upload',
+    authenticateUser,
+    requireActiveMembership,
+    express.raw({ type: ['image/png', 'image/jpeg', 'image/webp', 'video/mp4'], limit: '100mb' }),
+    async (req: Request, res: Response) => {
+      try {
+        const activeCompany = (req as any).activeCompany;
+        const assetId = String(req.query.assetId || '');
+        const campaignId = String(req.query.campaignId || '');
+        const assetCode = String(req.query.assetCode || 'ASSET');
+        const mediaType = String(req.query.mediaType || '').toUpperCase() === 'VIDEO' ? 'VIDEO' : 'IMAGE';
+        const originalName = String(req.query.filename || 'media');
+        const contentType = String(req.headers['content-type'] || 'application/octet-stream').split(';')[0];
+        const body = req.body as Buffer;
+
+        if (!assetId) return res.status(400).json({ success: false, error: 'assetId is required' });
+        if (!Buffer.isBuffer(body) || body.length === 0) return res.status(400).json({ success: false, error: 'Media file is empty' });
+
+        const allowed = new Set(['image/png', 'image/jpeg', 'image/webp', 'video/mp4']);
+        if (!allowed.has(contentType)) return res.status(415).json({ success: false, error: 'Unsupported media type' });
+
+        const extension = contentType === 'video/mp4' ? 'mp4' : contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/webp' ? 'webp' : 'png';
+        const safeCode = assetCode.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const filename = `${safeCode}-${Date.now()}.${extension}`;
+        const companyId = activeCompany?.companyId || 'unscoped';
+
+        const durableUrl = await supabaseStorage.uploadGeneratedMedia(filename, body, contentType, companyId);
+        if (!durableUrl) {
+          return res.status(500).json({ success: false, error: 'Durable media storage is unavailable' });
+        }
+
+        await autonomaDb.saveMediaRecord({
+          mediaId: `med_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`,
+          assetId,
+          campaignId,
+          type: mediaType,
+          model: 'external-upload',
+          prompt: `Uploaded finished media: ${originalName}`,
+          version: '1',
+          fileUrl: durableUrl,
+          thumbnailUrl: mediaType === 'IMAGE' ? durableUrl : '',
+          generationStatus: 'GENERATED',
+          approvalStatus: 'PENDING_APPROVAL',
+          createdAt: new Date().toISOString()
+        });
+
+        return res.json({ success: true, fileUrl: durableUrl, filename });
+      } catch (error: any) {
+        console.warn('[Media Upload] Failed:', error?.message);
+        return res.status(500).json({ success: false, error: error?.message || 'Media upload failed' });
+      }
+    }
+  );
+
   // 1. REAL SERVER-SIDE IMAGE GENERATION ENDPOINT
   // Uses selected image provider (OpenAI DALL-E, NVIDIA NIM, or Gemini) and injects Company Brand System
   app.post('/api/media/generate-image', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
@@ -3396,7 +3452,7 @@ STRICT GUARDRAILS:
         });
       }
 
-      const result = await aiProviderService.generateImage({
+      let result = await aiProviderService.generateImage({
         prompt,
         aspectRatio,
         assetCode,
@@ -3407,6 +3463,39 @@ STRICT GUARDRAILS:
         language,
         objective
       }, publicMediaDir);
+
+      // Automatic provider fallback: if the preferred image provider fails, try another
+      // configured image-capable provider before surfacing failure to the user.
+      if (!result.success) {
+        const settings = aiProviderService.getSettings(false);
+        const failedProvider = result.provider || providerId || settings.defaults.image;
+        const fallback = Object.entries(settings.providers || {}).find(([id, cfg]: any) =>
+          id !== failedProvider &&
+          Boolean(cfg?.hasKey) &&
+          Array.isArray(cfg?.capabilities) &&
+          cfg.capabilities.includes('image')
+        );
+        if (fallback) {
+          const [fallbackId, fallbackConfig]: any = fallback;
+          const fallbackResult = await aiProviderService.generateImage({
+            prompt,
+            aspectRatio,
+            assetCode,
+            brandDesignSystem,
+            providerId: fallbackId,
+            modelName: fallbackConfig?.selectedModel,
+            platform,
+            language,
+            objective
+          }, publicMediaDir);
+          if (fallbackResult.success) {
+            result = fallbackResult;
+          } else {
+            result.error = `${result.error || 'Primary image provider failed'} | Fallback ${fallbackId} also failed: ${fallbackResult.error || 'Unknown error'}`;
+            result.isBillingRequired = Boolean(result.isBillingRequired && fallbackResult.isBillingRequired);
+          }
+        }
+      }
 
       if (!result.success) {
         return res.status(result.isBillingRequired ? 429 : 500).json(result);

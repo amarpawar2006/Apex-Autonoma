@@ -111,3 +111,34 @@ Run once after the release candidate is deployed:
 7. Generate one Veo video if quota is available; wait for completion, reload and confirm playable media remains attached.
 8. Verify Today/Calendar/Content/Publishing/More at desktop and mobile widths for readable light-theme contrast and keyboard focus.
 
+
+## RC2 Stabilization Addendum — 2026-10-03
+
+Additional defects reported after first RC validation were resolved in the integrated RC2 package:
+
+- Content is now directly accessible in primary navigation on desktop; mobile remains available in the mobile nav drawer.
+- Asset Production modal is elevated above the global header/menu stack (`z-[500]`) and closes with Escape, close button, or backdrop click when generation/upload is idle.
+- Global header menus and workspace controls are disabled while a blocking dialog is open, preventing More/Account/Workspace menus from appearing above dialogs.
+- Excel-origin time values such as `1899-12-30T11:23:50.000Z` are normalized for human display rather than shown raw.
+- Image generation now attempts an automatic fallback to another configured image-capable provider when the preferred provider fails.
+- Finished external media can be uploaded back into an asset (PNG/JPG/WEBP/MP4 up to 100 MB) and stored durably in Supabase Storage.
+- Video workflow explicitly preserves the Veo paid-quota limitation while providing a complete external generation + re-upload fallback.
+- New searchable contextual Help drawer added from the global header. It is screen-aware and includes help for Campaigns, Content, Brand, Studio, image generation, video/Veo billing, Calendar, Publishing, company setup and new campaign creation.
+- The large onboarding guide is now restricted to Today rather than occupying every workspace screen.
+
+### RC2 regression result
+
+`test/release_candidate_regression.mjs`
+
+- 52 assertions
+- 52 PASS
+- 0 FAIL
+
+### TypeScript source validation
+
+- 48 TS/TSX files transpile-checked
+- 0 syntax/transpile errors
+
+### Production build limitation
+
+The sandbox does not contain project `node_modules`; `npm run build` therefore cannot execute because `vite` is not installed locally. This is an environment limitation, not a passed build claim. Final Vite build must run in AI Studio/deployment environment after sync.
