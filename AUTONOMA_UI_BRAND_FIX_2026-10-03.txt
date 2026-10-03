@@ -1,0 +1,43 @@
+APEX AUTONOMA — UI / BRAND RENDERING STABILIZATION
+Date: 2026-10-03
+
+CAMPAIGN GENERATION PRESERVED
+- server.ts Git blob SHA preserved: 2059a557b9536e9ce7b90c7b45eee5025dccd251
+- src/services/campaignService.ts Git blob SHA preserved: 34ac99c426385a9dd4e4ae678a35a3acd4979709
+- server/aiProviderService.ts preserved from current GitHub baseline.
+
+FIXED
+1. Removed main-app Google Sheets outage banner and startup health polling.
+2. Primary navigation: Today / Campaigns / Calendar / Brand / Studio. Content moved to More.
+3. Header/dropdown stacking raised to avoid menus hiding under secondary bars.
+4. Brand System save updates active workspace immediately and remounts per company.
+5. Creative Studio rebuilt as a company-aware renderer using the active company's saved:
+   - primary / secondary / accent / background / text colors
+   - heading / body fonts
+   - company name
+   - visual style notes
+   It no longer displays APEX // or AUTONOMA // AES-DS for client companies.
+6. Deterministic poster/carousel production renderer is company-aware and no longer hardcodes APEX ENGINEERING.
+7. Asset Production modal loads the active company's Brand Design System and supplies it to deterministic rendering.
+8. React crash hardening:
+   - Campaign strategy contentPillars / personas safely render structured objects such as {Pillar, Description}.
+   - Company Understanding safely normalizes unexpected structured values before rendering.
+9. Company Understanding light cards now use readable dark text.
+10. Brand and Studio remount on workspace switch to prevent stale cross-company visual state.
+
+VALIDATION PERFORMED
+- TypeScript transpile/syntax check: PASS across 48 TS/TSX files.
+- 17 static regression assertions: PASS.
+- Campaign server hash unchanged: PASS.
+- Campaign service hash unchanged: PASS.
+- Full npm typecheck/build could not run in this sandbox because project dependencies are not installed and internet package installation is unavailable.
+
+CHANGED FILES
+src/App.tsx
+src/components/Header.tsx
+src/components/DesignSystemView.tsx
+src/components/CreativeStudioView.tsx
+src/components/AssetProductionModal.tsx
+src/services/mediaProductionService.ts
+src/components/admin/CompanyManagementModal.tsx
+src/components/CampaignDetailView.tsx
