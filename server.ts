@@ -2593,14 +2593,24 @@ COMPANY CONTEXT STATUS: Draft (Unconfirmed by administrator — use grounded fac
       const brandSys = compProfile?.brandDesignSystem;
       if (brandSys) {
         companyContextBlock += `
-CUSTOMER BRAND DESIGN SYSTEM (PRIMARY STYLING SPECIFICATION):
-- Primary Brand Color: ${brandSys.primaryColor || '#0A0B0E'}
-- Secondary Brand Color: ${brandSys.secondaryColor || '#FF4500'}
-- Accent Color: ${brandSys.accentColor || '#3B82F6'}
-- Heading Font Direction: ${brandSys.headingFont || 'Inter'}
-- Visual Style / Creative Direction: ${brandSys.visualStyleNotes || 'High contrast, clean professional layout'}
-- Image Style: ${brandSys.imageStyle || 'Photorealistic, grounded, authentic composition'}
-- Brand Voice Note: ${brandSys.brandVoiceNote || compProfile?.brandVoice || 'Authoritative and grounded'}
+CUSTOMER BRAND DESIGN SYSTEM — AUTHORITATIVE:
+- Company: ${compName}
+- Primary Brand Color: ${brandSys.primaryColor || '#1D1D1F'}
+- Secondary Brand Color: ${brandSys.secondaryColor || '#6B7280'}
+- Accent Color: ${brandSys.accentColor || '#6B7280'}
+- Background Color: ${brandSys.backgroundColor || '#FFFFFF'}
+- Text Color: ${brandSys.textColor || '#1D1D1F'}
+- Heading Font: ${brandSys.headingFont || 'Inter'}
+- Body Font: ${brandSys.bodyFont || 'Inter'}
+- Brand Voice: ${brandSys.brandVoiceNote || compProfile?.brandVoice || 'Clear, professional and grounded'}
+- Visual Direction: ${brandSys.visualStyleNotes || 'Clean, professional and brand-neutral'}
+- Image Style: ${brandSys.imageStyle || 'Authentic, grounded imagery'}
+- Video Direction: ${brandSys.videoStyleDirection || 'Clean editorial pacing'}
+- Creative Rules: ${brandSys.creativeRules || 'Avoid unverified claims and unrelated brand styling'}
+- Logo Reference: ${brandSys.logoUrl || 'No logo supplied'}
+
+The saved Brand Design System above is the authoritative creative specification.
+Do not substitute Autonoma or Apex styling. All visual prompts, carousel directions, poster prompts, tone, and creative recommendations must follow it.
 `;
       }
 
@@ -2608,7 +2618,7 @@ CUSTOMER BRAND DESIGN SYSTEM (PRIMARY STYLING SPECIFICATION):
 STRICT CONTEXT AND PROMOTION DIRECTIVES:
 1. Ground this campaign strictly in ${compName}'s authentic domain (${compProfile?.organizationType || 'business'}).
 2. Company context provides defaults and brand voice; the user's campaign brief provides the explicit promotion target and goal. Never replace that specific objective with unrelated company offerings.
-3. Incorporate the customer brand design system colors (${brandSys?.primaryColor || '#0A0B0E'}, ${brandSys?.secondaryColor || '#FF4500'}) and visual style into posterVisualPrompt and creative directives.
+3. Incorporate the customer brand design system colors (${brandSys?.primaryColor || '#1D1D1F'}, ${brandSys?.secondaryColor || '#6B7280'}) and visual style into posterVisualPrompt and creative directives.
 4. BRC should receive riding-club content; a flour mill should receive relevant product/customer content. Do not inject Apex or WhatsApp-commerce sample copy unless the company being promoted is actually Apex Engineering.
 5. If the campaign brief specifies a particular product, event, activity, or page, that specific objective takes precedence.
 `;
@@ -2739,7 +2749,7 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
   - CTA: Specific action prompt
   - carouselSlides: If format is carousel, array of slides (slideNumber, layout, headline, subtext, body)
   - reelScript: If format is reel_short, array of scenes (sceneNumber, timestamp, hookText, narrationVoiceover, onScreenCaption, bRollPrompt)
-  - posterVisualPrompt: Design prompt following high-contrast AES-DS aesthetic
+  - posterVisualPrompt: Production-ready visual prompt following the saved customer Brand Design System. If no saved system exists, use neutral professional brand-safe styling.
   - viralityScore: Score between 80 and 96
   - viralityRationale: Specific reason for engagement potential
   - targetReach: Integer estimate
@@ -2982,14 +2992,24 @@ CONFIRMED COMPANY UNDERSTANDING (v${confirmed.version}):
 
       if (brandSys) {
         companyContextBlock += `
-CUSTOMER BRAND DESIGN SYSTEM:
-- Primary Brand Color: ${brandSys.primaryColor || '#0A0B0E'}
-- Secondary Brand Color: ${brandSys.secondaryColor || '#FF4500'}
-- Accent Color: ${brandSys.accentColor || '#3B82F6'}
-- Heading Font Direction: ${brandSys.headingFont || 'Inter'}
-- Visual Style / Creative Direction: ${brandSys.visualStyleNotes || 'High contrast, clean professional layout'}
-- Image Style: ${brandSys.imageStyle || 'Photorealistic, grounded, authentic composition'}
-- Brand Voice Note: ${brandSys.brandVoiceNote || compProfile?.brandVoice || 'Authoritative and grounded'}
+CUSTOMER BRAND DESIGN SYSTEM — AUTHORITATIVE:
+- Company: ${compName}
+- Primary Brand Color: ${brandSys.primaryColor || '#1D1D1F'}
+- Secondary Brand Color: ${brandSys.secondaryColor || '#6B7280'}
+- Accent Color: ${brandSys.accentColor || '#6B7280'}
+- Background Color: ${brandSys.backgroundColor || '#FFFFFF'}
+- Text Color: ${brandSys.textColor || '#1D1D1F'}
+- Heading Font: ${brandSys.headingFont || 'Inter'}
+- Body Font: ${brandSys.bodyFont || 'Inter'}
+- Brand Voice: ${brandSys.brandVoiceNote || compProfile?.brandVoice || 'Clear, professional and grounded'}
+- Visual Direction: ${brandSys.visualStyleNotes || 'Clean, professional and brand-neutral'}
+- Image Style: ${brandSys.imageStyle || 'Authentic, grounded imagery'}
+- Video Direction: ${brandSys.videoStyleDirection || 'Clean editorial pacing'}
+- Creative Rules: ${brandSys.creativeRules || 'Avoid unverified claims and unrelated brand styling'}
+- Logo Reference: ${brandSys.logoUrl || 'No logo supplied'}
+
+The saved Brand Design System above is the authoritative creative specification.
+Do not substitute Autonoma or Apex styling. All visual prompts, carousel directions, poster prompts, tone, and creative recommendations must follow it.
 `;
       }
 
@@ -3091,7 +3111,7 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
           expectedLeads: item.expectedLeads || 15,
           targetBuyerPersona: parsedData.targetAudience || 'Audience derived from campaign brief',
           designSystemVerified: true,
-          colorScheme: 'carbon_orange' as const,
+          colorScheme: brandSys ? 'brand_custom' : 'clean_white',
           slides: item.carouselSlides && item.carouselSlides.length > 0 ? item.carouselSlides.map((s: any) => ({
             slideNumber: s.slideNumber,
             layout: (s.layout as any) || 'title_hook',
@@ -3109,7 +3129,7 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
             onScreenCaption: sc.onScreenCaption,
             visualFocus: sc.visualFocus || 'Crisp visual focus'
           })) : undefined,
-          posterVisualPrompt: item.posterVisualPrompt || `High-contrast graphic for "${item.title}". Bold typography, ${brandSys?.primaryColor || '#0A0B0E'} background, ${brandSys?.secondaryColor || '#FF4500'} accents.`
+          posterVisualPrompt: item.posterVisualPrompt || `Brand-aligned creative for "${item.title}". Background ${brandSys?.backgroundColor || '#FFFFFF'}, text ${brandSys?.textColor || '#1D1D1F'}, primary ${brandSys?.primaryColor || '#1D1D1F'}, secondary ${brandSys?.secondaryColor || '#6B7280'}, accent ${brandSys?.accentColor || '#6B7280'}. Heading font direction: ${brandSys?.headingFont || 'Inter'}. Visual direction: ${brandSys?.visualStyleNotes || 'clean, professional and brand-neutral'}. Image style: ${brandSys?.imageStyle || 'authentic grounded imagery'}. Creative rules: ${brandSys?.creativeRules || 'avoid unverified claims and unrelated brand styling'}.`
         };
       });
 

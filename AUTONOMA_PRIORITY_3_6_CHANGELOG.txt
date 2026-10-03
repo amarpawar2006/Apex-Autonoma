@@ -1,0 +1,47 @@
+Apex Autonoma — Priority 3–6 controlled patch
+Date: 2026-10-03
+
+Modified source files:
+- server.ts
+- src/App.tsx
+- src/components/Header.tsx
+- src/components/DesignSystemView.tsx
+- src/components/AssetProductionModal.tsx
+- src/services/campaignService.ts
+- src/services/mediaProductionService.ts
+
+What changed:
+1. Brand System is authoritative at generation time.
+   - Server campaign synthesis and retry load the active company from the database.
+   - Full saved brand tokens are injected: colors, background/text, heading/body font,
+     brand voice, visual direction, image style, video direction, creative rules, logo.
+   - Neutral white/graphite fallback replaces Apex styling when no brand is configured.
+
+2. Brand save refreshes app state immediately.
+   - DesignSystemView notifies App after a successful save.
+   - activeCompany/session state are refreshed without reload.
+   - Brand view remounts when workspace changes to avoid cross-tenant stale data.
+
+3. Customer creative rendering is company-aware.
+   - Removed hardcoded APEX ENGINEERING / AES-DS / Apex orange from deterministic customer creatives.
+   - Production preview fetches the active company Brand Design System and uses it.
+   - Neutral fallback if no Brand Design System exists.
+
+4. Removed obsolete Google Sheets outage banner from normal app UX.
+   - Removed startup health polling used only for that banner.
+   - Backend/Settings integration remains untouched.
+
+5. Navigation updated.
+   - Primary: Today / Campaigns / Calendar / Brand / Studio.
+   - Content moved to More.
+   - Brand removed from More.
+   - Header/dropdown stacking raised to prevent menus rendering underneath content bars.
+
+Validation performed in this environment:
+- Static TypeScript syntax parsing of modified TS/TSX files: PASS (no syntax-class errors).
+- Targeted source assertions for Sheets warning removal, navigation, z-index,
+  brand save callback, tenant remount, authoritative brand prompt, and renderer leakage: PASS.
+- Full npm install/build could not be executed here because dependency installation timed out
+  in the sandbox; no node_modules were present in the uploaded ZIP.
+
+Image/video provider implementation was intentionally NOT changed in this batch.
