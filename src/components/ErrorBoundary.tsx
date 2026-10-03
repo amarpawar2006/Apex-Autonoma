@@ -52,40 +52,40 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="min-h-screen bg-[#0A0B0E] text-[#F5F5F7] flex flex-col justify-between selection:bg-[#FF4500] selection:text-white p-4 sm:p-8">
-          <header className="flex items-center justify-between border-b border-white/[0.08] pb-4 max-w-4xl mx-auto w-full">
+        <div className="min-h-screen bg-[#F5F5F7] text-[#1D1D1F] flex flex-col justify-between selection:bg-[#FF4500] selection:text-white p-4 sm:p-8">
+          <header className="flex items-center justify-between border-b border-black/[0.08] pb-4 max-w-4xl mx-auto w-full">
             <div className="flex items-center space-x-3">
               <ApexLogo variant="lockup" size="md" />
-              <span className="hidden sm:inline-block px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <span className="hidden sm:inline-block px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
                 Workspace Recovery
               </span>
             </div>
-            <span className="text-xs text-[#86868B] font-mono">
+            <span className="text-xs text-[#6E6E73] font-mono">
               Safe Recovery Active
             </span>
           </header>
 
           <main className="flex-1 flex items-center justify-center my-8 max-w-xl mx-auto w-full">
-            <div className="w-full bg-[#14161B] border border-white/[0.08] rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 text-center">
+            <div className="w-full bg-white border border-black/[0.08] rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 text-center">
               <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mx-auto">
                 <AlertTriangle className="w-7 h-7" />
               </div>
 
               <div className="space-y-2">
-                <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+                <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-[#1D1D1F]">
                   Workspace View Recovered
                 </h2>
-                <p className="text-xs sm:text-sm text-[#86868B] leading-relaxed max-w-md mx-auto">
+                <p className="text-xs sm:text-sm text-[#6E6E73] leading-relaxed max-w-md mx-auto">
                   A transient rendering assumption was caught while updating company workspace data. All saved campaigns and account credentials remain intact.
                 </p>
               </div>
 
               {this.state.error?.message && (
-                <div className="p-3 bg-black/40 rounded-xl border border-white/[0.06] text-left">
+                <div className="p-3 bg-white rounded-xl border border-black/[0.08] text-left">
                   <div className="text-[10px] font-mono uppercase tracking-wider text-[#6E6E73] mb-1">
                     Diagnostic Trace
                   </div>
-                  <div className="text-xs font-mono text-red-400/90 break-words line-clamp-3">
+                  <div className="text-xs font-mono text-red-700 break-words line-clamp-3">
                     {this.state.error.message}
                   </div>
                 </div>
@@ -102,16 +102,16 @@ export class ErrorBoundary extends Component<Props, State> {
 
                 <button
                   onClick={this.handleReload}
-                  className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-5 py-2.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-[#F5F5F7] text-xs font-semibold rounded-xl transition-all"
+                  className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-5 py-2.5 bg-[#F5F5F7] hover:bg-black/[0.05] border border-black/[0.08] text-[#1D1D1F] text-xs font-semibold rounded-xl transition-all"
                 >
-                  <Home className="w-3.5 h-3.5 text-[#86868B]" />
+                  <Home className="w-3.5 h-3.5 text-[#6E6E73]" />
                   <span>Refresh App</span>
                 </button>
               </div>
             </div>
           </main>
 
-          <footer className="text-center text-xs text-[#6E6E73] border-t border-white/[0.06] pt-4 max-w-4xl mx-auto w-full">
+          <footer className="text-center text-xs text-[#6E6E73] border-t border-black/[0.06] pt-4 max-w-4xl mx-auto w-full">
             Apex Autonoma · Robust Fault-Tolerant Workspace Session
           </footer>
         </div>
