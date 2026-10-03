@@ -15,7 +15,7 @@ export function exportToGoogleSheetsCSV(assets: SocialAsset[]): string {
     'Stream',
     'Species Code',
     'Status',
-    'Virality Score',
+    'AI Content Score',
     'Hook',
     'Caption',
     'Call to Action',
@@ -64,7 +64,7 @@ export function exportToGoogleSheetsTSV(assets: SocialAsset[]): string {
     'Format',
     'Species',
     'Status',
-    'Virality',
+    'AI Content Score',
     'Hook',
     'CTA',
     'Target Persona',
@@ -123,7 +123,7 @@ export function generateICS(assets: SocialAsset[]): string {
     const dateClean = asset.targetDate.replace(/-/g, '');
     const uid = `${asset.id}@apex-engineering.co.in`;
     const summary = `[${asset.platform.toUpperCase()} ${asset.format.toUpperCase()}] ${asset.title}`;
-    const description = `SPECIES: ${asset.speciesCode}\\nSTATUS: ${asset.status.toUpperCase()}\\nVIRALITY SCORE: ${asset.viralityScore}/100\\n\\nHOOK:\\n${asset.hook}\\n\\nCTA:\\n${asset.callToAction}`;
+    const description = `SPECIES: ${asset.speciesCode}\\nSTATUS: ${asset.status.toUpperCase()}\\nAI CONTENT SCORE: ${asset.viralityScore}/100\\n\\nHOOK:\\n${asset.hook}\\n\\nCTA:\\n${asset.callToAction}`;
 
     ics.push(
       'BEGIN:VEVENT',

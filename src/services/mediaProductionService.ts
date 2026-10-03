@@ -172,6 +172,34 @@ export async function downloadGeneratedVideo(
   return data;
 }
 
+
+export async function uploadAssetMedia(
+  file: File,
+  context: { assetId: string; campaignId?: string; assetCode?: string; mediaType: 'IMAGE' | 'VIDEO' }
+): Promise<{ success: boolean; fileUrl?: string; filename?: string; error?: string }> {
+  try {
+    const params = new URLSearchParams({
+      assetId: context.assetId,
+      campaignId: context.campaignId || '',
+      assetCode: context.assetCode || 'ASSET',
+      mediaType: context.mediaType,
+      filename: file.name
+    });
+    const res = await fetch(`/api/media/upload?${params.toString()}`, {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': file.type || 'application/octet-stream' }),
+      body: file
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || data.message || 'Media upload failed' };
+    }
+    return { success: true, fileUrl: data.fileUrl, filename: data.filename };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Media upload failed' };
+  }
+}
+
 export function downloadDataUrl(filename: string, dataUrl: string) {
   const link = document.createElement('a');
   link.download = filename;
