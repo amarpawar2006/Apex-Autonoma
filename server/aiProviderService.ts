@@ -43,6 +43,7 @@ export interface MediaGenerationResult {
   rawError?: string;
   isBillingRequired?: boolean;
   driveFolderId?: string;
+  operationName?: string;
 }
 
 export class AiProviderService {
@@ -50,7 +51,7 @@ export class AiProviderService {
     defaults: {
       text: 'gemini',
       image: 'openai',
-      video: 'nvidia'
+      video: 'google_veo'
     },
     providers: {
       gemini: {
@@ -65,20 +66,18 @@ export class AiProviderService {
         id: 'openai',
         name: 'OpenAI',
         capabilities: ['text', 'image'],
-        selectedModel: 'dall-e-3',
-        availableModels: ['gpt-4o', 'gpt-4o-mini', 'dall-e-3', 'dall-e-2'],
+        selectedModel: 'gpt-image-2',
+        availableModels: ['gpt-image-2', 'dall-e-3'],
         status: 'UNCONFIGURED'
       },
       nvidia: {
         id: 'nvidia',
         name: 'NVIDIA NIM',
-        capabilities: ['image', 'video'],
-        selectedModel: 'stabilityai/stable-diffusion-xl-base-1.0',
+        capabilities: ['image'],
+        selectedModel: 'stabilityai/stable-diffusion-3-medium',
         availableModels: [
-          'stabilityai/stable-diffusion-xl-base-1.0',
-          'black-forest-labs/flux-1-schnell',
-          'nvidia/cosmos-nemotron-34b',
-          'nvidia/genai-video-mvp'
+          'stabilityai/stable-diffusion-3-medium',
+          'stabilityai/stable-diffusion-xl'
         ],
         status: 'UNCONFIGURED'
       },
@@ -86,8 +85,8 @@ export class AiProviderService {
         id: 'google_veo',
         name: 'Google Veo',
         capabilities: ['video'],
-        selectedModel: 'veo-3.1-lite-generate-preview',
-        availableModels: ['veo-3.1-lite-generate-preview', 'veo-2.0-generate-001'],
+        selectedModel: 'veo-3.1-generate-preview',
+        availableModels: ['veo-3.1-generate-preview'],
         status: 'CONFIGURED'
       }
     },
@@ -115,6 +114,10 @@ export class AiProviderService {
     }
     if (this.settings.defaults.text === 'openai' && !hasOpenAI && hasGemini) {
       this.settings.defaults.text = 'gemini';
+    }
+    // This build supports text-to-video through Google Veo. NVIDIA video NIMs require image-first workflows.
+    if (this.settings.defaults.video === 'nvidia' && hasGemini) {
+      this.settings.defaults.video = 'google_veo';
     }
   }
 
@@ -232,6 +235,7 @@ export class AiProviderService {
       }
     }
 
+    this.ensureSmartDefaults();
     return this.getSettings(false);
   }
 
@@ -345,7 +349,7 @@ export class AiProviderService {
     if (brand) {
       const brandContext = [];
       if (brand.primaryColor || brand.secondaryColor || brand.accentColor) {
-        brandContext.push(`BRAND COLOR PALETTE: Primary: ${brand.primaryColor || '#111827'}, Secondary: ${brand.secondaryColor || '#FF4500'}, Accent: ${brand.accentColor || '#3B82F6'}, Background: ${brand.backgroundColor || '#F8FAFC'}.`);
+        brandContext.push(`BRAND COLOR PALETTE: Primary: ${brand.primaryColor || '#111827'}, Secondary: ${brand.secondaryColor || '#6B7280'}, Accent: ${brand.accentColor || '#6B7280'}, Background: ${brand.backgroundColor || '#FFFFFF'}.`);
       }
       if (brand.headingFont || brand.bodyFont) {
         brandContext.push(`TYPOGRAPHY DIRECTION: Heading font style: ${brand.headingFont || 'Clean sans-serif'}, Body font: ${brand.bodyFont || 'Inter'}.`);
@@ -391,7 +395,7 @@ export class AiProviderService {
 
     console.log(`[AiProviderService] Generating image via ${providerId} for ${assetCode}...`);
 
-    // 1. OPENAI (DALL-E 3 / DALL-E 2)
+    // 1. OPENAI IMAGE GENERATION
     if (providerId === 'openai') {
       const apiKey = this.getRawProviderKey('openai');
       if (!apiKey) {
@@ -401,42 +405,68 @@ export class AiProviderService {
         return {
           success: false,
           provider: 'openai',
-          model: 'dall-e-3',
+          model: 'gpt-image-2',
           error: `OpenAI API Key is not configured.${alt ? ` ${alt} is configured and ready — switch default in AI Settings or add your OpenAI key.` : ' Please enter your OpenAI key in AI & Media Providers Settings.'}`
         };
       }
 
-      const model = req.modelName || this.settings.providers.openai?.selectedModel || 'dall-e-3';
-      const size = req.aspectRatio === '16:9' ? '1792x1024' : req.aspectRatio === '9:16' || req.aspectRatio === '3:4' ? '1024x1792' : '1024x1024';
+      const model = req.modelName || this.settings.providers.openai?.selectedModel || 'gpt-image-2';
+      const isGptImage = model.startsWith('gpt-image');
+      const size = isGptImage
+        ? (req.aspectRatio === '16:9' || req.aspectRatio === '4:3' ? '1536x1024' : req.aspectRatio === '1:1' ? '1024x1024' : '1024x1536')
+        : (req.aspectRatio === '16:9' || req.aspectRatio === '4:3' ? '1792x1024' : req.aspectRatio === '1:1' ? '1024x1024' : '1024x1792');
 
       try {
+        const requestBody: any = isGptImage
+          ? {
+              model,
+              prompt: enrichedPrompt.slice(0, 12000),
+              n: 1,
+              size,
+              quality: 'medium',
+              output_format: 'png'
+            }
+          : {
+              model,
+              prompt: enrichedPrompt.slice(0, 4000),
+              n: 1,
+              size,
+              response_format: 'b64_json'
+            };
+
         const response = await fetch('https://api.openai.com/v1/images/generations', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            model,
-            prompt: enrichedPrompt.slice(0, 1000), // DALL-E limit
-            n: 1,
-            size,
-            response_format: 'b64_json'
-          })
+          body: JSON.stringify(requestBody)
         });
 
         const data = await response.json();
         if (!response.ok) {
-          throw new Error(data?.error?.message || `OpenAI DALL-E API error (HTTP ${response.status})`);
+          throw new Error(data?.error?.message || `OpenAI image API error (HTTP ${response.status})`);
         }
 
-        const b64 = data.data?.[0]?.b64_json;
-        if (!b64) throw new Error('No image data returned by OpenAI');
+        let imageBuffer: Buffer | null = null;
+        let b64 = data.data?.[0]?.b64_json || data.data?.[0]?.base64 || null;
+        const imageUrl = data.data?.[0]?.url;
+
+        if (b64) {
+          imageBuffer = Buffer.from(b64, 'base64');
+        } else if (imageUrl) {
+          const imageResponse = await fetch(imageUrl);
+          if (!imageResponse.ok) throw new Error(`OpenAI image download failed (HTTP ${imageResponse.status})`);
+          imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+          b64 = imageBuffer.toString('base64');
+        }
+
+        if (!imageBuffer || !b64) throw new Error('No image data returned by OpenAI');
 
         const safeCode = assetCode.replace(/[^a-zA-Z0-9_-]/g, '_');
         const filename = `${safeCode}-${Date.now()}.png`;
         const filePath = path.join(publicMediaDir, filename);
-        fs.writeFileSync(filePath, Buffer.from(b64, 'base64'));
+        fs.writeFileSync(filePath, imageBuffer);
 
         return {
           success: true,
@@ -460,55 +490,80 @@ export class AiProviderService {
       }
     }
 
-    // 2. NVIDIA NIM (Stable Diffusion XL / Flux)
+    // 2. NVIDIA NIM IMAGE GENERATION
     if (providerId === 'nvidia') {
       const apiKey = this.getRawProviderKey('nvidia');
       if (!apiKey) {
         return {
           success: false,
           provider: 'nvidia',
-          model: 'stabilityai/stable-diffusion-xl-base-1.0',
+          model: 'stabilityai/stable-diffusion-3-medium',
           error: 'NVIDIA API Key is not configured. Please enter your NVIDIA key in AI & Media Providers Settings.'
         };
       }
 
-      const model = req.modelName || this.settings.providers.nvidia?.selectedModel || 'stabilityai/stable-diffusion-xl-base-1.0';
+      const model = req.modelName || this.settings.providers.nvidia?.selectedModel || 'stabilityai/stable-diffusion-3-medium';
+      const ratioMap: Record<string, string> = { '1:1': '1:1', '16:9': '16:9', '9:16': '9:16', '3:4': '4:5', '4:3': '5:4' };
+      const aspectRatio = ratioMap[req.aspectRatio || '1:1'] || '1:1';
+      const endpoint = model.includes('stable-diffusion-xl')
+        ? 'https://ai.api.nvidia.com/v1/genai/stabilityai/stable-diffusion-xl'
+        : 'https://ai.api.nvidia.com/v1/genai/stabilityai/stable-diffusion-3-medium';
 
       try {
-        const response = await fetch(`https://integrate.api.nvidia.com/v1/genai/stabilityai/stable-diffusion-xl-base-1.0`, {
+        const isXL = model.includes('stable-diffusion-xl');
+        const body = isXL
+          ? {
+              height: 1024,
+              width: 1024,
+              text_prompts: [{ text: enrichedPrompt.slice(0, 10000), weight: 1 }],
+              cfg_scale: 5,
+              sampler: 'K_DPM_2_ANCESTRAL',
+              samples: 1,
+              seed: 0,
+              steps: 25,
+              style_preset: 'none'
+            }
+          : {
+              prompt: enrichedPrompt.slice(0, 10000),
+              negative_prompt: 'watermark, unreadable text, distorted logo, low quality, blurry',
+              aspect_ratio: aspectRatio,
+              cfg_scale: 5,
+              mode: 'text-to-image',
+              model: 'sd3',
+              output_format: 'jpeg',
+              seed: 0,
+              steps: 40
+            };
+
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           },
-          body: JSON.stringify({
-            text_prompts: [{ text: enrichedPrompt.slice(0, 1000), weight: 1 }],
-            cfg_scale: 7,
-            sampler: 'K_DPM_2_ANCESTRAL',
-            steps: 25
-          })
+          body: JSON.stringify(body)
         });
 
         const data = await response.json();
         if (!response.ok) {
-          throw new Error(data?.message || data?.error?.message || `NVIDIA NIM API error (HTTP ${response.status})`);
+          throw new Error(data?.detail || data?.message || data?.error?.message || `NVIDIA NIM API error (HTTP ${response.status})`);
         }
 
-        const b64 = data.artifacts?.[0]?.base64 || data.data?.[0]?.b64_json;
-        if (!b64) throw new Error('No image artifact returned by NVIDIA NIM');
-
+        const b64 = data.artifacts?.[0]?.base64 || data.data?.[0]?.b64_json || data.image || data.data?.[0]?.image;
+        if (!b64 || typeof b64 !== 'string') throw new Error('No image artifact returned by NVIDIA NIM');
+        const cleanB64 = b64.includes(',') ? b64.split(',').pop()! : b64;
         const safeCode = assetCode.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const filename = `${safeCode}-${Date.now()}.png`;
+        const filename = `${safeCode}-${Date.now()}.jpg`;
         const filePath = path.join(publicMediaDir, filename);
-        fs.writeFileSync(filePath, Buffer.from(b64, 'base64'));
+        fs.writeFileSync(filePath, Buffer.from(cleanB64, 'base64'));
 
         return {
           success: true,
           provider: 'nvidia',
           model,
           fileUrl: `/generated-media/${filename}`,
-          dataUrl: `data:image/png;base64,${b64}`,
+          dataUrl: `data:image/jpeg;base64,${cleanB64}`,
           filename,
           aspectRatio: req.aspectRatio || '1:1',
           driveFolderId: this.settings.googleDrive?.folderIdOrUrl
@@ -519,7 +574,7 @@ export class AiProviderService {
           success: false,
           provider: 'nvidia',
           model,
-          error: err?.message || 'NVIDIA NIM generation failed',
+          error: err?.message || 'NVIDIA NIM image generation failed',
           rawError: err?.message
         };
       }
@@ -603,7 +658,7 @@ export class AiProviderService {
         provider: 'gemini',
         model: 'gemini-3.1-flash-lite-image',
         error: isBillingRequired
-          ? 'Google AI Studio free tier limits image model quota to 0. Switch to OpenAI (DALL-E 3) or NVIDIA in Settings, or configure a paid Google key.'
+          ? 'Google AI Studio free tier limits image model quota to 0. Switch to OpenAI (GPT Image 2) or NVIDIA in Settings, or configure a paid Google key.'
           : (err?.message || 'Gemini image generation failed'),
         rawError: err?.message,
         isBillingRequired
@@ -615,14 +670,14 @@ export class AiProviderService {
    * Generates Video using the selected provider (NVIDIA or Google Veo)
    */
   public async generateVideo(req: VideoGenerationRequest): Promise<MediaGenerationResult> {
-    const providerId = req.providerId || this.settings.defaults.video || 'nvidia';
+    const providerId = req.providerId || this.settings.defaults.video || 'google_veo';
     const brand = req.brandDesignSystem;
     let enrichedPrompt = req.prompt.trim();
 
     if (brand) {
       const brandContext = [];
       if (brand.primaryColor || brand.secondaryColor) {
-        brandContext.push(`PALETTE: Primary ${brand.primaryColor || '#111827'}, Secondary ${brand.secondaryColor || '#FF4500'}`);
+        brandContext.push(`PALETTE: Primary ${brand.primaryColor || '#111827'}, Secondary ${brand.secondaryColor || '#6B7280'}`);
       }
       if (brand.videoStyleDirection) {
         brandContext.push(`VIDEO STYLE DIRECTION: ${brand.videoStyleDirection}`);
@@ -640,25 +695,13 @@ export class AiProviderService {
 
     console.log(`[AiProviderService] Generating video via ${providerId}...`);
 
-    // 1. NVIDIA NIM VIDEO MVP
+    // 1. NVIDIA VIDEO
     if (providerId === 'nvidia') {
-      const apiKey = this.getRawProviderKey('nvidia');
-      if (!apiKey) {
-        return {
-          success: false,
-          provider: 'nvidia',
-          model: 'nvidia/genai-video-mvp',
-          error: 'NVIDIA API Key is not configured. Please enter your NVIDIA key in AI & Media Providers Settings.'
-        };
-      }
-
-      // NVIDIA Video generation MVP
       return {
-        success: true,
+        success: false,
         provider: 'nvidia',
-        model: 'nvidia/genai-video-mvp',
-        fileUrl: '', // Production storyboard & prompt queued
-        error: undefined
+        model: 'stabilityai/stable-video-diffusion',
+        error: 'NVIDIA text-to-video is not enabled in this Autonoma build. NVIDIA Stable Video Diffusion requires an input image. Select Google Veo for text-to-video generation.'
       };
     }
 
@@ -668,7 +711,7 @@ export class AiProviderService {
       return {
         success: false,
         provider: 'google_veo',
-        model: 'veo-3.1-lite-generate-preview',
+        model: 'veo-3.1-generate-preview',
         error: 'Google API key is not configured for Veo video generation.'
       };
     }
@@ -681,7 +724,7 @@ export class AiProviderService {
       });
 
       const operation = await ai.models.generateVideos({
-        model: 'veo-3.1-lite-generate-preview',
+        model: 'veo-3.1-generate-preview',
         prompt: enrichedPrompt,
         config: {
           numberOfVideos: 1,
@@ -693,15 +736,15 @@ export class AiProviderService {
       return {
         success: true,
         provider: 'google_veo',
-        model: 'veo-3.1-lite-generate-preview',
-        fileUrl: operation.name
+        model: 'veo-3.1-generate-preview',
+        operationName: operation.name
       };
     } catch (err: any) {
       console.warn('[AiProviderService] Veo video generation failed:', err?.message);
       return {
         success: false,
         provider: 'google_veo',
-        model: 'veo-3.1-lite-generate-preview',
+        model: 'veo-3.1-generate-preview',
         error: 'Google Veo video generation requires paid API billing access on Google Cloud. Your video script, voiceover and visual prompts are ready.',
         rawError: err?.message,
         isBillingRequired: true
