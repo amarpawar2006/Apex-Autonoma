@@ -715,7 +715,7 @@ export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({ curren
 
       {/* Approve Request Modal */}
       {approvingReq && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-3xl border border-black/[0.08] bg-white shadow-2xl overflow-hidden">
             <div className="flex items-start justify-between border-b border-black/[0.06] bg-[#FBFBFD] p-5">
               <div>
@@ -817,7 +817,7 @@ export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({ curren
 
       {/* Create Company Modal */}
       {showCreateCompanyModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <form
             onSubmit={handleCreateCompany}
             className="w-full max-w-md rounded-3xl border border-black/[0.08] bg-white shadow-2xl overflow-hidden"
@@ -863,7 +863,7 @@ export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({ curren
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl border border-rose-200 bg-white shadow-2xl overflow-hidden">
             <div className="p-6">
               <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 border border-rose-100">

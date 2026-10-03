@@ -651,7 +651,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
   const isContextActive = summaryState?.isActive || activeCompany?.profile?.confirmedContext?.isActive;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-[300] bg-black/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
       <div className="w-full max-w-3xl bg-white border border-black/[0.08] rounded-3xl max-sm:h-full max-sm:rounded-none max-sm:max-w-none shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="px-6 py-4 border-b border-black/[0.06] flex items-center justify-between bg-[#FBFBFD]">
@@ -676,7 +676,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
             </div>
           </div>
 
-          <button onClick={onClose} className="p-1.5 text-[#6E6E73] hover:text-[#1D1D1F] rounded-lg">
+          <button onClick={onClose} aria-label="Close dialog" className="p-1.5 text-[#6E6E73] hover:text-[#1D1D1F] rounded-lg">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -741,22 +741,22 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
         {/* Modal content body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
           {error && (
-            <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center justify-between space-x-2">
+            <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center justify-between space-x-2">
               <div className="flex items-center space-x-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
               </div>
-              <button onClick={() => setError(null)} className="text-red-400 hover:text-white text-xs">✕</button>
+              <button onClick={() => setError(null)} aria-label="Dismiss error" className="text-red-600 hover:text-red-800 text-xs">✕</button>
             </div>
           )}
 
           {success && (
-            <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center justify-between space-x-2">
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center justify-between space-x-2">
               <div className="flex items-center space-x-2">
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>{success}</span>
               </div>
-              <button onClick={() => setSuccess(null)} className="text-emerald-300 hover:text-white text-xs">✕</button>
+              <button onClick={() => setSuccess(null)} aria-label="Dismiss success message" className="text-emerald-600 hover:text-emerald-800 text-xs">✕</button>
             </div>
           )}
 
@@ -1037,7 +1037,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveTab('profile')}
-                    className="px-4 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-white text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5 self-start sm:self-auto"
+                    className="px-4 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-[#1D1D1F] text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5 self-start sm:self-auto"
                   >
                     <span>Continue to Company Profile (Steps 2–5)</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -1047,7 +1047,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setActiveTab('understanding')}
-                      className="px-3.5 py-2 bg-black/[0.04] hover:bg-black/[0.06] text-[#86868B] hover:text-white text-xs font-medium rounded-xl transition-all"
+                      className="px-3.5 py-2 bg-black/[0.04] hover:bg-black/[0.06] text-[#6E6E73] hover:text-[#1D1D1F] text-xs font-medium rounded-xl transition-all"
                     >
                       Review Summary →
                     </button>
@@ -1074,7 +1074,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
           {/* ==================================================== */}
           {activeTab === 'profile' && (
             <form onSubmit={handleSaveProfile} className="space-y-4">
-              <div className="p-3 bg-black/30 border border-black/[0.06] rounded-xl text-xs text-[#86868B] flex items-center justify-between">
+              <div className="p-3 bg-[#FBFBFD] border border-black/[0.06] rounded-xl text-xs text-[#86868B] flex items-center justify-between">
                 <span>Configure your core company profile fields below. All fields remain fully editable.</span>
                 <button
                   type="button"
@@ -1148,7 +1148,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                         <button
                           type="button"
                           onClick={handleUndoImprovedDesc}
-                          className="text-[11px] text-[#86868B] hover:text-white flex items-center space-x-1 transition-colors"
+                          className="text-[11px] text-[#86868B] hover:text-[#1D1D1F] flex items-center space-x-1 transition-colors"
                         >
                           <RotateCcw className="w-3 h-3" />
                           <span>Undo Improvement</span>
@@ -1184,7 +1184,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
 
                   {/* AI Improvement Preview Box */}
                   {descPreview && (
-                    <div className="p-3.5 bg-black/50 border border-[#FF4500]/40 rounded-xl space-y-2.5 animate-in fade-in duration-150">
+                    <div className="p-3.5 bg-orange-50/60 border border-orange-200 rounded-xl space-y-2.5 animate-in fade-in duration-150">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold text-[#FF4500] flex items-center space-x-1">
                           <Sparkles className="w-3 h-3" />
@@ -1202,7 +1202,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                           <button
                             type="button"
                             onClick={() => setDescPreview(null)}
-                            className="px-2 py-1 text-[#86868B] hover:text-white text-[11px]"
+                            className="px-2 py-1 text-[#6E6E73] hover:text-[#1D1D1F] text-[11px]"
                           >
                             Discard
                           </button>
@@ -1336,7 +1336,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 </div>
 
                 {/* Website & Social Channels */}
-                <div className="p-3.5 bg-black/30 border border-black/[0.06] rounded-xl space-y-3">
+                <div className="p-3.5 bg-[#FBFBFD] border border-black/[0.06] rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[#1D1D1F] flex items-center space-x-1.5">
                       <Globe className="w-3.5 h-3.5 text-[#FF4500]" />
@@ -1627,7 +1627,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                     </div>
                     <div>
                       <span className="text-[10px] text-[#6E6E73] block">Claims to Avoid</span>
-                      <p className="text-amber-400/90 text-[11px] mt-0.5">
+                      <p className="text-amber-700 text-[11px] mt-0.5">
                         {displayValue(claimsAvoid || summaryState.constraints, 'No unverified claims or aggressive hype')}
                       </p>
                     </div>
@@ -1640,7 +1640,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveTab('profile')}
-                  className="px-3.5 py-2 bg-black/[0.04] hover:bg-black/[0.06] text-white text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5"
+                  className="px-3.5 py-2 bg-black/[0.04] hover:bg-black/[0.06] text-[#1D1D1F] text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5"
                 >
                   <Building2 className="w-3.5 h-3.5" />
                   <span>Edit Profile Details</span>
@@ -1715,7 +1715,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   </div>
                 </form>
               ) : (
-                <div className="p-3 bg-white/[0.02] border border-black/[0.06] rounded-xl text-xs text-[#86868B]">
+                <div className="p-3 bg-[#FBFBFD] border border-black/[0.06] rounded-xl text-xs text-[#86868B]">
                   Only Company Administrators can invite or modify team members.
                 </div>
               )}
@@ -1728,7 +1728,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 ) : members.length === 0 ? (
                   <div className="p-6 text-center text-xs text-[#86868B]">No members found.</div>
                 ) : (
-                  <div className="divide-y divide-white/[0.04] border border-black/[0.06] rounded-xl bg-black/20 overflow-hidden">
+                  <div className="divide-y divide-black/[0.05] border border-black/[0.06] rounded-xl bg-white overflow-hidden">
                     {members.map((mem) => {
                       const isSelf = mem.userId === currentUser.userId || mem.userId === currentUser.id;
 
@@ -1743,12 +1743,12 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                                 </span>
                               )}
                               {mem.inviteStatus === 'SENT' ? (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200">
                                   <CheckCircle2 className="w-2.5 h-2.5" />
                                   <span>Email Sent</span>
                                 </span>
                               ) : mem.inviteStatus === 'FAILED' ? (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono bg-red-500/15 text-red-400 border border-red-500/25" title={mem.inviteError || 'Delivery failed'}>
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono bg-red-50 text-red-700 border border-red-200" title={mem.inviteError || 'Delivery failed'}>
                                   <AlertCircle className="w-2.5 h-2.5" />
                                   <span>Delivery Failed</span>
                                 </span>
@@ -1771,7 +1771,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                                   type="button"
                                   onClick={() => handleCopyInviteLink(mem)}
                                   title="Copy direct onboarding invite link"
-                                  className="p-1.5 rounded-lg border border-black/[0.08] hover:bg-black/[0.04] text-[#86868B] hover:text-white transition-colors"
+                                  className="p-1.5 rounded-lg border border-black/[0.08] hover:bg-black/[0.04] text-[#6E6E73] hover:text-[#1D1D1F] transition-colors"
                                 >
                                   {copiedInviteId === (mem.membershipId || mem.id) ? (
                                     <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -1801,7 +1801,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                                 <select
                                   value={mem.role}
                                   onChange={(e) => handleUpdateRole(mem.membershipId || mem.id || '', e.target.value as any)}
-                                  className="bg-[#FBFBFD] border border-black/[0.08] rounded-lg px-2 py-1 text-[11px] font-mono text-white"
+                                  className="bg-[#FBFBFD] border border-black/[0.08] rounded-lg px-2 py-1 text-[11px] font-mono text-[#1D1D1F]"
                                 >
                                   <option value="MEMBER">Member</option>
                                   <option value="COMPANY_ADMIN">Company Admin</option>
