@@ -21,18 +21,18 @@ import { autonomaDataService } from '../services/autonomaDataService';
 import { BrandDesignSystem, Company, CompanyProfile } from '../types/auth';
 
 const FALLBACK_BRAND: BrandDesignSystem = {
-  primaryColor: '#111827',
-  secondaryColor: '#FF4500',
-  accentColor: '#2563EB',
-  backgroundColor: '#F8FAFC',
-  textColor: '#111827',
+  primaryColor: '#1D1D1F',
+  secondaryColor: '#6B7280',
+  accentColor: '#6B7280',
+  backgroundColor: '#FFFFFF',
+  textColor: '#1D1D1F',
   headingFont: 'Inter',
   bodyFont: 'Inter',
-  visualStyleNotes: 'Clean, premium, high-clarity editorial design with high contrast.',
-  imageStyle: 'Authentic, grounded photography with restrained graphic overlays.',
-  videoStyleDirection: 'Crisp, fast-paced editorial transitions, bold kinetic typography, and authentic b-roll.',
-  creativeRules: 'Avoid generic stock cliches. Never make unverified promotional claims. Maintain high contrast.',
-  brandVoiceNote: 'Clear, confident, authoritative and useful.'
+  visualStyleNotes: 'Clean, professional, brand-neutral editorial design.',
+  imageStyle: 'Authentic, grounded imagery with restrained graphic treatment.',
+  videoStyleDirection: 'Clean editorial pacing with clear typography and authentic b-roll.',
+  creativeRules: 'Avoid generic stock cliches, unverified claims, and unrelated brand styling.',
+  brandVoiceNote: 'Clear, useful, professional and grounded.'
 };
 
 const ColorField = ({ 
@@ -63,7 +63,11 @@ const ColorField = ({
   </label>
 );
 
-export const DesignSystemView: React.FC = () => {
+interface DesignSystemViewProps {
+  onCompanyUpdated?: (company: Company) => void;
+}
+
+export const DesignSystemView: React.FC<DesignSystemViewProps> = ({ onCompanyUpdated }) => {
   const [company, setCompany] = useState<Company | null>(null);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [brand, setBrand] = useState<BrandDesignSystem>(FALLBACK_BRAND);
@@ -215,6 +219,7 @@ export const DesignSystemView: React.FC = () => {
       });
       setCompany(updated);
       setProfile(updated.profile || profile);
+      onCompanyUpdated?.(updated);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err: any) {
@@ -248,7 +253,7 @@ export const DesignSystemView: React.FC = () => {
             Brand Design System
           </h1>
           <p className="mt-1 max-w-2xl text-xs sm:text-sm text-[#6E6E73] leading-relaxed">
-            Company-specific creative tokens injected into image generation, video direction, and copy briefs.
+            Company-specific creative system used by campaign generation and production.
             This defines your brand's output creatives and remains isolated to <strong>{company?.name}</strong>.
           </p>
         </div>

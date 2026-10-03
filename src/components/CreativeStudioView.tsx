@@ -1,24 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Play, 
-  Pause, 
-  RotateCcw, 
-  ChevronLeft, 
-  ChevronRight, 
-  Volume2, 
-  VolumeX, 
-  CheckCircle2, 
-  Layers, 
-  Download, 
-  Copy, 
-  Check, 
-  Eye, 
-  Video, 
-  Palette,
-  Sparkles
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Play,
+  Pause,
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
+  Volume2,
+  VolumeX,
+  CheckCircle2,
+  Layers,
+  Copy,
+  Check,
+  Sparkles,
+  Palette
 } from 'lucide-react';
 import { SocialAsset, PostStatus } from '../types/campaign';
-import { ApexLogo } from './ApexLogo';
+import { BrandDesignSystem } from '../types/auth';
+import { autonomaDataService } from '../services/autonomaDataService';
 
 interface CreativeStudioViewProps {
   assets: SocialAsset[];
@@ -27,34 +25,79 @@ interface CreativeStudioViewProps {
   onOpenAiGenerator?: () => void;
 }
 
+const DEFAULT_BRAND: BrandDesignSystem = {
+  primaryColor: '#1D1D1F',
+  secondaryColor: '#6B7280',
+  accentColor: '#6B7280',
+  backgroundColor: '#FFFFFF',
+  textColor: '#1D1D1F',
+  headingFont: 'Inter',
+  bodyFont: 'Inter',
+  visualStyleNotes: 'Clean, professional, brand-neutral editorial design.'
+};
+
+const normalizeHex = (value: string | undefined, fallback: string) =>
+  /^#[0-9a-fA-F]{6}$/.test(value || '') ? (value as string) : fallback;
+
+const hexToRgba = (hex: string, alpha: number) => {
+  const clean = hex.replace('#', '');
+  const n = parseInt(clean, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const isDark = (hex: string) => {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return false;
+  const n = parseInt(clean, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return (r * 299 + g * 587 + b * 114) / 1000 < 145;
+};
+
 export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
   assets = [],
   onUpdateStatus,
   selectedAssetId,
   onOpenAiGenerator
 }) => {
-  const [activeAssetId, setActiveAssetId] = useState<string>(
-    selectedAssetId || (assets[0]?.id ?? '')
-  );
-  
-  const [currentSlideIndex, setCurrentSlideIndex] = useState<number>(0);
+  const [activeAssetId, setActiveAssetId] = useState<string>(selectedAssetId || (assets[0]?.id ?? ''));
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
+  const [playbackTime, setPlaybackTime] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
+  const [copiedCaption, setCopiedCaption] = useState(false);
+  const [companyName, setCompanyName] = useState('Your Brand');
+  const [brand, setBrand] = useState<BrandDesignSystem>(DEFAULT_BRAND);
+  const [brandLoaded, setBrandLoaded] = useState(false);
 
-  // Video Reel Player State
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [currentSceneIndex, setCurrentSceneIndex] = useState<number>(0);
-  const [playbackTime, setPlaybackTime] = useState<number>(0);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
-  const [copiedCaption, setCopiedCaption] = useState<boolean>(false);
-
-  // Sync activeAssetId when assets change
   useEffect(() => {
-    if (selectedAssetId && assets.some(a => a.id === selectedAssetId)) {
+    let mounted = true;
+    autonomaDataService.getCompanyProfile()
+      .then((result) => {
+        if (!mounted) return;
+        const profile = result.profile || result.company?.profile;
+        setCompanyName(result.company?.name || 'Your Brand');
+        setBrand({ ...DEFAULT_BRAND, ...(profile?.brandDesignSystem || {}) });
+        setBrandLoaded(true);
+      })
+      .catch(() => {
+        if (mounted) setBrandLoaded(true);
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (selectedAssetId && assets.some((a) => a.id === selectedAssetId)) {
       setActiveAssetId(selectedAssetId);
-    } else if (assets.length > 0 && !assets.some(a => a.id === activeAssetId)) {
+    } else if (assets.length > 0 && !assets.some((a) => a.id === activeAssetId)) {
       setActiveAssetId(assets[0].id);
     }
-  }, [assets, selectedAssetId]);
+  }, [assets, selectedAssetId, activeAssetId]);
 
   const activeAsset = assets.find((a) => a.id === activeAssetId) || assets[0];
 
@@ -63,42 +106,52 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
     setCurrentSceneIndex(0);
     setPlaybackTime(0);
     setIsPlaying(false);
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   }, [activeAssetId]);
 
   useEffect(() => {
-    let interval: any = null;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setPlaybackTime((prev) => {
-          const next = prev + 0.5;
-          if (next >= 30) {
-            setIsPlaying(false);
-            return 0;
-          }
-          if (next < 4) setCurrentSceneIndex(0);
-          else if (next < 11) setCurrentSceneIndex(1);
-          else if (next < 20) setCurrentSceneIndex(2);
-          else setCurrentSceneIndex(3);
-          return next;
-        });
-      }, 500);
-    } else {
-      clearInterval(interval);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying]);
+    if (!isPlaying) return;
+    const interval = window.setInterval(() => {
+      setPlaybackTime((prev) => {
+        const next = prev + 0.5;
+        if (next >= 30) {
+          setIsPlaying(false);
+          return 0;
+        }
+        const sceneCount = Math.max(1, activeAsset?.videoScenes?.length || 1);
+        const bucket = 30 / sceneCount;
+        setCurrentSceneIndex(Math.min(sceneCount - 1, Math.floor(next / bucket)));
+        return next;
+      });
+    }, 500);
+    return () => window.clearInterval(interval);
+  }, [isPlaying, activeAsset?.videoScenes?.length]);
+
+  const palette = useMemo(() => {
+    const primary = normalizeHex(brand.primaryColor, '#1D1D1F');
+    const secondary = normalizeHex(brand.secondaryColor, '#6B7280');
+    const accent = normalizeHex(brand.accentColor, primary);
+    const background = normalizeHex(brand.backgroundColor, '#FFFFFF');
+    const text = normalizeHex(brand.textColor, '#1D1D1F');
+    return {
+      primary,
+      secondary,
+      accent,
+      background,
+      text,
+      muted: hexToRgba(text, 0.64),
+      border: hexToRgba(text, 0.14),
+      soft: hexToRgba(primary, 0.10),
+      headingFont: brand.headingFont || 'Inter',
+      bodyFont: brand.bodyFont || 'Inter'
+    };
+  }, [brand]);
 
   const speakCurrentScene = (text: string) => {
-    if (isMuted || !('speechSynthesis' in window)) return;
+    if (isMuted || !('speechSynthesis' in window) || !text) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.05;
-    utterance.pitch = 1.0;
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
     window.speechSynthesis.speak(utterance);
   };
 
@@ -107,14 +160,10 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
     if (!isPlaying) {
       setIsPlaying(true);
       const scene = activeAsset.videoScenes?.[currentSceneIndex];
-      if (scene) {
-        speakCurrentScene(scene.narrationVoiceover);
-      }
+      if (scene) speakCurrentScene(scene.narrationVoiceover);
     } else {
       setIsPlaying(false);
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     }
   };
 
@@ -124,347 +173,192 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
     setCurrentSceneIndex(0);
     setIsPlaying(true);
     const scene = activeAsset.videoScenes?.[0];
-    if (scene) {
-      speakCurrentScene(scene.narrationVoiceover);
-    }
+    if (scene) speakCurrentScene(scene.narrationVoiceover);
   };
 
-  // Defensive Empty State Guard: Prevents blank crash when company has 0 assets
-  if (!assets || assets.length === 0 || !activeAsset) {
+  if (!assets.length || !activeAsset) {
     return (
       <div className="space-y-6 pb-20 animate-in fade-in duration-200">
         <div className="pt-2">
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#F5F5F7]">
-            Creative Studio
-          </h1>
-          <p className="text-xs sm:text-sm text-[#9898A0] font-normal mt-1">
-            Interactive AES-DS renderer simulation for 4:5 carousels, 9:16 reels, and engineering posters
-          </p>
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#1D1D1F]">Creative Studio</h1>
+          <p className="mt-1 text-xs sm:text-sm text-[#6E6E73]">Company-aware preview of campaign deliverables using the saved Brand Design System.</p>
         </div>
-
-        <div className="bg-[#12141A] rounded-3xl border border-white/[0.08] p-10 sm:p-16 text-center space-y-4 shadow-xl">
-          <div className="w-14 h-14 bg-white/[0.04] rounded-2xl flex items-center justify-center mx-auto text-[#FF4500] border border-white/[0.08]">
-            <Layers className="w-7 h-7" />
+        <div className="rounded-3xl border border-black/[0.07] bg-white p-10 sm:p-16 text-center shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-black/[0.04] text-[#6E6E73]">
+            <Layers className="h-7 w-7" />
           </div>
-          <div className="space-y-1.5 max-w-md mx-auto">
-            <h3 className="text-lg font-semibold text-[#F5F5F7]">No deliverables in this workspace</h3>
-            <p className="text-xs text-[#9898A0] leading-relaxed">
-              This company workspace does not have generated content assets yet. Launch campaign generation to produce carousels, reels, and posters in the Creative Studio.
-            </p>
-          </div>
+          <h3 className="mt-4 text-lg font-semibold text-[#1D1D1F]">No deliverables in this workspace</h3>
+          <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-[#6E6E73]">Create a campaign first. New previews will use this company's saved colors, typography and creative direction.</p>
           {onOpenAiGenerator && (
-            <div className="pt-2">
-              <button
-                onClick={onOpenAiGenerator}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-semibold rounded-xl shadow-lg shadow-[#FF4500]/20 transition-all active:scale-95"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Create First Campaign</span>
-              </button>
-            </div>
+            <button onClick={onOpenAiGenerator} className="mt-5 inline-flex items-center gap-1.5 rounded-xl bg-[#FF4500] px-4 py-2 text-xs font-semibold text-white">
+              <Sparkles className="h-3.5 w-3.5" /> Create First Campaign
+            </button>
           )}
         </div>
       </div>
     );
   }
 
-  const isVideo = activeAsset.format === 'reel_short';
+  const isVideo = activeAsset.format === 'reel_short' || activeAsset.format === 'short_video';
   const slides = activeAsset.slides || [];
   const currentSlide = slides[currentSlideIndex] || slides[0];
   const scenes = activeAsset.videoScenes || [];
   const currentScene = scenes[currentSceneIndex] || scenes[0];
-
   const isApproved = activeAsset.status === 'approved' || activeAsset.status === 'scheduled';
+  const previewTextColor = palette.text;
+  const inverseText = isDark(palette.primary) ? '#FFFFFF' : '#111111';
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-200">
-      {/* Editorial Header Section */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pt-2">
-        <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#F5F5F7]">
-            Creative Studio
-          </h1>
-          <p className="text-xs sm:text-sm text-[#9898A0] font-normal">
-            Interactive AES-DS renderer simulation for 4:5 carousels, 9:16 reels, and engineering posters
-          </p>
+      <div className="flex flex-col gap-4 pt-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#1D1D1F]">Creative Studio</h1>
+            <span className="inline-flex items-center gap-1 rounded-full border border-black/[0.07] bg-white px-2 py-1 text-[10px] font-medium text-[#6E6E73]">
+              <Palette className="h-3 w-3" /> {brandLoaded ? 'Brand synced' : 'Loading brand…'}
+            </span>
+          </div>
+          <p className="mt-1 text-xs sm:text-sm text-[#6E6E73]">Live preview for <strong className="text-[#1D1D1F]">{companyName}</strong> using the saved Brand Design System.</p>
         </div>
 
-        {/* Quick Asset Switcher Dropdown */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="bg-[#161922] px-3.5 py-2 rounded-xl border border-white/[0.08] shadow-sm flex items-center space-x-2 text-xs">
-            <span className="text-[#9898A0]">Asset:</span>
-            <select
-              value={activeAsset.id}
-              onChange={(e) => setActiveAssetId(e.target.value)}
-              className="bg-transparent font-medium text-[#F5F5F7] focus:outline-none cursor-pointer max-w-[220px] truncate"
-            >
-              {assets.map((a) => (
-                <option key={a.id} value={a.id} className="bg-[#161922] text-[#F5F5F7]">
-                  [{a.assetCode}] {a.title.slice(0, 30)}…
-                </option>
-              ))}
+          <div className="flex items-center gap-2 rounded-xl border border-black/[0.07] bg-white px-3.5 py-2 text-xs shadow-sm">
+            <span className="text-[#86868B]">Asset:</span>
+            <select value={activeAsset.id} onChange={(e) => setActiveAssetId(e.target.value)} className="max-w-[260px] bg-transparent font-medium text-[#1D1D1F] outline-none">
+              {assets.map((a) => <option key={a.id} value={a.id}>[{a.assetCode}] {a.title.slice(0, 42)}</option>)}
             </select>
           </div>
-
           <button
             onClick={() => onUpdateStatus(activeAsset.id, isApproved ? 'in_review' : 'approved')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center space-x-1.5 active:scale-95 ${
-              isApproved
-                ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30'
-                : 'bg-[#FF4500] hover:bg-[#EA3E00] text-white shadow-lg shadow-[#FF4500]/20'
-            }`}
+            className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition ${isApproved ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-[#1D1D1F] text-white'}`}
           >
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>{isApproved ? 'Approved ✓' : 'Approve Asset'}</span>
+            <CheckCircle2 className="h-3.5 w-3.5" /> {isApproved ? 'Approved ✓' : 'Approve Asset'}
           </button>
         </div>
       </div>
 
-      {/* Main Studio Viewport Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Visual Viewport Canvas */}
-        <div className="lg:col-span-7 bg-[#12141A] rounded-3xl border border-white/[0.08] shadow-xl p-4 sm:p-8 flex flex-col items-center justify-center min-h-[480px] sm:min-h-[580px] overflow-hidden">
-          {/* Format Indicator */}
-          <div className="w-full max-w-sm flex items-center justify-between text-xs text-[#9898A0] mb-4">
-            <span className="flex items-center space-x-1.5 font-medium text-[#F5F5F7]">
-              <span className="w-2 h-2 rounded-full bg-[#FF4500]"></span>
-              <span className="capitalize">{(activeAsset.format || 'deliverable').replace(/_/g, ' ')}</span>
-            </span>
-            <span>
-              {isVideo ? '1080 × 1920 (9:16)' : '1080 × 1350 (4:5)'}
-            </span>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
+        <div className="lg:col-span-7 rounded-3xl border border-black/[0.07] bg-white p-4 sm:p-8 shadow-sm">
+          <div className="mx-auto mb-4 flex w-full max-w-md items-center justify-between text-xs text-[#6E6E73]">
+            <span className="flex items-center gap-1.5 font-medium text-[#1D1D1F]"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: palette.accent }} />{activeAsset.format.replace(/_/g, ' ')}</span>
+            <span>{isVideo ? '1080 × 1920 (9:16)' : '1080 × 1350 (4:5)'}</span>
           </div>
 
-          {/* VIEWPORT 1: 9:16 VERTICAL VIDEO REEL SIMULATOR */}
           {isVideo ? (
-            <div className="relative w-full max-w-[280px] sm:max-w-[320px] aspect-[9/16] bg-black rounded-2xl shadow-2xl overflow-hidden flex flex-col justify-between p-4 group border border-white/[0.12]">
-              <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:12px_12px] pointer-events-none"></div>
-
-              {/* Reel Top Bar */}
-              <div className="relative z-10 flex items-center justify-between text-[10px] font-mono text-white/70">
-                <span className="bg-black/60 px-2 py-0.5 rounded text-[#FF4500] font-bold">
-                  APEX // {activeAsset.assetCode}
-                </span>
-                <span className="text-white/50">{playbackTime.toFixed(1)}s / 30.0s</span>
+            <div
+              className="relative mx-auto flex aspect-[9/16] w-full max-w-[330px] flex-col justify-between overflow-hidden rounded-[28px] border shadow-2xl"
+              style={{ backgroundColor: palette.background, color: previewTextColor, borderColor: palette.border, fontFamily: `${palette.bodyFont}, Arial, sans-serif` }}
+            >
+              {activeAsset.generatedImageUrl && <img src={activeAsset.generatedImageUrl} alt="Generated creative" className="absolute inset-0 h-full w-full object-cover opacity-25" />}
+              <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 90% 5%, ${hexToRgba(palette.accent, 0.18)}, transparent 45%)` }} />
+              <div className="relative z-10 flex items-center justify-between p-5 text-[10px] font-medium">
+                <span className="rounded-full px-2.5 py-1" style={{ backgroundColor: palette.primary, color: inverseText }}>{companyName.toUpperCase()}</span>
+                <span style={{ color: palette.muted }}>{playbackTime.toFixed(1)}s / 30.0s</span>
               </div>
-
-              {/* Reel Center Scene */}
-              <div className="relative z-10 text-center space-y-3 px-2">
-                <span className="inline-block px-2.5 py-1 bg-[#FF4500]/20 border border-[#FF4500]/40 text-[#FF4500] text-[11px] font-mono font-bold rounded">
-                  SCENE {currentSceneIndex + 1}
-                </span>
-
-                <h3 className="text-white font-bold text-base sm:text-lg tracking-tight leading-snug drop-shadow-md">
-                  {currentScene?.onScreenCaption || (currentScene as any)?.onScreenText || activeAsset.hook}
-                </h3>
-
-                <p className="text-neutral-300 text-xs leading-relaxed italic drop-shadow-sm font-sans">
-                  "{currentScene?.narrationVoiceover || (activeAsset.caption ? activeAsset.caption.slice(0, 80) + '…' : activeAsset.hook || '')}"
-                </p>
+              <div className="relative z-10 px-6 text-center">
+                <span className="inline-flex rounded-full px-3 py-1 text-[10px] font-semibold" style={{ backgroundColor: palette.soft, color: palette.primary }}>SCENE {currentSceneIndex + 1}</span>
+                <h2 className="mt-4 text-2xl font-bold leading-tight" style={{ color: palette.text, fontFamily: `${palette.headingFont}, Arial, sans-serif` }}>{currentScene?.hookText || activeAsset.hook}</h2>
+                <p className="mt-3 text-sm leading-relaxed" style={{ color: palette.muted }}>{currentScene?.onScreenCaption || activeAsset.caption.slice(0, 150)}</p>
               </div>
-
-              {/* Reel Bottom Meta */}
-              <div className="relative z-10 space-y-2">
-                <div className="bg-black/70 backdrop-blur-md p-2.5 rounded-xl border border-white/10 text-[11px] text-neutral-300">
-                  <span className="text-[#FF4500] font-mono text-[9px] uppercase tracking-wider block font-bold">Visual Direction</span>
-                  <p className="line-clamp-2 text-[11px] mt-0.5">
-                    {currentScene?.bRollPrompt || (currentScene as any)?.visualPrompt || activeAsset.posterVisualPrompt || 'Technical isometric animation'}
-                  </p>
+              <div className="relative z-10 p-5">
+                <div className="rounded-2xl border p-4 text-xs leading-relaxed" style={{ backgroundColor: hexToRgba(palette.text, isDark(palette.background) ? 0.08 : 0.035), borderColor: palette.border, color: palette.text }}>
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide" style={{ color: palette.accent }}>Visual direction</span>
+                  {currentScene?.visualFocus || brand.visualStyleNotes || activeAsset.posterVisualPrompt || 'Follow the saved brand system.'}
                 </div>
-
-                <div className="h-1 bg-white/20 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-[#FF4500] transition-all duration-300"
-                    style={{ width: `${(playbackTime / 30) * 100}%` }}
-                  />
-                </div>
+                <div className="mt-4 h-1 overflow-hidden rounded-full" style={{ backgroundColor: palette.border }}><div className="h-full transition-all" style={{ width: `${(playbackTime / 30) * 100}%`, backgroundColor: palette.accent }} /></div>
               </div>
             </div>
           ) : (
-            /* VIEWPORT 2: 4:5 CAROUSEL / POSTER SIMULATOR */
-            <div className="relative w-full max-w-[320px] sm:max-w-[380px] aspect-[4/5] bg-black rounded-2xl shadow-2xl overflow-hidden flex flex-col justify-between p-6 group border border-white/[0.12]">
-              <div className="absolute inset-0 opacity-15 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none"></div>
-
-              {/* Slide Top Bar */}
-              <div className="relative z-10 flex items-center justify-between text-xs font-mono text-neutral-400 border-b border-white/10 pb-3">
-                <div className="flex items-center space-x-2">
-                  <ApexLogo variant="mark" size="sm" />
-                  <span className="text-white font-semibold tracking-tight">AUTONOMA // AES-DS</span>
+            <div
+              className="relative mx-auto flex aspect-[4/5] w-full max-w-[420px] flex-col overflow-hidden rounded-[28px] border p-7 shadow-2xl"
+              style={{ backgroundColor: palette.background, color: previewTextColor, borderColor: palette.border, fontFamily: `${palette.bodyFont}, Arial, sans-serif` }}
+            >
+              {activeAsset.generatedImageUrl && <img src={activeAsset.generatedImageUrl} alt="Generated creative" className="absolute inset-0 h-full w-full object-cover opacity-20" />}
+              <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 88% 8%, ${hexToRgba(palette.accent, 0.16)}, transparent 42%)` }} />
+              <div className="relative z-10 flex items-center justify-between border-b pb-4" style={{ borderColor: palette.border }}>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-black" style={{ backgroundColor: palette.primary, color: inverseText }}>{companyName.slice(0, 1).toUpperCase()}</span>
+                  <span className="text-xs font-semibold tracking-wide" style={{ color: palette.text }}>{companyName.toUpperCase()}</span>
                 </div>
-                <span className="text-[#FF4500] font-bold">
-                  {currentSlideIndex + 1}/{slides.length || 1}
-                </span>
+                <span className="text-xs font-semibold" style={{ color: palette.accent }}>{slides.length ? `${currentSlideIndex + 1}/${slides.length}` : activeAsset.platform.toUpperCase()}</span>
               </div>
 
-              {/* Slide Content */}
-              <div className="relative z-10 space-y-3 my-auto py-4">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-[#FF4500] block">
-                  {currentSlide?.slideNumber ? `SLIDE ${currentSlide.slideNumber}` : 'KEY PROPOSITION'}
-                </span>
-                <h2 className="text-white font-bold text-lg sm:text-xl tracking-tight leading-snug">
-                  {currentSlide?.headline || (currentSlide as any)?.header || activeAsset.title}
-                </h2>
-                <p className="text-neutral-300 text-xs sm:text-sm leading-relaxed">
-                  {Array.isArray(currentSlide?.body) ? currentSlide.body.join(' ') : (currentSlide?.body || activeAsset.hook)}
-                </p>
+              <div className="relative z-10 my-auto py-6">
+                <span className="inline-flex rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wide" style={{ backgroundColor: palette.soft, color: palette.primary }}>{currentSlide?.badge || activeAsset.strategicPurpose || 'CAMPAIGN CREATIVE'}</span>
+                <h2 className="mt-5 text-3xl font-bold leading-[1.05]" style={{ color: palette.text, fontFamily: `${palette.headingFont}, Arial, sans-serif` }}>{currentSlide?.headline || activeAsset.title}</h2>
+                {(currentSlide?.subtext || activeAsset.hook) && <p className="mt-4 text-sm leading-relaxed" style={{ color: palette.muted }}>{currentSlide?.subtext || activeAsset.hook}</p>}
+                {Array.isArray(currentSlide?.body) && currentSlide.body.length > 0 && (
+                  <div className="mt-5 space-y-2">
+                    {currentSlide.body.slice(0, 3).map((item, idx) => <div key={idx} className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: palette.border, backgroundColor: hexToRgba(palette.text, isDark(palette.background) ? 0.07 : 0.025), color: palette.text }}>{String(item)}</div>)}
+                  </div>
+                )}
               </div>
 
-              {/* Slide Footer */}
-              <div className="relative z-10 border-t border-white/10 pt-3 flex items-center justify-between text-[11px] font-mono text-neutral-400">
-                <span>{activeAsset.speciesCode || 'AES-ENG'}</span>
-                <span className="text-white/80">{activeAsset.platform.toUpperCase()} SPEC</span>
+              <div className="relative z-10 flex items-center justify-between border-t pt-4 text-[11px]" style={{ borderColor: palette.border, color: palette.muted }}>
+                <span>{brand.visualStyleNotes || 'Brand-aligned creative'}</span>
+                <span className="font-semibold" style={{ color: palette.accent }}>{activeAsset.platform.toUpperCase()}</span>
               </div>
             </div>
           )}
 
-          {/* Viewport Playback / Pagination Controls */}
-          <div className="w-full max-w-sm flex items-center justify-between mt-6 text-xs">
+          <div className="mx-auto mt-6 flex w-full max-w-md items-center justify-between text-xs">
             {isVideo ? (
-              <div className="flex items-center justify-between w-full">
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={handleTogglePlay}
-                    className="p-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white rounded-xl shadow-lg shadow-[#FF4500]/20 transition-all active:scale-95"
-                    title={isPlaying ? 'Pause simulation' : 'Play simulation'}
-                  >
-                    {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                  </button>
-
-                  <button
-                    onClick={handleRestart}
-                    className="p-2.5 bg-white/[0.06] hover:bg-white/[0.1] text-[#F5F5F7] rounded-xl border border-white/[0.08] transition-colors"
-                    title="Restart reel"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    onClick={() => setIsMuted(!isMuted)}
-                    className="p-2.5 bg-white/[0.06] hover:bg-white/[0.1] text-[#F5F5F7] rounded-xl border border-white/[0.08] transition-colors"
-                    title={isMuted ? 'Unmute voiceover' : 'Mute voiceover'}
-                  >
-                    {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                  </button>
+              <div className="flex w-full items-center justify-between">
+                <div className="flex gap-2">
+                  <button onClick={handleTogglePlay} className="rounded-xl p-2.5 text-white" style={{ backgroundColor: palette.primary }}>{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</button>
+                  <button onClick={handleRestart} className="rounded-xl border border-black/[0.08] bg-white p-2.5 text-[#1D1D1F]"><RotateCcw className="h-4 w-4" /></button>
+                  <button onClick={() => setIsMuted(!isMuted)} className="rounded-xl border border-black/[0.08] bg-white p-2.5 text-[#1D1D1F]">{isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
                 </div>
-
-                <span className="text-[#9898A0] text-xs font-medium font-mono">
-                  Scene {currentSceneIndex + 1} of {scenes.length || 1}
-                </span>
+                <span className="text-[#6E6E73]">Scene {currentSceneIndex + 1} of {scenes.length || 1}</span>
               </div>
             ) : (
-              <div className="flex items-center justify-between w-full">
-                <button
-                  disabled={currentSlideIndex === 0}
-                  onClick={() => setCurrentSlideIndex((prev) => Math.max(0, prev - 1))}
-                  className="px-3 py-1.5 bg-[#161922] rounded-xl text-[#F5F5F7] border border-white/[0.08] shadow-sm disabled:opacity-30 flex items-center space-x-1"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                  <span>Prev</span>
-                </button>
-
-                <div className="flex items-center space-x-1">
-                  {slides.map((_, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setCurrentSlideIndex(idx)}
-                      className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${
-                        currentSlideIndex === idx
-                          ? 'bg-[#FF4500] text-white shadow-sm'
-                          : 'text-[#9898A0] hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      {idx + 1}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  disabled={currentSlideIndex === (slides.length || 1) - 1}
-                  onClick={() => setCurrentSlideIndex((prev) => Math.min((slides.length || 1) - 1, prev + 1))}
-                  className="px-3 py-1.5 bg-[#161922] rounded-xl text-[#F5F5F7] border border-white/[0.08] shadow-sm disabled:opacity-30 flex items-center space-x-1"
-                >
-                  <span>Next</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
+              <div className="flex w-full items-center justify-between">
+                <button disabled={currentSlideIndex === 0} onClick={() => setCurrentSlideIndex((prev) => Math.max(0, prev - 1))} className="inline-flex items-center gap-1 rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-[#1D1D1F] disabled:opacity-30"><ChevronLeft className="h-3.5 w-3.5" />Prev</button>
+                <div className="flex gap-1">{slides.map((_, idx) => <button key={idx} onClick={() => setCurrentSlideIndex(idx)} className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-medium" style={currentSlideIndex === idx ? { backgroundColor: palette.primary, color: inverseText } : { backgroundColor: '#F5F5F7', color: '#6E6E73' }}>{idx + 1}</button>)}</div>
+                <button disabled={currentSlideIndex >= Math.max(0, slides.length - 1)} onClick={() => setCurrentSlideIndex((prev) => Math.min(Math.max(0, slides.length - 1), prev + 1))} className="inline-flex items-center gap-1 rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-[#1D1D1F] disabled:opacity-30">Next<ChevronRight className="h-3.5 w-3.5" /></button>
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Column: Asset Details & Copy Deck */}
-        <div className="lg:col-span-5 space-y-5">
-          {/* Metadata Card */}
-          <div className="bg-[#12141A] rounded-2xl border border-white/[0.08] p-5 shadow-xl space-y-3.5">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
-              <span className="font-mono text-xs font-semibold text-[#FF4500]">
-                {activeAsset.assetCode}
-              </span>
-              <span className="text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
-                Virality {activeAsset.viralityScore || 85}/100
-              </span>
+        <div className="space-y-5 lg:col-span-5">
+          <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between border-b border-black/[0.06] pb-3">
+              <span className="font-mono text-xs font-semibold" style={{ color: palette.primary }}>{activeAsset.assetCode}</span>
+              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">AI Content Score {activeAsset.viralityScore || 85}/100</span>
             </div>
-
-            <div>
-              <span className="text-[#9898A0] text-[11px] block">Hook</span>
-              <p className="text-xs font-semibold text-[#F5F5F7] mt-0.5 leading-snug italic">
-                "{activeAsset.hook}"
-              </p>
+            <div className="mt-4">
+              <span className="text-[11px] text-[#86868B]">Hook</span>
+              <p className="mt-1 text-sm font-semibold leading-snug text-[#1D1D1F]">“{activeAsset.hook}”</p>
             </div>
-
-            <div>
-              <span className="text-[#9898A0] text-[11px] block">Target Persona</span>
-              <p className="text-xs text-[#F5F5F7] mt-0.5">
-                {activeAsset.targetBuyerPersona || 'Target customer segment'}
-              </p>
+            <div className="mt-4">
+              <span className="text-[11px] text-[#86868B]">Target Persona</span>
+              <p className="mt-1 text-xs text-[#1D1D1F]">{activeAsset.targetBuyerPersona || 'Target customer segment'}</p>
             </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2 text-xs">
-              <div className="p-3 bg-[#161922] rounded-xl border border-white/[0.06]">
-                <span className="text-[#9898A0] text-[11px]">Est. Reach</span>
-                <span className="font-semibold text-[#F5F5F7] block mt-0.5 font-mono">
-                  {(activeAsset.estimatedImpressions || activeAsset.targetReach || 5000).toLocaleString()}
-                </span>
-              </div>
-              <div className="p-3 bg-[#161922] rounded-xl border border-white/[0.06]">
-                <span className="text-[#9898A0] text-[11px]">Expected Leads</span>
-                <span className="font-semibold text-[#FF4500] block mt-0.5 font-mono">
-                  +{activeAsset.expectedLeads || 12} Inquiries
-                </span>
-              </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+              <div className="rounded-xl bg-[#F5F5F7] p-3"><span className="text-[11px] text-[#86868B]">Est. Reach</span><span className="mt-0.5 block font-semibold text-[#1D1D1F]">{(activeAsset.estimatedImpressions || activeAsset.targetReach || 0).toLocaleString()}</span></div>
+              <div className="rounded-xl bg-[#F5F5F7] p-3"><span className="text-[11px] text-[#86868B]">Expected Leads</span><span className="mt-0.5 block font-semibold text-[#1D1D1F]">{activeAsset.expectedLeads || 0} inquiries</span></div>
             </div>
           </div>
 
-          {/* Full Caption Box */}
-          <div className="bg-[#12141A] rounded-2xl border border-white/[0.08] p-5 shadow-xl space-y-3">
+          <div className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-[#F5F5F7]">Ready-to-Post Caption</span>
+              <span className="text-xs font-semibold text-[#1D1D1F]">Ready-to-Post Caption</span>
               <button
                 onClick={() => {
-                  const hashtagsStr = (activeAsset.hashtags || []).map(h => '#' + h).join(' ');
-                  navigator.clipboard.writeText(`${activeAsset.caption}\n\n${hashtagsStr}`);
+                  const hashtags = (activeAsset.hashtags || []).map((h) => `#${h}`).join(' ');
+                  navigator.clipboard.writeText(`${activeAsset.caption}\n\n${hashtags}`);
                   setCopiedCaption(true);
-                  setTimeout(() => setCopiedCaption(false), 2000);
+                  setTimeout(() => setCopiedCaption(false), 1600);
                 }}
-                className="text-xs font-medium text-[#FF4500] hover:underline flex items-center space-x-1"
+                className="inline-flex items-center gap-1 text-xs font-medium"
+                style={{ color: palette.primary }}
               >
-                {copiedCaption ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedCaption ? 'Copied' : 'Copy'}</span>
+                {copiedCaption ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copiedCaption ? 'Copied' : 'Copy'}
               </button>
             </div>
-
-            <div className="p-3.5 bg-[#161922] rounded-xl text-xs text-neutral-300 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap font-normal border border-white/[0.04]">
-              {activeAsset.caption}
-            </div>
-
-            {activeAsset.hashtags && activeAsset.hashtags.length > 0 && (
-              <div className="flex flex-wrap gap-1 text-[11px] text-[#9898A0]">
-                {activeAsset.hashtags.map((h, i) => (
-                  <span key={i} className="bg-white/[0.04] px-2 py-0.5 rounded-md border border-white/[0.06]">
-                    #{h}
-                  </span>
-                ))}
-              </div>
-            )}
+            <div className="mt-3 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-xl bg-[#F5F5F7] p-3.5 text-xs leading-relaxed text-[#333]">{activeAsset.caption}</div>
+            {!!activeAsset.hashtags?.length && <div className="mt-3 flex flex-wrap gap-1">{activeAsset.hashtags.map((h, i) => <span key={`${h}-${i}`} className="rounded-md border border-black/[0.05] bg-white px-2 py-0.5 text-[11px] text-[#6E6E73]">#{h}</span>)}</div>}
           </div>
         </div>
       </div>

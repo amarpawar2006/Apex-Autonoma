@@ -114,13 +114,13 @@ export const Header: React.FC<HeaderProps> = ({
   const primary = [
     { id: 'todays_production' as AppNavTab, label: 'Today', icon: Clock3 },
     { id: 'campaigns' as AppNavTab, label: 'Campaigns', icon: FolderKanban },
-    { id: 'master_sheet' as AppNavTab, label: 'Content', icon: FileSpreadsheet },
-    { id: 'creative_studio' as AppNavTab, label: 'Studio', icon: Layers },
-    { id: 'calendar' as AppNavTab, label: 'Calendar', icon: Calendar }
+    { id: 'calendar' as AppNavTab, label: 'Calendar', icon: Calendar },
+    { id: 'design_system' as AppNavTab, label: 'Brand', icon: Palette },
+    { id: 'creative_studio' as AppNavTab, label: 'Studio', icon: Layers }
   ];
 
   const secondary = [
-    { id: 'design_system' as AppNavTab, label: 'Design System', icon: Palette },
+    { id: 'master_sheet' as AppNavTab, label: 'Content', icon: FileSpreadsheet },
     { id: 'virality' as AppNavTab, label: 'Virality Engine', icon: TrendingUp },
     { id: 'publishing' as AppNavTab, label: 'Publishing', icon: Send },
     { id: 'archive' as AppNavTab, label: 'Archive', icon: Archive, count: archivedCount || 0 }
@@ -192,7 +192,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <div className="sticky top-0 z-50 w-full select-none">
+    <div className="sticky top-0 z-[100] w-full select-none overflow-visible">
       {/* Light-First Clean Header Shell */}
       <header className="border-b border-black/[0.07] bg-white/95 text-[#1D1D1F] shadow-2xs backdrop-blur-xl transition-colors">
         <div className="mx-auto flex h-15 sm:h-16 max-w-[1500px] items-center gap-2 sm:gap-3 px-3.5 sm:px-5 lg:px-7">
@@ -249,7 +249,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {workspaceOpen && (
-              <div className="absolute left-0 top-full mt-2 w-[310px] overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute left-0 top-full mt-2 w-[310px] overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl z-[120] animate-in fade-in zoom-in-95 duration-100">
                 <div className="border-b border-black/[0.05] px-4 py-3 bg-[#FBFBFD]">
                   <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#86868B]">
                     Switch workspace
@@ -396,7 +396,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
 
               {moreOpen && (
-                <div className="absolute right-0 top-full mt-2 w-60 overflow-hidden rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-xl z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute right-0 top-full mt-2 w-60 overflow-hidden rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-xl z-[120] animate-in fade-in zoom-in-95 duration-100">
                   <div className="px-3 pb-1.5 pt-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-[#86868B]">
                     Studio & Growth Tools
                   </div>
@@ -485,7 +485,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
 
               {accountOpen && (
-                <div className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute right-0 top-full mt-2 w-64 overflow-hidden rounded-2xl border border-black/[0.08] bg-white shadow-xl z-[120] animate-in fade-in zoom-in-95 duration-100">
                   <div className="border-b border-black/[0.05] px-4 py-3 bg-[#FBFBFD]">
                     <div className="truncate text-xs font-semibold text-[#1D1D1F]">
                       {currentUser?.name || 'Autonoma User'}

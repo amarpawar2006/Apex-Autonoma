@@ -28,6 +28,23 @@ import { Campaign, CampaignStatus, SocialAsset, ContentFormat, Platform, PostSta
 import { getCampaignAssetMetrics } from '../services/campaignService';
 import { WhatsAppPostingPackModal } from './WhatsAppPostingPackModal';
 
+
+const strategyText = (value: unknown, fallback = ''): string => {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map((item) => strategyText(item)).filter(Boolean).join(' • ') || fallback;
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const title = strategyText(obj.Pillar ?? obj.pillar ?? obj.title ?? obj.name ?? obj.label);
+    const description = strategyText(obj.Description ?? obj.description ?? obj.body ?? obj.detail ?? obj.value);
+    if (title && description) return `${title}: ${description}`;
+    if (title) return title;
+    if (description) return description;
+    return Object.values(obj).map((item) => strategyText(item)).filter(Boolean).join(' • ') || fallback;
+  }
+  return fallback;
+};
+
 interface CampaignDetailViewProps {
   campaign: Campaign;
   assets: SocialAsset[];
@@ -304,13 +321,13 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
               </span>
               <div className="bg-[#F5F5F7] p-3.5 rounded-2xl space-y-2">
                 <p className="text-xs text-[#1D1D1F]">
-                  {campaign.strategy.targetAudience}
+                  {strategyText(campaign.strategy.targetAudience)}
                 </p>
                 {campaign.strategy.buyerPersonas && (
                   <div className="flex flex-wrap gap-1 pt-1">
                     {campaign.strategy.buyerPersonas.map((bp, idx) => (
                       <span key={idx} className="text-[10px] bg-white px-2 py-0.5 rounded-md text-[#6E6E73] font-medium border border-black/[0.04]">
-                        {bp}
+                        {strategyText(bp)}
                       </span>
                     ))}
                   </div>
@@ -332,7 +349,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
                       PILLAR 0{idx + 1}
                     </span>
                     <p className="text-xs font-medium text-[#1D1D1F] leading-snug">
-                      {pillar}
+                      {strategyText(pillar)}
                     </p>
                   </div>
                 ))}
@@ -344,7 +361,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
           {campaign.strategy.recommendedPostingSchedule && (
             <div className="flex items-center space-x-2 text-xs text-[#6E6E73] pt-2">
               <Clock className="w-3.5 h-3.5 text-[#FF4500]" />
-              <span>Recommended Posting Cadence: <strong className="text-[#1D1D1F]">{campaign.strategy.recommendedPostingSchedule}</strong></span>
+              <span>Recommended Posting Cadence: <strong className="text-[#1D1D1F]">{strategyText(campaign.strategy.recommendedPostingSchedule)}</strong></span>
             </div>
           )}
         </div>

@@ -31,10 +31,12 @@ import {
   generateAssetImage,
   generateAssetVideo,
   pollVideoStatus,
+  downloadGeneratedVideo,
   renderDeterministicSlideCanvas,
   renderDeterministicPosterCanvas,
   downloadDataUrl,
-  downloadAllCarouselSlides
+  downloadAllCarouselSlides,
+  BrandRenderOptions
 } from '../services/mediaProductionService';
 import { autonomaDataService } from '../services/autonomaDataService';
 
@@ -68,7 +70,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       asset?.posterVisualPrompt ||
       asset?.videoGenerationPrompt ||
       (asset
-        ? `Minimalist brutalist high-contrast typography and engineering schematic for ${asset.title}. Void black background (#0A0B0E), Apex high-vis orange (#FF4500) accents, technical blueprint grid lines.`
+        ? `Create a professional, brand-safe social visual for ${asset.title}. Follow the active company's saved Brand Design System, typography direction, palette, imagery style and creative rules. If no brand system exists, use a clean neutral editorial layout.`
         : '')
   );
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -95,20 +97,52 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   const [copiedVoiceover, setCopiedVoiceover] = useState<boolean>(false);
   const [copiedStoryboard, setCopiedStoryboard] = useState<boolean>(false);
   const [activeImageProviderName, setActiveImageProviderName] = useState<string>('AI Image');
-  const [activeVideoProviderName, setActiveVideoProviderName] = useState<string>('NVIDIA NIM');
+  const [activeVideoProviderName, setActiveVideoProviderName] = useState<string>('Video Provider');
+  const [activeImageProviderId, setActiveImageProviderId] = useState<string | undefined>();
+  const [activeVideoProviderId, setActiveVideoProviderId] = useState<string | undefined>();
+  const [activeImageModel, setActiveImageModel] = useState<string | undefined>();
+  const [activeVideoModel, setActiveVideoModel] = useState<string | undefined>();
+  const [brandRenderOptions, setBrandRenderOptions] = useState<BrandRenderOptions>({});
 
   useEffect(() => {
-    autonomaDataService.getAiProviders().then((res) => {
-      const defImg = res?.aiProviders?.defaults?.image;
-      const defVid = res?.aiProviders?.defaults?.video;
-      if (defImg === 'openai') setActiveImageProviderName('OpenAI DALL-E 3');
-      else if (defImg === 'nvidia') setActiveImageProviderName('NVIDIA NIM');
-      else setActiveImageProviderName('Google Gemini');
+    Promise.all([
+      autonomaDataService.getAiProviders().catch(() => null),
+      autonomaDataService.getCompanyProfile().catch(() => null)
+    ]).then(([providersRes, companyRes]) => {
+      const defImg = providersRes?.aiProviders?.defaults?.image;
+      const defVid = providersRes?.aiProviders?.defaults?.video;
+      const providers = providersRes?.aiProviders?.providers || {};
 
-      if (defVid === 'google_veo') setActiveVideoProviderName('Google Veo');
-      else setActiveVideoProviderName('NVIDIA NIM Video MVP');
-    }).catch(() => {});
-  }, []);
+      setActiveImageProviderId(defImg);
+      setActiveVideoProviderId(defVid);
+      setActiveImageModel(defImg ? providers?.[defImg]?.selectedModel : undefined);
+      setActiveVideoModel(defVid ? providers?.[defVid]?.selectedModel : undefined);
+
+      if (defImg === 'openai') setActiveImageProviderName(`OpenAI ${providers?.openai?.selectedModel || 'Image'}`);
+      else if (defImg === 'nvidia') setActiveImageProviderName(`NVIDIA ${providers?.nvidia?.selectedModel || 'NIM'}`);
+      else if (defImg === 'gemini') setActiveImageProviderName('Google Gemini Image');
+      else setActiveImageProviderName('Configured Image Provider');
+
+      if (defVid === 'google_veo') setActiveVideoProviderName(`Google ${providers?.google_veo?.selectedModel || 'Veo'}`);
+      else if (defVid === 'nvidia') setActiveVideoProviderName('NVIDIA video (not enabled in this build)');
+      else setActiveVideoProviderName('Configured Video Provider');
+
+      const company = companyRes?.company;
+      const profile = companyRes?.profile || company?.profile || {};
+      const brand = profile?.brandDesignSystem || {};
+      setBrandRenderOptions({
+        companyName: company?.name || 'Your Brand',
+        website: profile?.website || '',
+        primaryColor: brand.primaryColor,
+        secondaryColor: brand.secondaryColor,
+        accentColor: brand.accentColor,
+        backgroundColor: brand.backgroundColor,
+        textColor: brand.textColor,
+        headingFont: brand.headingFont,
+        bodyFont: brand.bodyFont
+      });
+    });
+  }, [isOpen]);
 
   const isCarousel = asset?.format === 'carousel';
   const isVideo = asset?.format === 'reel_short';
@@ -125,7 +159,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       asset.generatedImagePrompt ||
         asset.posterVisualPrompt ||
         asset.videoGenerationPrompt ||
-        `Minimalist brutalist high-contrast typography and engineering schematic for ${asset.title}. Void black background (#0A0B0E), Apex high-vis orange (#FF4500) accents, technical blueprint grid lines.`
+        `Create a professional, brand-safe social visual for ${asset.title}. Follow the active company's saved Brand Design System, typography direction, palette, imagery style and creative rules. If no brand system exists, use a clean neutral editorial layout.`
     );
   }, [asset]);
 
@@ -140,6 +174,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
           const currentSlide = asset.slides[activeSlideIndex];
           const visual = slideVisuals[currentSlide.slideNumber];
           const url = await renderDeterministicSlideCanvas(currentSlide, asset.slides.length, {
+            ...brandRenderOptions,
             assetTitle: asset.title,
             assetCode: asset.assetCode,
             supportingImageUrl: visual
@@ -150,7 +185,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
         }
       } else if (isImageOrPoster) {
         try {
-          const url = await renderDeterministicPosterCanvas(asset, generatedImageUrl || undefined);
+          const url = await renderDeterministicPosterCanvas(asset, generatedImageUrl || undefined, brandRenderOptions);
           if (isMounted) setDeterministicCanvasUrl(url);
         } catch (e) {
           console.error('Failed to render poster canvas:', e);
@@ -161,7 +196,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [asset, activeSlideIndex, slideVisuals, generatedImageUrl, isCarousel, isImageOrPoster]);
+  }, [asset, activeSlideIndex, slideVisuals, generatedImageUrl, isCarousel, isImageOrPoster, brandRenderOptions]);
 
   // Handler: Real Server-Side Image Generation
   const handleGenerateImage = async () => {
@@ -171,7 +206,15 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     setIsBillingRequired(false);
     setProductionStatus('GENERATING');
 
-    const result = await generateAssetImage(activePrompt, '3:4', asset.assetCode, customApiKey);
+    const result = await generateAssetImage(activePrompt, '3:4', asset.assetCode, customApiKey, {
+      providerId: activeImageProviderId,
+      modelName: activeImageModel,
+      platform: asset.platform,
+      language: asset.language,
+      objective: asset.strategicPurpose,
+      assetId: asset.id,
+      campaignId: asset.campaignId
+    });
 
     if (result.success && result.dataUrl) {
       setGeneratedImageUrl(result.dataUrl);
@@ -207,9 +250,17 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     const slide = asset.slides?.find((s) => s.slideNumber === slideNumber);
     const slidePrompt =
       slide?.visualPrompt ||
-      `High-contrast engineering diagram, schematic wireframe or clean UI workflow for ${slide?.headline || asset.title}. Void black background, orange accents, minimalist.`;
+      `Create a clean brand-aligned supporting visual for ${slide?.headline || asset.title}. Follow the active company's saved Brand Design System. Avoid unrelated brand colors or identities.`;
 
-    const result = await generateAssetImage(slidePrompt, '16:9', `${asset.assetCode}-S${slideNumber}`, customApiKey);
+    const result = await generateAssetImage(slidePrompt, '16:9', `${asset.assetCode}-S${slideNumber}`, customApiKey, {
+      providerId: activeImageProviderId,
+      modelName: activeImageModel,
+      platform: asset.platform,
+      language: asset.language,
+      objective: asset.strategicPurpose,
+      assetId: asset.id,
+      campaignId: asset.campaignId
+    });
 
     if (result.success && result.dataUrl) {
       const nextVisuals = { ...slideVisuals, [slideNumber]: result.dataUrl };
@@ -236,7 +287,13 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     setIsBillingRequired(false);
     setProductionStatus('GENERATING');
 
-    const result = await generateAssetVideo(activePrompt, '9:16', customApiKey);
+    const result = await generateAssetVideo(activePrompt, '9:16', asset.assetCode, customApiKey, {
+      providerId: activeVideoProviderId,
+      modelName: activeVideoModel,
+      platform: asset.platform,
+      assetId: asset.id,
+      campaignId: asset.campaignId
+    });
 
     if (result.success && result.operationName) {
       setProductionStatus('GENERATING');
@@ -269,14 +326,29 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
           setProductionStatus('FAILED');
           setGenerationError(status.error);
         } else if (asset) {
-          setProductionStatus('READY');
-          // Video ready
-          const updated: SocialAsset = {
-            ...asset,
-            productionStatus: 'READY',
-            videoJobOperationName: opName
-          };
-          onUpdateAsset(updated);
+          const downloaded = await downloadGeneratedVideo(opName, asset.assetCode, customApiKey);
+          if (!downloaded.success || !downloaded.videoUrl) {
+            setProductionStatus('FAILED');
+            setGenerationError(downloaded.error || 'Video completed but the generated file could not be retrieved.');
+            const updated: SocialAsset = {
+              ...asset,
+              productionStatus: 'FAILED',
+              videoJobOperationName: opName,
+              productionError: downloaded.error || 'Video file retrieval failed'
+            };
+            onUpdateAsset(updated);
+          } else {
+            setProductionStatus('READY');
+            const updated: SocialAsset = {
+              ...asset,
+              productionStatus: 'READY',
+              generatedVideoUrl: downloaded.videoUrl,
+              videoJobOperationName: opName,
+              videoGenerationPrompt: activePrompt,
+              productionError: undefined
+            };
+            onUpdateAsset(updated);
+          }
         }
       } else if (attempts > 30) {
         clearInterval(interval);
@@ -312,7 +384,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   // Handler: Download All Slides
   const handleDownloadAllSlides = async () => {
     if (!asset) return;
-    await downloadAllCarouselSlides(asset, slideVisuals);
+    await downloadAllCarouselSlides(asset, slideVisuals, brandRenderOptions);
   };
 
   // Apply deterministic design directly
@@ -496,7 +568,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                     onClick={handleApplyDeterministicDesign}
                     className="px-3 py-1.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white font-medium rounded-xl shadow-sm transition-colors text-xs"
                   >
-                    Use AES-DS design
+                    Use Brand System design
                   </button>
                 )}
                 {onOpenSettings && (
@@ -599,13 +671,25 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                       <div className="rounded-2xl overflow-hidden shadow-xl border border-black/[0.06] bg-black aspect-[4/5] w-full">
                         <img
                           src={deterministicCanvasUrl}
-                          alt="AES-DS Poster"
+                          alt="Brand-system poster"
                           className="w-full h-full object-contain"
                         />
                       </div>
                       <span className="text-xs text-[#86868B] font-medium">
-                        AES-DS Deterministic Design Engine
+                        Brand System Deterministic Design
                       </span>
+                    </div>
+                  ) : isVideo && asset.generatedVideoUrl ? (
+                    <div className="space-y-3 w-full max-w-sm">
+                      <div className="rounded-2xl overflow-hidden shadow-xl border border-black/[0.06] bg-black aspect-[9/16] w-full">
+                        <video
+                          src={asset.generatedVideoUrl}
+                          controls
+                          playsInline
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <span className="text-xs text-[#86868B] font-medium">Generated video ready for review</span>
                     </div>
                   ) : isVideo ? (
                     /* Video Initial Preview Placeholder */
@@ -674,10 +758,10 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                   ) : (
                     /* Image & Carousel Methods */
                     <div className="space-y-2.5">
-                      {/* Method 1: AES-DS Design (First class) */}
+                      {/* Method 1: Brand System Design */}
                       <div className="bg-[#FBFBFD] p-4 rounded-2xl border border-black/[0.06] space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-xs text-[#1D1D1F]">AES-DS Design</span>
+                          <span className="font-medium text-xs text-[#1D1D1F]">Brand System Design</span>
                           <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-medium">Free</span>
                         </div>
                         <p className="text-xs text-[#6E6E73]">
@@ -688,7 +772,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                           className="w-full py-2 bg-white hover:bg-neutral-50 border border-black/[0.08] text-[#1D1D1F] text-xs font-medium rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5"
                         >
                           <Palette className="w-3.5 h-3.5 text-[#FF4500]" />
-                          <span>Apply AES-DS design</span>
+                          <span>Apply Brand System design</span>
                         </button>
                       </div>
 
@@ -871,7 +955,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                 )}
 
                 <div className="flex items-center justify-between text-[11px] text-[#86868B] pt-1">
-                  <span>Target Model: <strong className="text-[#1D1D1F] font-medium">{isVideo ? 'veo-3.1-lite-generate-preview' : 'gemini-3.1-flash-lite-image'}</strong></span>
+                  <span>Target Model: <strong className="text-[#1D1D1F] font-medium">{isVideo ? (activeVideoModel || activeVideoProviderName) : (activeImageModel || activeImageProviderName)}</strong></span>
                   <span>Cost Protection: Explicit trigger only</span>
                 </div>
               </div>
