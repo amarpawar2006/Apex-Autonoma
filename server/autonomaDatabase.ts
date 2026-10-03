@@ -170,6 +170,15 @@ export function assetToDbRow(a: SocialAsset, orgId?: string): DbAssetRow {
     videoPrompt: a.videoGenerationPrompt || '',
     approvalStatus: a.status,
     mediaStatus: a.productionStatus || 'NOT_GENERATED',
+    generatedImageUrl: a.generatedImageUrl || '',
+    generatedVideoUrl: a.generatedVideoUrl || '',
+    carouselVisualsJson: JSON.stringify(a.carouselSlideVisuals || {}),
+    productionError: a.productionError || '',
+    videoOperationName: a.videoJobOperationName || '',
+    targetBuyerPersona: a.targetBuyerPersona || '',
+    targetReach: Number(a.targetReach) || 0,
+    estimatedImpressions: Number(a.estimatedImpressions) || 0,
+    expectedLeads: Number(a.expectedLeads) || 0,
     aiContentScore: a.viralityScore || 85,
     aiScoreRationale: a.viralityRationale || '',
     isArchived: Boolean(a.isArchived),
@@ -206,7 +215,7 @@ export function dbRowToAsset(row: DbAssetRow): SocialAsset {
   return {
     id: row.assetId,
     campaignId: row.campaignId,
-    assetCode: row.assetId.startsWith('APEX-') ? row.assetId : `APEX-${row.assetId}`,
+    assetCode: row.assetId.startsWith('APEX-') ? row.assetId.replace(/^APEX-/, 'AUTO-') : row.assetId,
     title: row.title,
     strategicPurpose: row.strategicPurpose,
     angle: row.angle,
@@ -220,6 +229,11 @@ export function dbRowToAsset(row: DbAssetRow): SocialAsset {
     speciesCode: (row.speciesCode as any) || 'SPEC-01_PROBLEM_FIRST',
     status: (row.approvalStatus as any) || 'draft',
     productionStatus: (row.mediaStatus as any) || 'NOT_GENERATED',
+    generatedImageUrl: row.generatedImageUrl || undefined,
+    generatedVideoUrl: row.generatedVideoUrl || undefined,
+    carouselSlideVisuals: row.carouselVisualsJson ? (() => { try { return JSON.parse(row.carouselVisualsJson); } catch { return {}; } })() : undefined,
+    productionError: row.productionError || undefined,
+    videoJobOperationName: row.videoOperationName || undefined,
     isArchived: Boolean(row.isArchived),
     archivedAt: row.archivedAt,
     hook: row.hook,
@@ -228,12 +242,12 @@ export function dbRowToAsset(row: DbAssetRow): SocialAsset {
     callToAction: row.cta,
     viralityScore: Number(row.aiContentScore) || 85,
     viralityRationale: row.aiScoreRationale,
-    targetReach: 2800,
-    estimatedImpressions: 3900,
-    expectedLeads: 5,
-    targetBuyerPersona: 'Small business owners & local product businesses',
+    targetReach: Number(row.targetReach) || 0,
+    estimatedImpressions: Number(row.estimatedImpressions) || 0,
+    expectedLeads: Number(row.expectedLeads) || 0,
+    targetBuyerPersona: row.targetBuyerPersona || 'Audience from campaign context',
     designSystemVerified: true,
-    colorScheme: 'carbon_orange',
+    colorScheme: 'brand_custom',
     slides,
     videoScenes,
     posterVisualPrompt: row.imagePrompt,
@@ -415,6 +429,8 @@ public async initializeProductionPersistence(): Promise<{
       ...(remote.memberships ? { memberships: remote.memberships } : {}),
       ...(remote.campaigns ? { campaigns: remote.campaigns } : {}),
       ...(remote.assets ? { assets: remote.assets } : {}),
+      ...(remote.media ? { media: remote.media } : {}),
+      ...(remote.settings ? { settings: remote.settings } : {}),
       initialized: true
     };
 
@@ -1760,6 +1776,9 @@ public async initializeProductionPersistence(): Promise<{
       this.store.media.unshift(media);
     }
     this.persistToDisk();
+    supabaseStorage.upsertMediaRecord(media).catch((e) => {
+      console.warn('[Autonoma DB] Supabase media persistence note:', e?.message);
+    });
 
     this.logActivity('MEDIA', media.mediaId, idx >= 0 ? 'UPDATE_MEDIA' : 'CREATE_MEDIA', {
       type: media.type,
@@ -1886,6 +1905,9 @@ public async initializeProductionPersistence(): Promise<{
       updatedAt: new Date().toISOString()
     };
     this.persistToDisk();
+
+    // Supabase is authoritative for durable settings, including AI provider selection.
+    await supabaseStorage.upsertSettings(this.store.settings);
 
     if (this.getGoogleSheetsUrl()) {
       this.callAppsScript('UPDATE_SETTINGS', { settings: this.store.settings }).catch(e => {});
