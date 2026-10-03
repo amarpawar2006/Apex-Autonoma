@@ -39,6 +39,56 @@ import {
 } from '../../types/auth';
 import { autonomaDataService } from '../../services/autonomaDataService';
 
+const displayValue = (value: unknown, fallback = ''): string => {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => displayValue(item)).filter(Boolean).join(' • ') || fallback;
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const title =
+      displayValue(obj.Pillar) ||
+      displayValue(obj.pillar) ||
+      displayValue(obj.title) ||
+      displayValue(obj.name) ||
+      displayValue(obj.label);
+    const description =
+      displayValue(obj.Description) ||
+      displayValue(obj.description) ||
+      displayValue(obj.body) ||
+      displayValue(obj.detail) ||
+      displayValue(obj.value);
+    if (title && description) return `${title}: ${description}`;
+    if (title) return title;
+    if (description) return description;
+    return Object.entries(obj)
+      .map(([key, item]) => `${key}: ${displayValue(item)}`)
+      .filter(Boolean)
+      .join(' • ') || fallback;
+  }
+  return fallback;
+};
+
+const normalizeSummary = (value: CompanyUnderstoodSummary | undefined): CompanyUnderstoodSummary | undefined => {
+  if (!value) return undefined;
+  return {
+    ...value,
+    organizationAndOffering: displayValue(value.organizationAndOffering),
+    audience: displayValue(value.audience),
+    goals: displayValue(value.goals),
+    voice: displayValue(value.voice),
+    cta: displayValue(value.cta),
+    constraints: displayValue(value.constraints),
+    positioning: displayValue(value.positioning),
+    geography: displayValue(value.geography),
+    sourceUrls: Array.isArray(value.sourceUrls) ? value.sourceUrls.map((item) => displayValue(item)).filter(Boolean) : [],
+    assumptions: Array.isArray(value.assumptions) ? value.assumptions.map((item) => displayValue(item)).filter(Boolean) : []
+  };
+};
+
 interface CompanyManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -131,12 +181,12 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
     const prof = activeCompany?.profile;
     if (prof) {
       setOrgType(prof.organizationType || 'business');
-      setDescription(prof.description || '');
-      setOfferings(prof.offerings || '');
-      setAudience(prof.audience || '');
-      setGeography(prof.geography || '');
-      setPositioning(prof.positioning || prof.confirmedContext?.positioning || '');
-      setPrimaryGoal(prof.primaryGoal || '');
+      setDescription(displayValue(prof.description));
+      setOfferings(displayValue(prof.offerings));
+      setAudience(displayValue(prof.audience));
+      setGeography(displayValue(prof.geography));
+      setPositioning(displayValue(prof.positioning || prof.confirmedContext?.positioning));
+      setPrimaryGoal(displayValue(prof.primaryGoal));
       setPreferredLanguage(prof.preferredLanguage || 'English');
       setTimezone(prof.timezone || 'Asia/Kolkata');
       setWebsite(prof.website || '');
@@ -146,13 +196,13 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
       setSocialYoutube(prof.socialLinks?.youtube || '');
       setSocialFacebook(prof.socialLinks?.facebook || '');
       setSocialTwitter(prof.socialLinks?.twitter || '');
-      setPreferredCta(prof.preferredCta || '');
+      setPreferredCta(displayValue(prof.preferredCta));
       setDefaultWhatsAppRecipient(prof.defaultWhatsAppRecipient || '');
-      setBrandVoice(prof.brandVoice || '');
-      setClaimsAvoid(prof.claimsAvoid || '');
+      setBrandVoice(displayValue(prof.brandVoice));
+      setClaimsAvoid(displayValue(prof.claimsAvoid));
 
       if (prof.confirmedContext) {
-        setSummaryState(prof.confirmedContext);
+        setSummaryState(normalizeSummary(prof.confirmedContext) || summaryState);
       } else {
         // Pre-seed draft summary based on existing profile fields
         setSummaryState({
@@ -364,7 +414,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
       });
 
       if (res?.summary) {
-        setSummaryState(res.summary);
+        setSummaryState(normalizeSummary(res.summary) || summaryState);
 
         // The website analysis endpoint now persists the normalized company profile.
         // Immediately hydrate every setup tab from that authoritative response so
@@ -376,15 +426,15 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
         if (persistedProfile) {
           if (res.company?.name) setCompanyName(res.company.name);
           setOrgType(persistedProfile.organizationType || 'business');
-          setDescription(persistedProfile.description || '');
-          setOfferings(persistedProfile.offerings || '');
-          setAudience(persistedProfile.audience || '');
-          setGeography(persistedProfile.geography || '');
-          setPositioning(persistedProfile.positioning || '');
-          setPrimaryGoal(persistedProfile.primaryGoal || '');
-          setBrandVoice(persistedProfile.brandVoice || '');
-          setClaimsAvoid(persistedProfile.claimsAvoid || '');
-          setPreferredCta(persistedProfile.preferredCta || '');
+          setDescription(displayValue(persistedProfile.description));
+          setOfferings(displayValue(persistedProfile.offerings));
+          setAudience(displayValue(persistedProfile.audience));
+          setGeography(displayValue(persistedProfile.geography));
+          setPositioning(displayValue(persistedProfile.positioning));
+          setPrimaryGoal(displayValue(persistedProfile.primaryGoal));
+          setBrandVoice(displayValue(persistedProfile.brandVoice));
+          setClaimsAvoid(displayValue(persistedProfile.claimsAvoid));
+          setPreferredCta(displayValue(persistedProfile.preferredCta));
           if (persistedProfile.website) setWebsite(persistedProfile.website);
         }
         
@@ -401,7 +451,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
             filledCount++;
           }
           if (!description.trim() && (inf.description || res.summary.organizationAndOffering)) {
-            setDescription(inf.description || res.summary.organizationAndOffering.slice(0, 300));
+            setDescription(displayValue(inf.description || res.summary.organizationAndOffering).slice(0, 300));
             filledCount++;
           }
           if (!offerings.trim() && inf.offerings) {
@@ -439,7 +489,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
         } else if (!persistedProfile) {
           // Fallback extraction from summary
           if (!description.trim() && res.summary.organizationAndOffering) {
-            setDescription(res.summary.organizationAndOffering.slice(0, 300));
+            setDescription(displayValue(res.summary.organizationAndOffering).slice(0, 300));
             filledCount++;
           }
           if (!audience.trim() && res.summary.audience) {
@@ -515,7 +565,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
       const res = await autonomaDataService.confirmCompanyContext(summaryToConfirm);
       if (res.success && res.data) {
         setSuccess(`Company context v${res.confirmedContext.version} confirmed and activated!`);
-        setSummaryState(res.confirmedContext);
+        setSummaryState(normalizeSummary(res.confirmedContext) || summaryState);
         onCompanyUpdated(res.data);
       }
     } catch (err: any) {
@@ -1434,7 +1484,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveTab('understanding')}
-                    className="px-3.5 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-white text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5"
+                    className="px-3.5 py-2 bg-black/[0.04] hover:bg-black/[0.08] text-[#1D1D1F] text-xs font-semibold rounded-xl transition-all flex items-center space-x-1.5"
                   >
                     <span>Review Autonoma's Understanding</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -1472,7 +1522,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveTab('profile')}
-                    className="px-3 py-1.5 bg-black/[0.04] hover:bg-black/[0.08] text-white text-xs font-semibold rounded-xl transition-all border border-black/[0.08] flex items-center space-x-1.5"
+                    className="px-3 py-1.5 bg-black/[0.04] hover:bg-black/[0.08] text-[#1D1D1F] text-xs font-semibold rounded-xl transition-all border border-black/[0.08] flex items-center space-x-1.5"
                   >
                     <Building2 className="w-3.5 h-3.5" />
                     <span>Edit Profile</span>
@@ -1499,11 +1549,11 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Business / Core Identity
                   </span>
-                  <p className="text-white text-xs leading-relaxed font-medium">
+                  <p className="text-[#1D1D1F] text-xs leading-relaxed font-medium">
                     {companyName} ({orgType.replace('_', ' ')})
                   </p>
                   <p className="text-[#86868B] text-[11px] leading-relaxed">
-                    {description || summaryState.organizationAndOffering || 'No description provided yet.'}
+                    {displayValue(description || summaryState.organizationAndOffering, 'No description provided yet.')}
                   </p>
                 </div>
 
@@ -1512,8 +1562,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     What You Offer
                   </span>
-                  <p className="text-white text-xs leading-relaxed">
-                    {offerings || summaryState.organizationAndOffering || 'Core products, services and solutions'}
+                  <p className="text-[#1D1D1F] text-xs leading-relaxed">
+                    {displayValue(offerings || summaryState.organizationAndOffering, 'Core products, services and solutions')}
                   </p>
                 </div>
 
@@ -1522,8 +1572,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Who You Serve
                   </span>
-                  <p className="text-white text-xs leading-relaxed">
-                    {audience || summaryState.audience || 'Target customer personas & community'}
+                  <p className="text-[#1D1D1F] text-xs leading-relaxed">
+                    {displayValue(audience || summaryState.audience, 'Target customer personas & community')}
                   </p>
                 </div>
 
@@ -1532,8 +1582,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Positioning
                   </span>
-                  <p className="text-white text-xs leading-relaxed">
-                    {positioning || summaryState.positioning || 'Differentiated market stance inferred from offerings'}
+                  <p className="text-[#1D1D1F] text-xs leading-relaxed">
+                    {displayValue(positioning || summaryState.positioning, 'Differentiated market stance inferred from offerings')}
                   </p>
                 </div>
 
@@ -1542,8 +1592,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Geography
                   </span>
-                  <p className="text-white text-xs leading-relaxed">
-                    {geography || summaryState.geography || 'Regional & National'}
+                  <p className="text-[#1D1D1F] text-xs leading-relaxed">
+                    {displayValue(geography || summaryState.geography, 'Regional & National')}
                   </p>
                 </div>
 
@@ -1552,8 +1602,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-[#86868B] block">
                     Growth Focus
                   </span>
-                  <p className="text-white text-xs leading-relaxed">
-                    {primaryGoal || summaryState.goals || 'Conversion and customer acquisition'}
+                  <p className="text-[#1D1D1F] text-xs leading-relaxed">
+                    {displayValue(primaryGoal || summaryState.goals, 'Conversion and customer acquisition')}
                   </p>
                 </div>
 
@@ -1565,20 +1615,20 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                     <div>
                       <span className="text-[10px] text-[#6E6E73] block">Brand Voice</span>
-                      <p className="text-white text-[11px] mt-0.5">
-                        {brandVoice || summaryState.voice || 'Professional, grounded, clear'}
+                      <p className="text-[#1D1D1F] text-[11px] mt-0.5">
+                        {displayValue(brandVoice || summaryState.voice, 'Professional, grounded, clear')}
                       </p>
                     </div>
                     <div>
                       <span className="text-[10px] text-[#6E6E73] block">Preferred CTA</span>
-                      <p className="text-white text-[11px] mt-0.5">
-                        {preferredCta || summaryState.cta || 'Contact directly or visit website'}
+                      <p className="text-[#1D1D1F] text-[11px] mt-0.5">
+                        {displayValue(preferredCta || summaryState.cta, 'Contact directly or visit website')}
                       </p>
                     </div>
                     <div>
                       <span className="text-[10px] text-[#6E6E73] block">Claims to Avoid</span>
                       <p className="text-amber-400/90 text-[11px] mt-0.5">
-                        {claimsAvoid || summaryState.constraints || 'No unverified claims or aggressive hype'}
+                        {displayValue(claimsAvoid || summaryState.constraints, 'No unverified claims or aggressive hype')}
                       </p>
                     </div>
                   </div>
