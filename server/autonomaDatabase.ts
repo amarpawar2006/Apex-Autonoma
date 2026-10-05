@@ -431,6 +431,8 @@ public async initializeProductionPersistence(): Promise<{
       ...(remote.assets ? { assets: remote.assets } : {}),
       ...(remote.media ? { media: remote.media } : {}),
       ...(remote.settings ? { settings: remote.settings } : {}),
+      ...(remote.approvalRequests ? { approvalRequests: remote.approvalRequests } : {}),
+      ...(remote.sessions ? { sessions: remote.sessions } : {}),
       initialized: true
     };
 
@@ -1013,17 +1015,39 @@ public async initializeProductionPersistence(): Promise<{
 
   public async saveUser(user: DbUserRow): Promise<DbUserRow> {
     if (!this.store.users) this.store.users = [];
-    const idx = this.store.users.findIndex(u => u.userId === user.userId);
-    if (idx >= 0) {
-      this.store.users[idx] = { ...this.store.users[idx], ...user };
+    const normEmail = (user.email || '').toLowerCase().trim();
+    user.email = normEmail;
+
+    // Check if user already exists with this normalized email
+    const existingByEmail = this.store.users.find(u => u.email.toLowerCase().trim() === normEmail);
+    let targetUser: DbUserRow;
+    if (existingByEmail) {
+      targetUser = {
+        ...existingByEmail,
+        ...user,
+        userId: existingByEmail.userId // retain canonical userId
+      };
+      const idx = this.store.users.findIndex(u => u.userId === existingByEmail.userId);
+      this.store.users[idx] = targetUser;
     } else {
-      this.store.users.push(user);
+      const idx = this.store.users.findIndex(u => u.userId === user.userId);
+      if (idx >= 0) {
+        targetUser = { ...this.store.users[idx], ...user };
+        this.store.users[idx] = targetUser;
+      } else {
+        targetUser = { ...user };
+        this.store.users.push(targetUser);
+      }
     }
+
+    // Persist synchronously to Supabase
+    await supabaseStorage.upsertUser(targetUser);
+
     this.persistToDisk();
     if (this.getGoogleSheetsUrl()) {
-      this.callAppsScript(idx >= 0 ? 'UPDATE_USER' : 'CREATE_USER', { user }).catch(() => {});
+      this.callAppsScript('UPDATE_USER', { user: targetUser }).catch(() => {});
     }
-    return user;
+    return targetUser;
   }
 
 
@@ -1038,6 +1062,9 @@ public async initializeProductionPersistence(): Promise<{
     this.store.memberships = (this.store.memberships || []).filter(m => m.userId !== userId);
     this.store.sessions = (this.store.sessions || []).filter(s => s.userId !== userId);
     this.store.users = (this.store.users || []).filter(u => u.userId !== userId);
+
+    // Delete authoritatively from Supabase
+    await supabaseStorage.deleteUser(userId);
 
     this.logActivity('USER', userId, 'DELETE_USER', { email: user.email, actorUserId, deletedMemberships });
     this.persistToDisk();
@@ -1069,6 +1096,7 @@ public async initializeProductionPersistence(): Promise<{
       existing.status = 'ACTIVE';
       existing.assignedBy = assignedBy;
       existing.assignedAt = new Date().toISOString();
+      await supabaseStorage.upsertMembership(existing);
       this.persistToDisk();
       return existing;
     }
@@ -1084,6 +1112,10 @@ public async initializeProductionPersistence(): Promise<{
       assignedBy
     };
     this.store.memberships.push(newMembership);
+    
+    // Persist synchronously to Supabase
+    await supabaseStorage.upsertMembership(newMembership);
+
     this.persistToDisk();
 
     this.logActivity('MEMBERSHIP', membershipId, 'CREATE_MEMBERSHIP', { userId, companyId, role });
@@ -1102,6 +1134,10 @@ public async initializeProductionPersistence(): Promise<{
       ...updates
     };
     this.store.memberships[idx] = updated;
+
+    // Persist synchronously to Supabase
+    await supabaseStorage.upsertMembership(updated);
+
     this.persistToDisk();
 
     this.logActivity('MEMBERSHIP', membershipId, 'UPDATE_MEMBERSHIP', updates);
@@ -1116,6 +1152,10 @@ public async initializeProductionPersistence(): Promise<{
     const idx = this.store.memberships.findIndex(m => m.membershipId === membershipId);
     if (idx < 0) return false;
     this.store.memberships.splice(idx, 1);
+    
+    // Persist synchronously to Supabase
+    await supabaseStorage.deleteMembership(membershipId);
+
     this.persistToDisk();
     if (this.getGoogleSheetsUrl()) {
       this.callAppsScript('DELETE_MEMBERSHIP', { membershipId }).catch(() => {});
@@ -1163,6 +1203,7 @@ public async initializeProductionPersistence(): Promise<{
       requestedAt: new Date().toISOString()
     };
     this.store.approvalRequests.unshift(newRequest);
+    await supabaseStorage.upsertApprovalRequest(newRequest);
     this.persistToDisk();
 
     this.logActivity('APPROVAL_REQUEST', requestId, 'SIGNUP_REQUEST_CREATED', {
@@ -1235,6 +1276,7 @@ public async initializeProductionPersistence(): Promise<{
     req.resolvedBy = resolvedByUserId;
     req.assignedCompanyId = company.companyId;
     req.assignedRole = role;
+    await supabaseStorage.upsertApprovalRequest(req);
     this.persistToDisk();
 
     this.logActivity('APPROVAL_REQUEST', requestId, 'APPROVE_REQUEST', {
@@ -1265,6 +1307,7 @@ public async initializeProductionPersistence(): Promise<{
     req.status = 'REJECTED';
     req.resolvedAt = new Date().toISOString();
     req.resolvedBy = resolvedByUserId;
+    await supabaseStorage.upsertApprovalRequest(req);
     this.persistToDisk();
 
     this.logActivity('APPROVAL_REQUEST', requestId, 'REJECT_REQUEST', {
@@ -1282,7 +1325,7 @@ public async initializeProductionPersistence(): Promise<{
   // SESSIONS API
   // ==========================================
 
-  public createSession(userId: string, activeCompanyId?: string): DbSessionRow {
+  public async createSession(userId: string, activeCompanyId?: string): Promise<DbSessionRow> {
     if (!this.store.sessions) this.store.sessions = [];
     const sessionToken = `autonoma_sess_${crypto.randomBytes(24).toString('hex')}`;
     const now = new Date();
@@ -1295,6 +1338,7 @@ public async initializeProductionPersistence(): Promise<{
       expiresAt: expires.toISOString()
     };
     this.store.sessions.push(session);
+    await supabaseStorage.upsertSession(session);
     this.persistToDisk();
     return session;
   }
@@ -1305,25 +1349,27 @@ public async initializeProductionPersistence(): Promise<{
     if (!session) return null;
     // Check expiry
     if (new Date(session.expiresAt).getTime() < Date.now()) {
-      this.deleteSession(sessionToken);
+      this.deleteSession(sessionToken).catch(() => {});
       return null;
     }
     return session;
   }
 
-  public deleteSession(sessionToken: string): boolean {
+  public async deleteSession(sessionToken: string): Promise<boolean> {
     if (!this.store.sessions) return false;
     const idx = this.store.sessions.findIndex(s => s.sessionToken === sessionToken);
     if (idx < 0) return false;
     this.store.sessions.splice(idx, 1);
+    await supabaseStorage.deleteSession(sessionToken);
     this.persistToDisk();
     return true;
   }
 
-  public updateSessionCompany(sessionToken: string, activeCompanyId: string): DbSessionRow | null {
+  public async updateSessionCompany(sessionToken: string, activeCompanyId: string): Promise<DbSessionRow | null> {
     const session = this.getSession(sessionToken);
     if (!session) return null;
     session.activeCompanyId = activeCompanyId;
+    await supabaseStorage.upsertSession(session);
     this.persistToDisk();
     return session;
   }

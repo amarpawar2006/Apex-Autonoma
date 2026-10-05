@@ -94,7 +94,9 @@ export class SupabaseStorageAdapter {
         campaignsRes,
         assetsRes,
         mediaRes,
-        settingsRes
+        settingsRes,
+        approvalRequestsRes,
+        sessionsRes
       ] = await Promise.all([
         this.client.from('companies').select('*'),
         this.client.from('users').select('*'),
@@ -102,7 +104,9 @@ export class SupabaseStorageAdapter {
         this.client.from('campaigns').select('*'),
         this.client.from('assets').select('*'),
         this.client.from('media').select('*'),
-        this.client.from('settings').select('*').order('updated_at', { ascending: false }).limit(1)
+        this.client.from('settings').select('*').order('updated_at', { ascending: false }).limit(1),
+        this.client.from('approval_requests').select('*'),
+        this.client.from('sessions').select('*')
       ]);
 
       if (companiesRes.error && companiesRes.error.code !== 'PGRST116') {
@@ -222,6 +226,27 @@ export class SupabaseStorageAdapter {
       }));
 
 
+      const approvalRequests = (approvalRequestsRes.data || []).map((row: any) => ({
+        requestId: row.request_id || row.requestId,
+        email: row.email,
+        name: row.name,
+        proposedCompanyName: row.proposed_company_name || row.proposedCompanyName,
+        status: row.status,
+        requestedAt: row.requested_at || row.requestedAt,
+        resolvedAt: row.resolved_at || row.resolvedAt,
+        resolvedBy: row.resolved_by || row.resolvedBy,
+        assignedCompanyId: row.assigned_company_id || row.assignedCompanyId,
+        assignedRole: row.assigned_role || row.assignedRole
+      }));
+
+      const sessions = (sessionsRes.data || []).map((row: any) => ({
+        sessionToken: row.session_token || row.sessionToken,
+        userId: row.user_id || row.userId,
+        activeCompanyId: row.active_company_id || row.activeCompanyId,
+        createdAt: row.created_at || row.createdAt,
+        expiresAt: row.expires_at || row.expiresAt
+      })).filter((s: any) => s.expiresAt && new Date(s.expiresAt).getTime() > Date.now());
+
       const settingsRow: any = (settingsRes.data || [])[0];
       const settings = settingsRow ? {
         organizationId: settingsRow.organization_id || settingsRow.organizationId,
@@ -237,7 +262,7 @@ export class SupabaseStorageAdapter {
       } : undefined;
 
       if (companies.length > 0 || users.length > 0 || campaigns.length > 0) {
-        console.log(`[Supabase Adapter] Authoritative state loaded: ${companies.length} companies, ${users.length} users, ${campaigns.length} campaigns, ${assets.length} assets, ${media.length} media records.`);
+        console.log(`[Supabase Adapter] Authoritative state loaded: ${companies.length} companies, ${users.length} users, ${memberships.length} memberships, ${campaigns.length} campaigns, ${assets.length} assets, ${media.length} media records, ${approvalRequests.length} approval requests, ${sessions.length} active sessions.`);
         return {
           companies: companies as any,
           users: users as any,
@@ -245,6 +270,8 @@ export class SupabaseStorageAdapter {
           campaigns: campaigns as any,
           assets: assets as any,
           media: media as any,
+          approvalRequests: approvalRequests as any,
+          sessions: sessions as any,
           ...(settings ? { settings: settings as any } : {})
         };
       }
@@ -632,6 +659,144 @@ export class SupabaseStorageAdapter {
     }
   }
 
+  /**
+   * Authoritatively upserts a user into Supabase
+   */
+  public async upsertUser(user: any): Promise<void> {
+    if (!this.ready || !this.client) return;
+    const row = {
+      user_id: user.userId,
+      email: (user.email || '').toLowerCase().trim(),
+      name: user.name || (user.email ? user.email.split('@')[0] : 'User'),
+      avatar_url: user.avatarUrl || null,
+      is_super_admin: Boolean(user.isSuperAdmin),
+      status: user.status || 'ACTIVE',
+      created_at: user.createdAt || new Date().toISOString(),
+      last_login_at: user.lastLoginAt || new Date().toISOString()
+    };
+    const { error } = await this.client.from('users').upsert(row, { onConflict: 'user_id' });
+    if (error) {
+      console.error('[Supabase Adapter] User upsert error:', error);
+      throw new Error(`Supabase user persistence failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Deletes a user permanently from Supabase
+   */
+  public async deleteUser(userId: string): Promise<void> {
+    if (!this.ready || !this.client) return;
+    // Cascade delete memberships and sessions
+    await this.deleteSessionsForUser(userId);
+    await this.client.from('memberships').delete().eq('user_id', userId);
+    const { error } = await this.client.from('users').delete().eq('user_id', userId);
+    if (error) {
+      console.error('[Supabase Adapter] User delete error:', error);
+      throw new Error(`Supabase user deletion failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Authoritatively upserts a membership into Supabase
+   */
+  public async upsertMembership(mem: any): Promise<void> {
+    if (!this.ready || !this.client) return;
+    const row = {
+      membership_id: mem.membershipId,
+      user_id: mem.userId,
+      company_id: mem.companyId,
+      role: mem.role || 'MEMBER',
+      status: mem.status || 'ACTIVE',
+      invite_status: mem.inviteStatus || null,
+      invite_sent_at: mem.inviteSentAt || null,
+      invite_error: mem.inviteError || null,
+      invite_link: mem.inviteLink || null,
+      assigned_at: mem.assignedAt || new Date().toISOString(),
+      assigned_by: mem.assignedBy || 'SYSTEM'
+    };
+    const { error } = await this.client.from('memberships').upsert(row, { onConflict: 'membership_id' });
+    if (error) {
+      console.error('[Supabase Adapter] Membership upsert error:', error);
+      throw new Error(`Supabase membership persistence failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Deletes a membership from Supabase
+   */
+  public async deleteMembership(membershipId: string): Promise<void> {
+    if (!this.ready || !this.client) return;
+    const { error } = await this.client.from('memberships').delete().eq('membership_id', membershipId);
+    if (error) {
+      console.error('[Supabase Adapter] Membership delete error:', error);
+      throw new Error(`Supabase membership deletion failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Authoritatively upserts an approval request into Supabase
+   */
+  public async upsertApprovalRequest(req: any): Promise<void> {
+    if (!this.ready || !this.client) return;
+    const row = {
+      request_id: req.requestId,
+      email: (req.email || '').toLowerCase().trim(),
+      name: req.name || '',
+      proposed_company_name: req.proposedCompanyName || '',
+      status: req.status || 'PENDING',
+      requested_at: req.requestedAt || new Date().toISOString(),
+      resolved_at: req.resolvedAt || null,
+      resolved_by: req.resolvedBy || null,
+      assigned_company_id: req.assignedCompanyId || null,
+      assigned_role: req.assignedRole || null
+    };
+    const { error } = await this.client.from('approval_requests').upsert(row, { onConflict: 'request_id' });
+    if (error) {
+      console.error('[Supabase Adapter] Approval request upsert error:', error);
+      throw new Error(`Supabase approval request persistence failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Authoritatively upserts a session into Supabase
+   */
+  public async upsertSession(session: any): Promise<void> {
+    if (!this.ready || !this.client) return;
+    const row = {
+      session_token: session.sessionToken,
+      user_id: session.userId,
+      active_company_id: session.activeCompanyId || null,
+      created_at: session.createdAt || new Date().toISOString(),
+      expires_at: session.expiresAt
+    };
+    const { error } = await this.client.from('sessions').upsert(row, { onConflict: 'session_token' });
+    if (error) {
+      console.error('[Supabase Adapter] Session upsert error:', error);
+      throw new Error(`Supabase session persistence failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Deletes a session by token from Supabase
+   */
+  public async deleteSession(sessionToken: string): Promise<void> {
+    if (!this.ready || !this.client) return;
+    const { error } = await this.client.from('sessions').delete().eq('session_token', sessionToken);
+    if (error) {
+      console.warn('[Supabase Adapter] Session delete warning:', error.message);
+    }
+  }
+
+  /**
+   * Deletes all sessions for a user from Supabase
+   */
+  public async deleteSessionsForUser(userId: string): Promise<void> {
+    if (!this.ready || !this.client) return;
+    const { error } = await this.client.from('sessions').delete().eq('user_id', userId);
+    if (error) {
+      console.warn('[Supabase Adapter] User sessions delete warning:', error.message);
+    }
+  }
 }
 
 export const supabaseStorage = new SupabaseStorageAdapter();

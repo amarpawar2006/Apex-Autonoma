@@ -266,6 +266,13 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
 
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
+  const [lastInviteNotice, setLastInviteNotice] = useState<{
+    status: 'SENT' | 'FAILED' | 'PREVIEW_ONLY';
+    email: string;
+    membershipId: string;
+    inviteLink: string;
+    error?: string;
+  } | null>(null);
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -278,12 +285,28 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
         newName.trim() || newEmail.split('@')[0],
         newRole
       );
-      if (result?.emailDelivery?.success) {
+      const delivery = result?.emailDelivery;
+      const memId = result?.data?.membershipId || result?.membershipId || '';
+      const invLink = result?.data?.inviteLink || `${window.location.origin}/invite?membership=${memId}&company=${activeCompany.companyId || activeCompany.id}`;
+
+      if (delivery?.success) {
         setSuccess(`Invited ${newEmail}! Transactional invitation email sent successfully.`);
-      } else if (result?.emailDelivery?.error) {
-        setSuccess(`Member added! Delivery notice: ${result.emailDelivery.error}. Direct invite link available in list.`);
+        setLastInviteNotice({
+          status: 'SENT',
+          email: newEmail,
+          membershipId: memId,
+          inviteLink: invLink
+        });
       } else {
-        setSuccess(`Added ${newEmail} as ${newRole}.`);
+        const errorMsg = delivery?.error || 'Automatic invitation email was not delivered. Access has been provisioned. Please share the invite link manually.';
+        setError(errorMsg);
+        setLastInviteNotice({
+          status: delivery?.previewOnly ? 'PREVIEW_ONLY' : 'FAILED',
+          email: newEmail,
+          membershipId: memId,
+          inviteLink: invLink,
+          error: errorMsg
+        });
       }
       setNewEmail('');
       setNewName('');
@@ -304,7 +327,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
       if (res.emailDelivery?.success) {
         setSuccess('Transactional invitation email resent successfully!');
       } else {
-        setError(`Email delivery failed: ${res.emailDelivery?.error || 'Could not dispatch email'}`);
+        const errorMsg = res.emailDelivery?.error || 'Automatic invitation email was not delivered. Access has been provisioned. Please share the invite link manually.';
+        setError(errorMsg);
       }
       await loadMembers();
     } catch (err: any) {
@@ -316,7 +340,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
 
   const handleCopyInviteLink = (mem: Membership) => {
     const memId = mem.membershipId || mem.id || '';
-    const link = mem.inviteLink || `${window.location.origin}/?invite=${memId}&company=${activeCompany.companyId || activeCompany.id}`;
+    const link = mem.inviteLink || `${window.location.origin}/invite?membership=${memId}&company=${activeCompany.companyId || activeCompany.id}`;
     navigator.clipboard.writeText(link);
     setCopiedInviteId(memId);
     setTimeout(() => setCopiedInviteId(null), 2000);
@@ -1720,6 +1744,73 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                 </div>
               )}
 
+              {/* Email Delivery Failure / Access Provisioned Banner */}
+              {lastInviteNotice && lastInviteNotice.status !== 'SENT' && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-2 text-[#1D1D1F]">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-amber-900">
+                        ACCESS PROVISIONED · EMAIL DELIVERY FAILED
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setLastInviteNotice(null)}
+                      className="text-xs text-[#86868B] hover:text-[#1D1D1F]"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-xs text-[#6E6E73]">
+                    Automatic invitation email was not delivered. Access has been provisioned. Please share the invite link manually.
+                  </p>
+                  <div className="flex items-center flex-wrap gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(lastInviteNotice.inviteLink);
+                        setCopiedInviteId(lastInviteNotice.membershipId);
+                        setTimeout(() => setCopiedInviteId(null), 2000);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-black/[0.1] rounded-lg text-xs font-semibold text-[#1D1D1F] hover:bg-black/[0.04] transition-colors"
+                    >
+                      {copiedInviteId === lastInviteNotice.membershipId ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy invite link</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleResendInvite(lastInviteNotice.membershipId)}
+                      disabled={resendingId === lastInviteNotice.membershipId}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-black/[0.1] rounded-lg text-xs font-semibold text-[#1D1D1F] hover:bg-black/[0.04] transition-colors disabled:opacity-50"
+                    >
+                      {resendingId === lastInviteNotice.membershipId ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#FF4500]" />
+                      ) : (
+                        <Send className="w-3.5 h-3.5 text-[#FF4500]" />
+                      )}
+                      <span>Resend email</span>
+                    </button>
+                    <a
+                      href={`mailto:${lastInviteNotice.email}?subject=${encodeURIComponent(`Join ${activeCompany.name} on Autonoma`)}&body=${encodeURIComponent(`You've been invited to join ${activeCompany.name} on Autonoma.\n\nAccess has been provisioned. Accept your invitation here:\n${lastInviteNotice.inviteLink}`)}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-black/[0.1] rounded-lg text-xs font-semibold text-[#1D1D1F] hover:bg-black/[0.04] transition-colors"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Share manually</span>
+                    </a>
+                  </div>
+                </div>
+              )}
+
               {/* Members List */}
               <div className="space-y-2">
                 <div className="text-xs font-mono text-[#86868B] px-1">ACTIVE MEMBERS</div>
@@ -1742,17 +1833,31 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                                   You
                                 </span>
                               )}
-                              {mem.inviteStatus === 'SENT' ? (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              {mem.status === 'SUSPENDED' ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-zinc-100 text-zinc-700 border border-zinc-200">
+                                  <span>SUSPENDED</span>
+                                </span>
+                              ) : mem.inviteStatus === 'SENT' ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200">
                                   <CheckCircle2 className="w-2.5 h-2.5" />
-                                  <span>Email Sent</span>
+                                  <span>ACCESS PROVISIONED · EMAIL SENT</span>
                                 </span>
                               ) : mem.inviteStatus === 'FAILED' ? (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono bg-red-50 text-red-700 border border-red-200" title={mem.inviteError || 'Delivery failed'}>
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-red-50 text-red-700 border border-red-200" title={mem.inviteError || 'Delivery failed'}>
                                   <AlertCircle className="w-2.5 h-2.5" />
-                                  <span>Delivery Failed</span>
+                                  <span>ACCESS PROVISIONED · EMAIL FAILED</span>
                                 </span>
-                              ) : null}
+                              ) : mem.inviteStatus === 'PREVIEW_ONLY' ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-50 text-amber-700 border border-amber-200" title={mem.inviteError || 'Manual invite required'}>
+                                  <AlertCircle className="w-2.5 h-2.5" />
+                                  <span>ACCESS PROVISIONED · MANUAL INVITE REQUIRED</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                  <span>ACTIVE · LOGGED IN</span>
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="font-mono text-[#86868B] text-[11px] truncate">{mem.userEmail}</span>
@@ -1774,7 +1879,10 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                                   className="p-1.5 rounded-lg border border-black/[0.08] hover:bg-black/[0.04] text-[#6E6E73] hover:text-[#1D1D1F] transition-colors"
                                 >
                                   {copiedInviteId === (mem.membershipId || mem.id) ? (
-                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span className="flex items-center gap-1 text-emerald-600 font-mono text-[10px]">
+                                      <Check className="w-3.5 h-3.5" />
+                                      <span>Copied</span>
+                                    </span>
                                   ) : (
                                     <Copy className="w-3.5 h-3.5" />
                                   )}

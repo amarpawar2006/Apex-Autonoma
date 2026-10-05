@@ -52,6 +52,36 @@ interface AssetProductionModalProps {
 
 type ProductionModalTab = 'preview' | 'content' | 'generation' | 'posting';
 
+export type ImageProviderOptionId = 'cloudflare' | 'openai' | 'gemini';
+
+export interface ImageProviderOption {
+  id: ImageProviderOptionId;
+  title: string;
+  badge?: string;
+  helperText: string;
+  exampleHint?: string;
+}
+
+export const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
+  {
+    id: 'cloudflare',
+    title: 'Cloudflare FLUX',
+    badge: 'Default',
+    helperText: 'Best for everyday campaign images. Fast, low-cost / free-first, and suitable for most social creatives.'
+  },
+  {
+    id: 'openai',
+    title: 'OpenAI',
+    helperText: 'Use for advanced imaging when you want more polished outputs, stronger prompt-following, and better results for complex or premium visuals.',
+    exampleHint: 'Examples: premium product visuals, high-quality posters, nuanced compositions, refined branding scenes.'
+  },
+  {
+    id: 'gemini',
+    title: 'Gemini',
+    helperText: 'Use this when you already have Gemini billing and want image generation under your Gemini stack.'
+  }
+];
+
 function formatScheduleTime(raw?: string): string {
   if (!raw) return 'Time not set';
   if (/^1899-12-30T\d{2}:\d{2}:\d{2}/.test(raw)) {
@@ -93,6 +123,10 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   const [generationError, setGenerationError] = useState<string | null>(asset?.productionError || null);
   const [isBillingRequired, setIsBillingRequired] = useState<boolean>(false);
 
+  // Image provider selector state (Default is Cloudflare FLUX)
+  const [selectedImageProvider, setSelectedImageProvider] = useState<ImageProviderOptionId>('cloudflare');
+  const [providersData, setProvidersData] = useState<Record<string, any>>({});
+
   // Media previews
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(asset?.generatedImageUrl || null);
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(asset?.generatedVideoUrl || null);
@@ -113,11 +147,11 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
   const [copiedVoiceover, setCopiedVoiceover] = useState<boolean>(false);
   const [copiedStoryboard, setCopiedStoryboard] = useState<boolean>(false);
-  const [activeImageProviderName, setActiveImageProviderName] = useState<string>('AI Image');
+  const [activeImageProviderName, setActiveImageProviderName] = useState<string>('Cloudflare FLUX');
   const [activeVideoProviderName, setActiveVideoProviderName] = useState<string>('Video Provider');
-  const [activeImageProviderId, setActiveImageProviderId] = useState<string | undefined>();
+  const [activeImageProviderId, setActiveImageProviderId] = useState<string | undefined>('cloudflare');
   const [activeVideoProviderId, setActiveVideoProviderId] = useState<string | undefined>();
-  const [activeImageModel, setActiveImageModel] = useState<string | undefined>();
+  const [activeImageModel, setActiveImageModel] = useState<string | undefined>('@cf/black-forest-labs/flux-1-schnell');
   const [activeVideoModel, setActiveVideoModel] = useState<string | undefined>();
   const [brandRenderOptions, setBrandRenderOptions] = useState<BrandRenderOptions>({});
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
@@ -131,22 +165,31 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       const defVid = providersRes?.aiProviders?.defaults?.video;
       const providers = providersRes?.aiProviders?.providers || {};
 
-      setActiveImageProviderId(defImg);
+      setProvidersData(providers);
+
+      if (defImg === 'cloudflare' || defImg === 'openai' || defImg === 'gemini') {
+        setSelectedImageProvider(defImg);
+      } else {
+        setSelectedImageProvider('cloudflare');
+      }
+
+      setActiveImageProviderId(defImg || 'cloudflare');
       setActiveVideoProviderId(defVid);
-      setActiveImageModel(defImg ? providers?.[defImg]?.selectedModel : undefined);
+      setActiveImageModel(defImg ? providers?.[defImg]?.selectedModel : '@cf/black-forest-labs/flux-1-schnell');
       setActiveVideoModel(defVid ? providers?.[defVid]?.selectedModel : undefined);
 
-      if (defImg === 'openai') setActiveImageProviderName(`OpenAI ${providers?.openai?.selectedModel || 'Image'}`);
+      if (defImg === 'cloudflare') setActiveImageProviderName('Cloudflare FLUX');
+      else if (defImg === 'openai') setActiveImageProviderName(`OpenAI ${providers?.openai?.selectedModel || 'Image'}`);
       else if (defImg === 'nvidia') setActiveImageProviderName(`NVIDIA ${providers?.nvidia?.selectedModel || 'NIM'}`);
       else if (defImg === 'gemini') setActiveImageProviderName('Google Gemini Image');
-      else setActiveImageProviderName('Configured Image Provider');
+      else setActiveImageProviderName('Cloudflare FLUX');
 
       if (defVid === 'google_veo') setActiveVideoProviderName(`Google ${providers?.google_veo?.selectedModel || 'Veo'}`);
       else if (defVid === 'nvidia') setActiveVideoProviderName('NVIDIA video (not enabled in this build)');
       else setActiveVideoProviderName('Configured Video Provider');
 
       const company = companyRes?.company;
-      const profile = companyRes?.profile || company?.profile || {};
+      const profile: any = companyRes?.profile || company?.profile || {};
       const brand = profile?.brandDesignSystem || {};
       setBrandRenderOptions({
         companyName: company?.name || 'Your Brand',
@@ -239,9 +282,15 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     setIsBillingRequired(false);
     setProductionStatus('GENERATING');
 
+    const currentModel = selectedImageProvider === 'cloudflare'
+      ? '@cf/black-forest-labs/flux-1-schnell'
+      : selectedImageProvider === 'openai'
+      ? 'gpt-image-2'
+      : 'gemini-3.1-flash-lite-image';
+
     const result = await generateAssetImage(activePrompt, '3:4', asset.assetCode, customApiKey, {
-      providerId: activeImageProviderId,
-      modelName: activeImageModel,
+      providerId: selectedImageProvider,
+      modelName: currentModel,
       platform: asset.platform,
       language: asset.language,
       objective: asset.strategicPurpose,
@@ -286,9 +335,15 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       slide?.visualPrompt ||
       `Create a clean brand-aligned supporting visual for ${slide?.headline || asset.title}. Follow the active company's saved Brand Design System. Avoid unrelated brand colors or identities.`;
 
+    const currentModel = selectedImageProvider === 'cloudflare'
+      ? '@cf/black-forest-labs/flux-1-schnell'
+      : selectedImageProvider === 'openai'
+      ? 'gpt-image-2'
+      : 'gemini-3.1-flash-lite-image';
+
     const result = await generateAssetImage(slidePrompt, '16:9', `${asset.assetCode.replace(/^APEX-/, 'AUTO-')}-S${slideNumber}`, customApiKey, {
-      providerId: activeImageProviderId,
-      modelName: activeImageModel,
+      providerId: selectedImageProvider,
+      modelName: currentModel,
       platform: asset.platform,
       language: asset.language,
       objective: asset.strategicPurpose,
@@ -647,7 +702,9 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                     {isBillingRequired
                       ? isVideo
                         ? 'Video generation requires paid API quota'
-                        : 'Image generation requires paid API quota'
+                        : selectedImageProvider === 'gemini'
+                        ? 'Gemini image generation requires paid API quota'
+                        : 'Image generation requires configured provider credentials'
                       : 'Generation notice'}
                   </div>
                   <p className="text-[#6E6E73] leading-relaxed">
@@ -872,24 +929,86 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                         </button>
                       </div>
 
-                      {/* Method 2: AI Image */}
-                      <div className="bg-[#FBFBFD] p-4 rounded-2xl border border-black/[0.06] space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-xs text-[#1D1D1F]">Generate with {activeImageProviderName}</span>
-                          <span className="text-[10px] text-[#6E6E73] bg-black/[0.04] px-2 py-0.5 rounded-md font-mono">{activeImageProviderName}</span>
-                        </div>
-                        <p className="text-xs text-[#6E6E73]">
-                          Synthesizes visual creative using configured provider ({activeImageProviderName}).
-                        </p>
-                        <button
-                          onClick={handleGenerateImage}
-                          disabled={isGenerating}
-                          className="w-full py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>{isGenerating ? 'Synthesizing…' : generatedImageUrl ? 'Regenerate image' : 'Generate image'}</span>
-                        </button>
-                      </div>
+                      {/* Method 2: AI Image with Provider Selector Dropdown */}
+                      {(() => {
+                        const currentOption = IMAGE_PROVIDER_OPTIONS.find((p) => p.id === selectedImageProvider) || IMAGE_PROVIDER_OPTIONS[0];
+                        const currentCfg = providersData[selectedImageProvider];
+                        const isConfigured = Boolean(currentCfg?.hasKey || (selectedImageProvider === 'cloudflare' && (providersData.cloudflare?.hasKey ?? true)));
+                        const isServerSecret = currentCfg?.source === 'server_secret' || (selectedImageProvider === 'cloudflare' && currentCfg?.source !== 'workspace_override');
+                        const statusLabel = isServerSecret ? 'Configured via server secret' : (isConfigured ? 'Configured' : 'Not configured');
+
+                        return (
+                          <div className="bg-[#FBFBFD] p-4 rounded-2xl border border-black/[0.06] space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-xs text-[#1D1D1F]">AI Image Generation</span>
+                              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
+                                isConfigured ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-600'
+                              }`}>
+                                {statusLabel}
+                              </span>
+                            </div>
+
+                            {/* Provider selector dropdown */}
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-semibold text-[#6E6E73] block">
+                                Image Provider
+                              </label>
+                              <select
+                                value={selectedImageProvider}
+                                onChange={(e) => setSelectedImageProvider(e.target.value as ImageProviderOptionId)}
+                                className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs font-semibold text-[#1D1D1F] outline-none shadow-2xs focus:border-[#FF4500] cursor-pointer"
+                              >
+                                {IMAGE_PROVIDER_OPTIONS.map((opt) => (
+                                  <option key={opt.id} value={opt.id}>
+                                    {opt.title} {opt.badge ? `(${opt.badge})` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Active Provider Info Card with required UI copy */}
+                            <div className="rounded-xl border border-black/[0.06] bg-white p-3 space-y-1.5 shadow-2xs">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-bold text-[#1D1D1F]">{currentOption.title}</span>
+                                  {currentOption.badge && (
+                                    <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded">
+                                      {currentOption.badge}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] font-mono text-[#86868B]">
+                                  {selectedImageProvider === 'cloudflare' ? 'FLUX Schnell' : selectedImageProvider === 'openai' ? 'GPT Image 2' : 'Flash Image'}
+                                </span>
+                              </div>
+
+                              <p className="text-xs text-[#6E6E73] leading-relaxed">
+                                {currentOption.helperText}
+                              </p>
+
+                              {currentOption.exampleHint && (
+                                <p className="text-[11px] text-[#86868B] italic leading-normal border-t border-black/[0.04] pt-1.5">
+                                  {currentOption.exampleHint}
+                                </p>
+                              )}
+                            </div>
+
+                            <button
+                              onClick={handleGenerateImage}
+                              disabled={isGenerating}
+                              className="w-full py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 disabled:opacity-50 cursor-pointer"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>{isGenerating ? 'Synthesizing…' : 'Generate Image'}</span>
+                            </button>
+
+                            {/* Secondary note explaining when to choose OpenAI vs Gemini */}
+                            <p className="text-[11px] text-[#86868B] leading-relaxed text-center px-1">
+                              Tip: Choose <strong className="font-semibold text-[#1D1D1F]">OpenAI</strong> for complex, premium visuals or refined branding scenes. Choose <strong className="font-semibold text-[#1D1D1F]">Gemini</strong> if you have an active Gemini billing quota.
+                            </p>
+                          </div>
+                        );
+                      })()}
 
                       {/* Method 3: External AI */}
                       <div className="bg-[#FBFBFD] p-4 rounded-2xl border border-black/[0.06] space-y-2">
@@ -1245,7 +1364,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                 className="flex-1 sm:flex-none justify-center px-4 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-xs transition-all flex items-center space-x-1.5 active:scale-95 min-h-[40px]"
               >
                 <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                <span>{isGenerating ? 'Synthesizing…' : generatedImageUrl ? 'Regenerate image' : 'Generate image'}</span>
+                <span>{isGenerating ? 'Synthesizing…' : 'Generate Image'}</span>
               </button>
             )}
           </div>

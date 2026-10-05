@@ -119,13 +119,13 @@ async function runPhase2Verification() {
 
   // Test 5: Session Creation & Deletion (Sign Out)
   console.log('\n[Test 5] Verifying Session Management & Sign Out...');
-  const session = autonomaDb.createSession(memberUser.userId, companyB.companyId);
+  const session = await autonomaDb.createSession(memberUser.userId, companyB.companyId);
   assert(session.sessionToken, 'Must generate session token');
   
   const fetchedSession = autonomaDb.getSession(session.sessionToken);
   assert(fetchedSession, 'Session must be retrievable before sign out');
 
-  autonomaDb.deleteSession(session.sessionToken);
+  await autonomaDb.deleteSession(session.sessionToken);
   const deletedSession = autonomaDb.getSession(session.sessionToken);
   assert.strictEqual(deletedSession, null, 'Session must be null after sign out');
   console.log('✓ Working Sign Out & session revocation verified.');

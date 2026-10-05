@@ -54,8 +54,16 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
   
   // AI & Media Providers State
   const [providersSettings, setProvidersSettings] = useState<AiProvidersSettings>({
-    defaults: { text: 'gemini', image: 'openai', video: 'google_veo' },
+    defaults: { text: 'gemini', image: 'cloudflare', video: 'google_veo' },
     providers: {
+      cloudflare: {
+        id: 'cloudflare',
+        name: 'Cloudflare FLUX',
+        capabilities: ['image'],
+        selectedModel: '@cf/black-forest-labs/flux-1-schnell',
+        availableModels: ['@cf/black-forest-labs/flux-1-schnell'],
+        status: 'CONFIGURED'
+      },
       gemini: {
         id: 'gemini',
         name: 'Google Gemini',
@@ -100,6 +108,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
 
   // Input fields for provider keys
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+  const [cloudflareAccountId, setCloudflareAccountId] = useState('');
   const [driveInput, setDriveInput] = useState('');
   const [testResults, setTestResults] = useState<Record<string, { testing?: boolean; success?: boolean; message?: string; latency?: number }>>({});
 
@@ -135,6 +144,9 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
             if (prov.apiKey) initialKeys[id] = prov.apiKey;
           }
           setKeyInputs(initialKeys);
+          if (res.aiProviders.providers?.cloudflare?.accountId) {
+            setCloudflareAccountId(res.aiProviders.providers.cloudflare.accountId);
+          }
         }
         if (res.emailConfig) {
           setEmailConfig(res.emailConfig);
@@ -162,7 +174,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
       const inputKey = keyInputs[id];
       updatedProviders[id] = {
         ...prov,
-        apiKey: inputKey !== undefined ? inputKey : prov.apiKey
+        apiKey: inputKey !== undefined ? inputKey : prov.apiKey,
+        accountId: id === 'cloudflare' && cloudflareAccountId ? cloudflareAccountId : prov.accountId
       };
     }
 
@@ -364,9 +377,10 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                       }))}
                       className="w-full rounded-xl border border-black/[0.08] bg-white px-2.5 py-2 text-xs font-semibold outline-none"
                     >
+                      <option value="cloudflare">Cloudflare FLUX (Default)</option>
                       <option value="openai">OpenAI (GPT Image 2)</option>
-                      <option value="nvidia">NVIDIA NIM (Stable Diffusion 3)</option>
                       <option value="gemini">Google Gemini Flash Image</option>
+                      <option value="nvidia">NVIDIA NIM (Stable Diffusion 3)</option>
                     </select>
                   </div>
 
@@ -392,12 +406,78 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                   Configured AI Providers
                 </div>
 
-                {/* 1. Google Gemini */}
+                {/* 1. Cloudflare FLUX (Default) */}
+                <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-xs text-[#1D1D1F]">Cloudflare FLUX</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-700">IMAGE</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                        providersSettings.providers.cloudflare?.hasKey
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-neutral-100 text-neutral-600'
+                      }`}>
+                        {providersSettings.providers.cloudflare?.source === 'server_secret' || providersSettings.providers.cloudflare?.hasKey
+                          ? 'Configured via server secret'
+                          : 'Not configured'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => handleTestProvider('cloudflare')}
+                      disabled={testResults.cloudflare?.testing}
+                      className="text-[11px] font-medium text-[#FF4500] hover:underline flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {testResults.cloudflare?.testing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      Test Connection
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">Cloudflare Account ID</span>
+                      <input
+                        type="text"
+                        placeholder="Account ID (masked if server secret)"
+                        value={cloudflareAccountId || providersSettings.providers.cloudflare?.accountId || ''}
+                        onChange={(e) => setCloudflareAccountId(e.target.value)}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs font-mono outline-none"
+                      />
+                    </label>
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] text-[#6E6E73]">API Token (Workers AI)</span>
+                      <input
+                        type="password"
+                        placeholder="API Token (masked if server secret)"
+                        value={keyInputs.cloudflare || ''}
+                        onChange={(e) => setKeyInputs((prev) => ({ ...prev, cloudflare: e.target.value }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs font-mono outline-none"
+                      />
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-[#6E6E73]">
+                    Default image generator using Workers AI <code className="font-mono text-[10px] bg-black/[0.04] px-1 py-0.5 rounded">@cf/black-forest-labs/flux-1-schnell</code>. Fast, low-cost / free-first for everyday campaign images.
+                  </p>
+                  {testResults.cloudflare && (
+                    <div className={`p-2 rounded-xl text-[11px] ${testResults.cloudflare.success ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+                      {testResults.cloudflare.message}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Google Gemini */}
                 <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-xs text-[#1D1D1F]">Google Gemini</span>
                       <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-50 text-blue-700">TEXT · IMAGE · VIDEO</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                        providersSettings.providers.gemini?.hasKey
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-neutral-100 text-neutral-600'
+                      }`}>
+                        {providersSettings.providers.gemini?.source === 'server_secret' || providersSettings.providers.gemini?.hasKey
+                          ? 'Configured via server secret'
+                          : 'Not configured'}
+                      </span>
                     </div>
                     <button
                       onClick={() => handleTestProvider('gemini')}
@@ -445,12 +525,23 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                   )}
                 </div>
 
-                {/* 2. OpenAI */}
+                {/* 3. OpenAI */}
                 <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-xs text-[#1D1D1F]">OpenAI</span>
                       <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-50 text-emerald-700">IMAGE · TEXT</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                        providersSettings.providers.openai?.hasKey
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-neutral-100 text-neutral-600'
+                      }`}>
+                        {providersSettings.providers.openai?.source === 'server_secret'
+                          ? 'Configured via server secret'
+                          : providersSettings.providers.openai?.hasKey
+                          ? 'Configured'
+                          : 'Not configured'}
+                      </span>
                     </div>
                     <button
                       onClick={() => handleTestProvider('openai')}
@@ -497,12 +588,23 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                   )}
                 </div>
 
-                {/* 3. NVIDIA NIM */}
+                {/* 4. NVIDIA NIM */}
                 <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-xs text-[#1D1D1F]">NVIDIA NIM</span>
                       <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-50 text-purple-700">IMAGE</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                        providersSettings.providers.nvidia?.hasKey
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-neutral-100 text-neutral-600'
+                      }`}>
+                        {providersSettings.providers.nvidia?.source === 'server_secret'
+                          ? 'Configured via server secret'
+                          : providersSettings.providers.nvidia?.hasKey
+                          ? 'Configured'
+                          : 'Not configured'}
+                      </span>
                     </div>
                     <button
                       onClick={() => handleTestProvider('nvidia')}

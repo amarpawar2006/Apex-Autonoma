@@ -15,6 +15,8 @@ export interface EmailDeliveryResult {
   messageId?: string;
   previewUrl?: string;
   error?: string;
+  previewOnly?: boolean;
+  inviteStatus?: 'SENT' | 'FAILED' | 'PREVIEW_ONLY';
   provider: 'resend' | 'smtp' | 'system_preview';
 }
 
@@ -136,7 +138,8 @@ export class TransactionalEmailService {
   }
 
   /**
-   * Internal dispatcher routing to Resend, SMTP, or System Preview
+   * Internal dispatcher routing to Resend, SMTP, or System Preview.
+   * NEVER marks preview generation as real delivery success.
    */
   public async dispatchEmail(options: {
     to: string;
@@ -167,20 +170,33 @@ export class TransactionalEmailService {
           })
         });
 
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error(data?.message || `Resend API failed with status ${res.status}`);
+          const errMsg = data?.message || `Resend API failed with status ${res.status}`;
+          console.warn('[Email Service] Resend delivery failed:', errMsg);
+          return {
+            success: false,
+            inviteStatus: 'FAILED',
+            provider: 'resend',
+            error: errMsg
+          };
         }
 
         console.log(`[Email Service] Resend dispatch successful, id: ${data.id}`);
         return {
           success: true,
+          inviteStatus: 'SENT',
           provider: 'resend',
           messageId: data.id
         };
       } catch (err: any) {
-        console.warn('[Email Service] Resend dispatch note:', err?.message, '- falling back to preview transport to ensure invite delivery.');
-        // Fall through to SMTP or preview fallback so the user/admin flow is never blocked
+        console.warn('[Email Service] Resend dispatch error:', err?.message);
+        return {
+          success: false,
+          inviteStatus: 'FAILED',
+          provider: 'resend',
+          error: `Resend delivery failed: ${err?.message || 'Network error'}`
+        };
       }
     }
 
@@ -209,6 +225,7 @@ export class TransactionalEmailService {
         console.log(`[Email Service] SMTP dispatch successful, messageId: ${info.messageId}`);
         return {
           success: true,
+          inviteStatus: 'SENT',
           provider: 'smtp',
           messageId: info.messageId
         };
@@ -216,15 +233,17 @@ export class TransactionalEmailService {
         console.warn('[Email Service] SMTP delivery error:', err?.message);
         return {
           success: false,
+          inviteStatus: 'FAILED',
           provider: 'smtp',
           error: `SMTP delivery failed: ${err?.message || 'SMTP connection failed'}`
         };
       }
     }
 
-    // 3. Fallback: Ethereal test transporter for robust development/demo delivery verification
+    // 3. Fallback: Ethereal test transporter for local preview generation ONLY.
+    // Explicitly returned with success=false, previewOnly=true per production release gate.
     try {
-      console.log(`[Email Service] No live SMTP/Resend configured. Dispatching via Nodemailer test transport for ${options.to}...`);
+      console.log(`[Email Service] No live SMTP/Resend configured. Generating preview for ${options.to}...`);
       const testAccount = await nodemailer.createTestAccount();
       const testTransporter = nodemailer.createTransport({
         host: 'smtp.ethereal.email',
@@ -245,20 +264,25 @@ export class TransactionalEmailService {
       });
 
       const previewUrl = nodemailer.getTestMessageUrl(info) || undefined;
-      console.log(`[Email Service] Test email sent. Preview URL: ${previewUrl}`);
+      console.log(`[Email Service] Preview generated (NOT real delivery). Preview URL: ${previewUrl}`);
 
       return {
-        success: true,
+        success: false,
+        previewOnly: true,
+        inviteStatus: 'PREVIEW_ONLY',
         provider: 'system_preview',
         messageId: info.messageId,
-        previewUrl
+        previewUrl,
+        error: 'Automatic invitation email was not delivered. Access has been provisioned. Please share the invite link manually.'
       };
     } catch (fallbackErr: any) {
       console.error('[Email Service] System preview delivery error:', fallbackErr?.message);
       return {
         success: false,
+        previewOnly: true,
+        inviteStatus: 'FAILED',
         provider: 'system_preview',
-        error: `Email system unavailable: ${fallbackErr?.message || 'Transport error'}`
+        error: 'Automatic invitation email was not delivered. Access has been provisioned. Please share the invite link manually.'
       };
     }
   }

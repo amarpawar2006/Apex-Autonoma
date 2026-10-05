@@ -353,10 +353,52 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 border-t border-black/[0.07] px-6 py-4 text-center text-xs text-[#86868B] space-y-1">
+      <footer className="relative z-10 border-t border-black/[0.07] px-6 py-4 text-center text-xs text-[#86868B] space-y-2">
+        <div className="flex flex-wrap items-center justify-center gap-4 text-xs font-medium text-[#6E6E73]">
+          <button
+            type="button"
+            onClick={() => {
+              window.history.pushState({}, '', '/about');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }}
+            className="hover:text-[#1D1D1F] transition-colors cursor-pointer"
+          >
+            About
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              window.history.pushState({}, '', '/privacy');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }}
+            className="hover:text-[#1D1D1F] transition-colors cursor-pointer"
+          >
+            Privacy Policy
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              window.history.pushState({}, '', '/terms');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }}
+            className="hover:text-[#1D1D1F] transition-colors cursor-pointer"
+          >
+            Terms of Service
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              window.history.pushState({}, '', '/support');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }}
+            className="hover:text-[#1D1D1F] transition-colors cursor-pointer"
+          >
+            Support & Help
+          </button>
+        </div>
         <p>Apex Autonoma • Social Intelligence & Enterprise Production Architecture</p>
         <p className="text-[10px] text-[#6E6E73]">
-          Initial Super Admin identity configured server-side. Zero passwords stored in Sheets or local browser.
+          Apex Engineering · Pune, India · Working Globally
         </p>
       </footer>
     </div>

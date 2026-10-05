@@ -43,6 +43,13 @@ import { PostDetailModal } from './components/PostDetailModal';
 import { ApiKeySettingsModal } from './components/ApiKeySettingsModal';
 import { AssetProductionModal } from './components/AssetProductionModal';
 
+// Public Unauthenticated Pages
+import { AboutPage } from './components/public/AboutPage';
+import { PrivacyPage } from './components/public/PrivacyPage';
+import { TermsPage } from './components/public/TermsPage';
+import { SupportPage } from './components/public/SupportPage';
+import { InviteLandingPage } from './components/public/InviteLandingPage';
+
 export default function App() {
   // ==========================================
   // PHASE 2 AUTHENTICATION & MULTI-COMPANY STATE
@@ -53,6 +60,17 @@ export default function App() {
   const [activeCompany, setActiveCompany] = useState<Company | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [workspaceSwitching, setWorkspaceSwitching] = useState(false);
+
+  // Public route tracking
+  const [currentPath, setCurrentPath] = useState<string>(() => window.location.pathname);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Super Admin administration workspace toggle
   const [isSuperAdminWorkspaceOpen, setIsSuperAdminWorkspaceOpen] = useState<boolean>(false);
@@ -437,6 +455,23 @@ export default function App() {
   // ==========================================
   // ROUTING & ACCESS CONTROL RENDERING
   // ==========================================
+
+  // Public unauthenticated routes that bypass login and session gate
+  if (currentPath === '/about') {
+    return <AboutPage />;
+  }
+  if (currentPath === '/privacy') {
+    return <PrivacyPage />;
+  }
+  if (currentPath === '/terms') {
+    return <TermsPage />;
+  }
+  if (currentPath === '/support') {
+    return <SupportPage />;
+  }
+  if (currentPath === '/invite') {
+    return <InviteLandingPage onLoginSuccess={handleLoginSuccess} />;
+  }
 
   // 1. Loading screen during session restoration
   if (authChecking) {

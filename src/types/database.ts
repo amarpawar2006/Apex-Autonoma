@@ -188,7 +188,7 @@ export interface DbMembershipRow {
   status: 'ACTIVE' | 'SUSPENDED';
   assignedAt: string;
   assignedBy: string;
-  inviteStatus?: 'SENT' | 'FAILED' | 'PENDING';
+  inviteStatus?: 'SENT' | 'FAILED' | 'PENDING' | 'PREVIEW_ONLY';
   inviteSentAt?: string;
   inviteError?: string;
   inviteLink?: string;

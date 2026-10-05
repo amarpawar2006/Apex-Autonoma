@@ -50,10 +50,18 @@ export class AiProviderService {
   private settings: AiProvidersSettings = {
     defaults: {
       text: 'gemini',
-      image: 'openai',
+      image: 'cloudflare',
       video: 'google_veo'
     },
     providers: {
+      cloudflare: {
+        id: 'cloudflare',
+        name: 'Cloudflare FLUX',
+        capabilities: ['image'],
+        selectedModel: '@cf/black-forest-labs/flux-1-schnell',
+        availableModels: ['@cf/black-forest-labs/flux-1-schnell'],
+        status: 'CONFIGURED'
+      },
       gemini: {
         id: 'gemini',
         name: 'Google Gemini',
@@ -103,15 +111,55 @@ export class AiProviderService {
     this.ensureSmartDefaults();
   }
 
+  public getCloudflareCredentials(): { accountId: string; apiToken: string } {
+    let accountId = (
+      process.env.CLOUDFLARE_ACCOUNT_ID ||
+      process.env.CF_ACCOUNT_ID ||
+      ''
+    ).trim();
+    let apiToken = (
+      process.env.CLOUDFLARE_API_TOKEN ||
+      process.env.CF_API_TOKEN ||
+      ''
+    ).trim();
+
+    const prov = this.settings.providers.cloudflare;
+    if (prov?.accountId && !prov.accountId.includes('••••')) {
+      accountId = prov.accountId.trim();
+    }
+    if (prov?.apiKey && !prov.apiKey.includes('••••')) {
+      if (prov.apiKey.includes(':')) {
+        const parts = prov.apiKey.split(':');
+        accountId = parts[0].trim();
+        apiToken = parts[1].trim();
+      } else {
+        apiToken = prov.apiKey.trim();
+      }
+    }
+    return { accountId, apiToken };
+  }
+
   private ensureSmartDefaults(): void {
+    const { accountId, apiToken } = this.getCloudflareCredentials();
+    const hasCloudflare = Boolean(accountId && apiToken);
     const hasOpenAI = Boolean(this.getEnvKeyForProvider('openai'));
     const hasNvidia = Boolean(this.getEnvKeyForProvider('nvidia'));
     const hasGemini = Boolean(this.getEnvKeyForProvider('gemini'));
 
-    // If default image was set to openai but openai has no key, yet nvidia has a key, use nvidia
-    if (this.settings.defaults.image === 'openai' && !hasOpenAI && hasNvidia) {
-      this.settings.defaults.image = 'nvidia';
+    // Set default image to cloudflare
+    if (!this.settings.defaults.image) {
+      this.settings.defaults.image = 'cloudflare';
     }
+
+    // If default image was set to cloudflare but cloudflare has no keys, fallback gracefully
+    if (this.settings.defaults.image === 'cloudflare' && !hasCloudflare) {
+      if (hasOpenAI) this.settings.defaults.image = 'openai';
+      else if (hasGemini) this.settings.defaults.image = 'gemini';
+      else if (hasNvidia) this.settings.defaults.image = 'nvidia';
+    } else if (hasCloudflare && (this.settings.defaults.image === 'openai' && !hasOpenAI)) {
+      this.settings.defaults.image = 'cloudflare';
+    }
+
     if (this.settings.defaults.text === 'openai' && !hasOpenAI && hasGemini) {
       this.settings.defaults.text = 'gemini';
     }
@@ -122,6 +170,10 @@ export class AiProviderService {
   }
 
   public getEnvKeyForProvider(providerId: string): string {
+    if (providerId === 'cloudflare') {
+      const { accountId, apiToken } = this.getCloudflareCredentials();
+      return (accountId && apiToken) ? apiToken : '';
+    }
     if (providerId === 'gemini' || providerId === 'google_veo') {
       return (
         process.env.GEMINI_API_KEY ||
@@ -163,6 +215,38 @@ export class AiProviderService {
     // Return masked settings with authoritative server-secret detection
     const maskedProviders: Record<string, ProviderConfig> = {};
     for (const [id, prov] of Object.entries(this.settings.providers)) {
+      if (id === 'cloudflare') {
+        const { accountId, apiToken } = this.getCloudflareCredentials();
+        const hasKey = Boolean(accountId && apiToken);
+        const hasEnvToken = Boolean(process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN);
+        const hasEnvAccount = Boolean(process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID);
+        const isServerSecret = hasEnvToken && hasEnvAccount;
+
+        let source: 'server_secret' | 'workspace_override' | 'unconfigured' = 'unconfigured';
+        let maskedKey = '';
+        let maskedAccount = '';
+
+        if (isServerSecret) {
+          source = 'server_secret';
+          maskedKey = '•••••••• (Server Secret)';
+          maskedAccount = accountId.length > 8 ? `${accountId.slice(0, 4)}••••${accountId.slice(-4)}` : '••••••••';
+        } else if (hasKey) {
+          source = 'workspace_override';
+          maskedKey = '•••••••• (Custom Key)';
+          maskedAccount = accountId;
+        }
+
+        maskedProviders[id] = {
+          ...prov,
+          hasKey,
+          source,
+          status: hasKey ? 'CONFIGURED' : 'UNCONFIGURED',
+          apiKey: maskedKey,
+          accountId: maskedAccount
+        };
+        continue;
+      }
+
       const workspaceKey = prov.apiKey && !prov.apiKey.includes('••••') ? prov.apiKey.trim() : '';
       const envKey = this.getEnvKeyForProvider(id);
       const effectiveKey = workspaceKey || envKey;
@@ -209,7 +293,7 @@ export class AiProviderService {
         const existing = this.settings.providers[id] || {
           id,
           name: provUpdate.name || id,
-          capabilities: provUpdate.capabilities || ['text'],
+          capabilities: provUpdate.capabilities || ['image'],
           selectedModel: provUpdate.selectedModel || '',
           availableModels: provUpdate.availableModels || [],
           status: 'UNCONFIGURED'
@@ -222,6 +306,13 @@ export class AiProviderService {
           }
         }
 
+        let newAccountId = existing.accountId;
+        if (provUpdate.accountId !== undefined) {
+          if (!provUpdate.accountId.includes('••••')) {
+            newAccountId = provUpdate.accountId.trim();
+          }
+        }
+
         const envKey = this.getEnvKeyForProvider(id);
         const hasKey = Boolean(newApiKey || envKey);
 
@@ -229,6 +320,7 @@ export class AiProviderService {
           ...existing,
           ...provUpdate,
           apiKey: newApiKey,
+          accountId: newAccountId,
           hasKey,
           status: hasKey ? 'CONFIGURED' : 'UNCONFIGURED'
         };
@@ -250,6 +342,50 @@ export class AiProviderService {
   }> {
     const key = customApiKey || this.getRawProviderKey(providerId);
     const startTime = Date.now();
+
+    if (providerId === 'cloudflare') {
+      const { accountId, apiToken } = this.getCloudflareCredentials();
+      const effectiveToken = customApiKey || apiToken;
+      if (!accountId || !effectiveToken) {
+        return {
+          success: false,
+          provider: providerId,
+          message: 'Cloudflare credentials missing. Requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN.'
+        };
+      }
+      try {
+        const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`;
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${effectiveToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            prompt: 'Minimal geometric square icon',
+            steps: 4
+          })
+        });
+        const latencyMs = Date.now() - startTime;
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData?.errors?.[0]?.message || `HTTP ${res.status}: Cloudflare API connection failed`;
+          throw new Error(errMsg);
+        }
+        return {
+          success: true,
+          provider: providerId,
+          message: `Connected to Cloudflare FLUX successfully (${latencyMs}ms)!`,
+          latencyMs
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          provider: providerId,
+          message: err?.message || 'Cloudflare connection test failed'
+        };
+      }
+    }
 
     if (!key) {
       return {
@@ -389,13 +525,91 @@ export class AiProviderService {
    * Generates Image using the selected provider (OpenAI, NVIDIA, or Gemini)
    */
   public async generateImage(req: ImageGenerationRequest, publicMediaDir: string): Promise<MediaGenerationResult> {
-    const providerId = req.providerId || this.settings.defaults.image || 'openai';
+    const providerId = req.providerId || this.settings.defaults.image || 'cloudflare';
     const enrichedPrompt = this.buildEnrichedImagePrompt(req);
     const assetCode = req.assetCode || 'CREATIVE';
 
     console.log(`[AiProviderService] Generating image via ${providerId} for ${assetCode}...`);
 
-    // 1. OPENAI IMAGE GENERATION
+    // 1. CLOUDFLARE FLUX IMAGE GENERATION (Default)
+    if (providerId === 'cloudflare') {
+      const { accountId, apiToken } = this.getCloudflareCredentials();
+      if (!accountId || !apiToken) {
+        return {
+          success: false,
+          provider: 'cloudflare',
+          model: '@cf/black-forest-labs/flux-1-schnell',
+          error: 'Cloudflare credentials (CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN) are not configured.'
+        };
+      }
+
+      const model = req.modelName || this.settings.providers.cloudflare?.selectedModel || '@cf/black-forest-labs/flux-1-schnell';
+      const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            prompt: enrichedPrompt.slice(0, 2048),
+            steps: 4
+          })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          const errMsg = errData?.errors?.[0]?.message || `Cloudflare AI API error (HTTP ${response.status})`;
+          throw new Error(errMsg);
+        }
+
+        const data: any = await response.json().catch(() => null);
+        let b64: string | null = null;
+
+        if (data && data.result && data.result.image) {
+          b64 = data.result.image;
+        } else if (!data) {
+          const buf = await response.arrayBuffer().catch(() => null);
+          if (buf) {
+            b64 = Buffer.from(buf).toString('base64');
+          }
+        }
+
+        if (!b64) {
+          throw new Error('No image returned by Cloudflare FLUX');
+        }
+
+        const cleanB64 = b64.includes(',') ? b64.split(',').pop()! : b64;
+        const safeCode = assetCode.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const filename = `${safeCode}-${Date.now()}.jpg`;
+        const filePath = path.join(publicMediaDir, filename);
+        fs.writeFileSync(filePath, Buffer.from(cleanB64, 'base64'));
+
+        return {
+          success: true,
+          provider: 'cloudflare',
+          model,
+          fileUrl: `/generated-media/${filename}`,
+          dataUrl: `data:image/jpeg;base64,${cleanB64}`,
+          filename,
+          aspectRatio: req.aspectRatio || '1:1',
+          driveFolderId: this.settings.googleDrive?.folderIdOrUrl
+        };
+      } catch (err: any) {
+        console.warn('[AiProviderService] Cloudflare generation failed:', err?.message);
+        return {
+          success: false,
+          provider: 'cloudflare',
+          model,
+          error: err?.message || 'Cloudflare FLUX image generation failed',
+          rawError: err?.message
+        };
+      }
+    }
+
+    // 2. OPENAI IMAGE GENERATION
     if (providerId === 'openai') {
       const apiKey = this.getRawProviderKey('openai');
       if (!apiKey) {

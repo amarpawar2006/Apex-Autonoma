@@ -86,6 +86,27 @@ async function verifyGoogleCredential(credential: string): Promise<{
   };
 }
 
+export function getAppBaseUrl(req?: Request): string {
+  const envUrl = (process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL || '').trim();
+  if (envUrl) {
+    return envUrl.replace(/\/+$/, '');
+  }
+  if (req) {
+    const origin = (req.headers.origin as string) || (req.headers.host ? `${req.protocol}://${req.get('host')}` : '');
+    if (origin) return origin.replace(/\/+$/, '');
+  }
+  return 'https://autonoma.apex-engineering.co.in';
+}
+
+export function maskEmail(email: string): string {
+  if (!email || !email.includes('@')) return '••••@••••.com';
+  const [local, domain] = email.split('@');
+  if (local.length <= 2) {
+    return `${local[0]}***@${domain}`;
+  }
+  return `${local[0]}***${local[local.length - 1]}@${domain}`;
+}
+
 /**
  * Checks if an IP address belongs to RFC 1918, loopback, link-local, or cloud metadata ranges.
  */
@@ -323,7 +344,7 @@ try {
   // AUTHENTICATION & ACCESS CONTROL MIDDLEWARE
   // ==========================================
 
-  function authenticateUser(req: Request, res: Response, next: NextFunction) {
+  async function authenticateUser(req: Request, res: Response, next: NextFunction) {
     const authHeader = req.headers.authorization || (req.headers['x-autonoma-session'] as string);
     let token = '';
     if (authHeader) {
@@ -390,7 +411,7 @@ try {
     if (!activeMem && memberships.length > 0) {
       activeMem = memberships[0];
       targetCompanyId = activeMem.companyId;
-      autonomaDb.updateSessionCompany(token, targetCompanyId);
+      await autonomaDb.updateSessionCompany(token, targetCompanyId);
     }
 
     let company = activeMem ? autonomaDb.getCompany(activeMem.companyId) : null;
@@ -533,7 +554,7 @@ try {
           mems = autonomaDb.getMemberships(user.userId);
         }
 
-        const session = autonomaDb.createSession(user.userId, DEFAULT_ORG_ID);
+        const session = await autonomaDb.createSession(user.userId, DEFAULT_ORG_ID);
         const activeCompany = autonomaDb.getCompany(DEFAULT_ORG_ID);
         const normActiveCompany = activeCompany ? {
           ...activeCompany,
@@ -581,7 +602,7 @@ try {
         const proposedName = (proposedCompanyName || '').trim() || `${user.name}'s Company`;
         const pendingReq = await autonomaDb.createApprovalRequest(email, user.name, proposedName);
 
-        const session = autonomaDb.createSession(user.userId, undefined);
+        const session = await autonomaDb.createSession(user.userId, undefined);
 
         return res.json({
           success: true,
@@ -613,7 +634,7 @@ try {
           pendingReq = await autonomaDb.createApprovalRequest(email, user.name, proposedName);
         }
 
-        const session = autonomaDb.createSession(user.userId, undefined);
+        const session = await autonomaDb.createSession(user.userId, undefined);
 
         return res.json({
           success: true,
@@ -637,7 +658,7 @@ try {
         });
       }
 
-      const session = autonomaDb.createSession(user.userId, activeCompany.companyId);
+      const session = await autonomaDb.createSession(user.userId, activeCompany.companyId);
 
       return res.json({
         success: true,
@@ -836,7 +857,7 @@ try {
       await autonomaDb.createMembership(user.userId, companyId, role, 'FIXTURE_SETUP');
     }
 
-    const session = autonomaDb.createSession(user.userId, companyId);
+    const session = await autonomaDb.createSession(user.userId, companyId);
     const resolvedCompany = companyId
       ? autonomaDb.getCompany(companyId)
       : (isActualSuper ? autonomaDb.getCompany(DEFAULT_ORG_ID) : undefined);
@@ -1002,6 +1023,201 @@ try {
     }
   });
 
+  // Onboarding readiness endpoint for Super Admin verification
+  app.get('/api/admin/onboarding-readiness', authenticateUser, requireSuperAdmin, async (_req: Request, res: Response) => {
+    try {
+      const emailCfg = emailService.getConfig();
+      const hasResendSecret = Boolean(process.env.RESEND_API_KEY);
+      const hasSmtpSecret = Boolean(process.env.SMTP_HOST);
+      const isLiveDeliveryReady = Boolean(hasResendSecret || hasSmtpSecret || (emailCfg.resendApiKey && !emailCfg.resendApiKey.includes('••••')));
+      const emailProvider = emailCfg.provider === 'resend' || hasResendSecret ? 'resend' : (emailCfg.smtpHost || hasSmtpSecret ? 'smtp' : 'system_preview');
+      const emailSender = emailCfg.smtpFrom || process.env.SMTP_FROM || 'onboarding@resend.dev';
+
+      const readiness = {
+        supabaseConnected: supabaseStorage.ready,
+        usersDurable: supabaseStorage.ready,
+        membershipsDurable: supabaseStorage.ready,
+        approvalsDurable: supabaseStorage.ready,
+        sessionsDurable: supabaseStorage.ready,
+        googleOauthConfigured: Boolean(process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID),
+        publicAppUrlConfigured: Boolean(process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL),
+        aboutPageReady: true,
+        privacyPageReady: true,
+        termsPageReady: true,
+        supportPageReady: true,
+        emailProvider,
+        emailLiveDeliveryReady: isLiveDeliveryReady,
+        emailSender,
+        manualInviteFallbackReady: true
+      };
+
+      res.json({ success: true, data: readiness });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to check onboarding readiness' });
+    }
+  });
+
+  // ==========================================
+  // PRODUCTION INVITE URL & PUBLIC FLOW HELPERS
+  // ==========================================
+
+  function getProductionAppBaseUrl(req?: Request): string {
+    const envUrl = process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL;
+    if (envUrl && envUrl.trim()) {
+      return envUrl.trim().replace(/\/+$/, '');
+    }
+    if (req) {
+      const origin = req.headers.origin;
+      if (typeof origin === 'string' && origin.trim()) {
+        return origin.trim().replace(/\/+$/, '');
+      }
+      const host = req.get('host');
+      if (host) {
+        return `${req.protocol}://${host}`.replace(/\/+$/, '');
+      }
+    }
+    return 'https://autonoma.apex-engineering.co.in';
+  }
+
+  function buildProductionInviteLink(req: Request, membershipId: string, companyId: string): string {
+    const base = getProductionAppBaseUrl(req);
+    return `${base}/invite?membership=${encodeURIComponent(membershipId)}&company=${encodeURIComponent(companyId)}`;
+  }
+
+  // Public unauthenticated invite endpoints
+  app.get(['/api/invite/details', '/api/invite/validate'], async (req: Request, res: Response) => {
+    try {
+      const membershipId = (req.query.membership || req.query.membershipId || req.query.invite || '') as string;
+      const companyId = (req.query.company || req.query.companyId || '') as string;
+
+      if (!membershipId || !companyId) {
+        return res.status(400).json({ success: false, valid: false, error: 'Missing membership or company parameter' });
+      }
+
+      const membership = autonomaDb.getMembership(membershipId);
+      if (!membership || membership.companyId !== companyId) {
+        return res.status(404).json({ success: false, valid: false, error: 'Invitation not found or company mismatch' });
+      }
+
+      if (membership.status === 'SUSPENDED') {
+        return res.status(403).json({ success: false, valid: false, error: 'This invitation has been suspended' });
+      }
+
+      const company = autonomaDb.getCompany(companyId);
+      if (!company) {
+        return res.status(404).json({ success: false, valid: false, error: 'Company not found' });
+      }
+
+      const user = autonomaDb.getUser(membership.userId);
+      if (!user) {
+        return res.status(404).json({ success: false, valid: false, error: 'User record not found' });
+      }
+
+      // Mask email for privacy (e.g. j***e@example.com)
+      const parts = user.email.split('@');
+      const localPart = parts[0] || '';
+      const domainPart = parts[1] || '';
+      const maskedLocal = localPart.length <= 2
+        ? localPart[0] + '***'
+        : localPart[0] + '***' + localPart[localPart.length - 1];
+      const maskedEmail = `${maskedLocal}@${domainPart}`;
+
+      res.json({
+        success: true,
+        valid: true,
+        companyName: company.name,
+        companyId: company.companyId,
+        role: membership.role,
+        roleLabel: membership.role === 'COMPANY_ADMIN' ? 'Company Administrator' : 'Team Member',
+        maskedEmail,
+        inviteStatus: membership.inviteStatus
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, valid: false, error: err?.message || 'Failed to inspect invitation' });
+    }
+  });
+
+  app.post('/api/invite/accept', async (req: Request, res: Response) => {
+    try {
+      const { credential, membershipId, companyId } = req.body || {};
+      if (!credential || !membershipId || !companyId) {
+        return res.status(400).json({ success: false, error: 'MISSING_PARAMS', message: 'Credential, membershipId, and companyId are required' });
+      }
+
+      const membership = autonomaDb.getMembership(membershipId);
+      if (!membership || membership.companyId !== companyId) {
+        return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Invitation record not found or company mismatch' });
+      }
+
+      if (membership.status === 'SUSPENDED') {
+        return res.status(403).json({ success: false, error: 'SUSPENDED', message: 'This membership invitation has been suspended' });
+      }
+
+      const invitedUser = autonomaDb.getUser(membership.userId);
+      if (!invitedUser) {
+        return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Invited user account not found' });
+      }
+
+      const googleIdentity = await verifyGoogleCredential(credential);
+      const googleEmailNorm = googleIdentity.email.toLowerCase().trim();
+      const invitedEmailNorm = invitedUser.email.toLowerCase().trim();
+
+      if (googleEmailNorm !== invitedEmailNorm) {
+        return res.status(403).json({
+          success: false,
+          error: 'EMAIL_MISMATCH',
+          message: `Signed in with ${googleIdentity.email}, but this invite was sent to ${invitedUser.email}. Please sign in with the invited email address.`
+        });
+      }
+
+      // Update existing user with Google details without creating duplicate
+      invitedUser.name = googleIdentity.name || invitedUser.name;
+      if (googleIdentity.avatarUrl) {
+        invitedUser.avatarUrl = googleIdentity.avatarUrl;
+      }
+      invitedUser.status = 'ACTIVE';
+      invitedUser.lastLoginAt = new Date().toISOString();
+      await autonomaDb.saveUser(invitedUser);
+
+      // Activate membership and mark accepted
+      const updatedMem = await autonomaDb.updateMembership(membership.membershipId, {
+        status: 'ACTIVE',
+        inviteStatus: 'SENT'
+      });
+
+      // Clear any pending approval request for this user since they were explicitly invited
+      const pendingReq = autonomaDb.getApprovalRequestByEmail(invitedEmailNorm);
+      if (pendingReq && pendingReq.status === 'PENDING') {
+        await autonomaDb.approveRequest(pendingReq.requestId, companyId, membership.role, 'INVITE_ACCEPT');
+      }
+
+      // Create session for invited user with target company set as active
+      const session = await autonomaDb.createSession(invitedUser.userId, companyId);
+      const company = autonomaDb.getCompany(companyId);
+      const normCompany = company ? { ...company, id: company.companyId, companyId: company.companyId } : undefined;
+
+      const userMemberships = autonomaDb.getMemberships(invitedUser.userId).map(m => {
+        const c = autonomaDb.getCompany(m.companyId);
+        return {
+          ...m,
+          companyName: c?.name || m.companyId
+        };
+      });
+
+      return res.json({
+        success: true,
+        token: session.sessionToken,
+        user: invitedUser,
+        role: membership.role,
+        activeCompany: normCompany,
+        memberships: userMemberships
+      });
+    } catch (err: any) {
+      console.error('[Invite Accept Error]', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to accept invitation' });
+    }
+  });
+
   // ==========================================
   // COMPANY ADMIN ENDPOINTS
   // ==========================================
@@ -1048,11 +1264,11 @@ try {
       }
       const membership = await autonomaDb.createMembership(user.userId, activeCompany.companyId, role, caller.userId);
 
-      // Generate direct onboarding invitation link
-      const origin = req.headers.origin || `${req.protocol}://${req.get('host')}`;
-      const inviteLink = `${origin}/?invite=${membership.membershipId}&company=${activeCompany.companyId}`;
+      // Generate direct onboarding invitation link using production precedence:
+      // PUBLIC_APP_URL -> APP_BASE_URL -> request origin -> https://autonoma.apex-engineering.co.in
+      const inviteLink = buildProductionInviteLink(req, membership.membershipId, activeCompany.companyId);
 
-      // Dispatch real transactional invite email (Resend / SMTP / System)
+      // Dispatch real transactional invite email (Resend / SMTP / System Preview)
       const delivery = await emailService.sendWorkspaceInvite({
         toEmail: user.email,
         toName: user.name,
@@ -1062,8 +1278,12 @@ try {
         inviteLink
       });
 
+      const inviteStatus = delivery.success 
+        ? 'SENT' 
+        : (delivery.previewOnly ? 'PREVIEW_ONLY' : 'FAILED');
+
       const updated = await autonomaDb.updateMembership(membership.membershipId, {
-        inviteStatus: delivery.success ? 'SENT' : 'FAILED',
+        inviteStatus,
         inviteSentAt: new Date().toISOString(),
         inviteError: delivery.error || undefined,
         inviteLink
@@ -1075,7 +1295,7 @@ try {
           ...updated,
           userName: user.name,
           userEmail: user.email,
-          inviteStatus: delivery.success ? 'SENT' : 'FAILED',
+          inviteStatus,
           inviteSentAt: new Date().toISOString(),
           inviteError: delivery.error || null,
           inviteLink
@@ -1102,8 +1322,7 @@ try {
         return res.status(404).json({ success: false, error: 'User record not found' });
       }
 
-      const origin = req.headers.origin || `${req.protocol}://${req.get('host')}`;
-      const inviteLink = `${origin}/?invite=${mem.membershipId}&company=${activeCompany.companyId}`;
+      const inviteLink = buildProductionInviteLink(req, mem.membershipId, activeCompany.companyId);
 
       const delivery = await emailService.sendWorkspaceInvite({
         toEmail: user.email,
@@ -1114,8 +1333,12 @@ try {
         inviteLink
       });
 
+      const inviteStatus = delivery.success 
+        ? 'SENT' 
+        : (delivery.previewOnly ? 'PREVIEW_ONLY' : 'FAILED');
+
       const updated = await autonomaDb.updateMembership(mem.membershipId, {
-        inviteStatus: delivery.success ? 'SENT' : 'FAILED',
+        inviteStatus,
         inviteSentAt: new Date().toISOString(),
         inviteError: delivery.error || undefined,
         inviteLink
@@ -1127,7 +1350,7 @@ try {
           ...updated,
           userName: user.name,
           userEmail: user.email,
-          inviteStatus: delivery.success ? 'SENT' : 'FAILED',
+          inviteStatus,
           inviteSentAt: new Date().toISOString(),
           inviteError: delivery.error || null,
           inviteLink
@@ -3114,7 +3337,7 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
           expectedLeads: item.expectedLeads || 15,
           targetBuyerPersona: parsedData.targetAudience || 'Audience derived from campaign brief',
           designSystemVerified: true,
-          colorScheme: (brandSys ? 'brand_custom' : 'clean_white') as const,
+          colorScheme: brandSys ? ('brand_custom' as const) : ('clean_white' as const),
           slides: item.carouselSlides && item.carouselSlides.length > 0 ? item.carouselSlides.map((s: any) => ({
             slideNumber: s.slideNumber,
             layout: (s.layout as any) || 'title_hook',
@@ -3464,34 +3687,34 @@ STRICT GUARDRAILS:
         objective
       }, publicMediaDir);
 
-      // Automatic provider fallback: if the preferred image provider fails, try another
-      // configured image-capable provider before surfacing failure to the user.
+      // Automatic provider fallback in exact order: Cloudflare -> OpenAI -> Gemini
       if (!result.success) {
-        const settings = aiProviderService.getSettings(false);
-        const failedProvider = result.provider || providerId || settings.defaults.image;
-        const fallback = Object.entries(settings.providers || {}).find(([id, cfg]: any) =>
-          id !== failedProvider &&
-          Boolean(cfg?.hasKey) &&
-          Array.isArray(cfg?.capabilities) &&
-          cfg.capabilities.includes('image')
-        );
-        if (fallback) {
-          const [fallbackId, fallbackConfig]: any = fallback;
+        const fallbackOrder = ['cloudflare', 'openai', 'gemini'];
+        const failedProvider = result.provider || providerId || 'cloudflare';
+        const candidates = fallbackOrder.filter((id) => id !== failedProvider);
+
+        for (const candidateId of candidates) {
+          const cfg = aiProviderService.getSettings(false).providers[candidateId];
+          if (!cfg?.hasKey) continue;
+
+          console.log(`[Media Gen] Primary image provider (${failedProvider}) failed. Routing fallback to ${candidateId}...`);
           const fallbackResult = await aiProviderService.generateImage({
             prompt,
             aspectRatio,
             assetCode,
             brandDesignSystem,
-            providerId: fallbackId,
-            modelName: fallbackConfig?.selectedModel,
+            providerId: candidateId,
+            modelName: cfg.selectedModel,
             platform,
             language,
             objective
           }, publicMediaDir);
+
           if (fallbackResult.success) {
             result = fallbackResult;
+            break;
           } else {
-            result.error = `${result.error || 'Primary image provider failed'} | Fallback ${fallbackId} also failed: ${fallbackResult.error || 'Unknown error'}`;
+            result.error = `${result.error || 'Primary image provider failed'} | Fallback ${candidateId} also failed: ${fallbackResult.error || 'Unknown error'}`;
             result.isBillingRequired = Boolean(result.isBillingRequired && fallbackResult.isBillingRequired);
           }
         }

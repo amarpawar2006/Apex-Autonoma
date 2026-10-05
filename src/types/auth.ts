@@ -104,9 +104,10 @@ export interface ProviderCapabilityDefaults {
 }
 
 export interface ProviderConfig {
-  id: string; // 'gemini' | 'openai' | 'nvidia' | 'google_veo'
+  id: string; // 'cloudflare' | 'gemini' | 'openai' | 'nvidia' | 'google_veo'
   name: string;
   apiKey?: string;
+  accountId?: string;
   hasKey?: boolean;
   source?: 'server_secret' | 'workspace_override' | 'unconfigured';
   capabilities: CapabilityType[];
@@ -193,7 +194,7 @@ export interface Membership {
   companyName?: string;
   userName?: string;
   userEmail?: string;
-  inviteStatus?: 'SENT' | 'FAILED' | 'PENDING';
+  inviteStatus?: 'SENT' | 'FAILED' | 'PENDING' | 'PREVIEW_ONLY';
   inviteSentAt?: string;
   inviteError?: string;
   inviteLink?: string;
