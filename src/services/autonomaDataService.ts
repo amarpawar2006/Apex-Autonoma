@@ -1,6 +1,8 @@
 import { Campaign, SocialAsset } from '../types/campaign';
 import { INITIAL_CAMPAIGNS, SEED_ASSETS } from '../data/initialCampaigns';
 import { User, Company, Membership, ApprovalRequest, AuthSessionResponse, UserRole, CompanyProfile, CompanyUnderstoodSummary, InferredCompanyProfile } from '../types/auth';
+import { StagedFileInspection, ImportUserChoice } from '../types/import';
+import { DbKnowledgeSourceRow, DbCompanyKnowledgeRow, DbContactRow, DbAudienceListRow, DbCampaignContextSourceRow } from '../types/database';
 
 const STORAGE_KEY_CAMPAIGNS = 'apex_autonoma_campaigns_v2';
 const STORAGE_KEY_ASSETS = 'apex_autonoma_assets_v2';
@@ -1305,6 +1307,218 @@ class AutonomaDataService {
     const json = await res.json();
     if (!json.success) throw new Error(json.error || 'Failed to confirm company context');
     return json;
+  }
+
+  // ==========================================
+  // DATA IMPORT & KNOWLEDGE SERVICE METHODS
+  // ==========================================
+
+  async inspectImportFiles(
+    files: Array<{ fileName: string; fileData: string; size: number; mimeType?: string }>,
+    sessionId?: string
+  ): Promise<{ success: boolean; sessionId: string; inspections: StagedFileInspection[]; errors?: string[] }> {
+    const res = await fetch('/api/import/inspect', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ files, sessionId })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to inspect files');
+    return json;
+  }
+
+  async confirmImport(payload: {
+    sessionId: string;
+    sourceIds: string[];
+    choices: Record<string, ImportUserChoice>;
+    campaignId?: string;
+  }): Promise<{
+    success: boolean;
+    importedSources: DbKnowledgeSourceRow[];
+    contactsInserted: number;
+    contactsUpdated: number;
+    knowledgeItemsCreated: number;
+    audienceListsCreated: number;
+    campaignContextsCreated: number;
+  }> {
+    const res = await fetch('/api/import/confirm', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Import could not be completed.');
+    return json;
+  }
+
+  async cancelImport(sessionId: string): Promise<void> {
+    await fetch('/api/import/cancel', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ sessionId })
+    }).catch(() => {});
+  }
+
+  async getKnowledgeSources(companyId?: string): Promise<DbKnowledgeSourceRow[]> {
+    const url = companyId ? `/api/knowledge-sources?organizationId=${encodeURIComponent(companyId)}` : '/api/knowledge-sources';
+    const res = await fetch(url, { headers: this.getAuthHeaders() });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to fetch knowledge sources');
+    return json.sources || [];
+  }
+
+  async deleteKnowledgeSource(sourceId: string): Promise<void> {
+    const res = await fetch(`/api/knowledge-sources/${encodeURIComponent(sourceId)}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders()
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to delete knowledge source');
+  }
+
+  async getCompanyKnowledge(companyId?: string, category?: string): Promise<DbCompanyKnowledgeRow[]> {
+    const params = new URLSearchParams();
+    if (companyId) params.append('organizationId', companyId);
+    if (category) params.append('category', category);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`/api/company-knowledge${qs}`, { headers: this.getAuthHeaders() });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to fetch company knowledge');
+    return json.knowledge || [];
+  }
+
+  async saveCompanyKnowledge(data: {
+    category: string;
+    title: string;
+    content: string;
+    structuredJson?: any;
+    sourceId?: string;
+    organizationId?: string;
+    companyId?: string;
+  }): Promise<DbCompanyKnowledgeRow> {
+    const res = await fetch('/api/company-knowledge', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to save company knowledge');
+    return json.item;
+  }
+
+  async deleteCompanyKnowledge(knowledgeId: string): Promise<void> {
+    const res = await fetch(`/api/company-knowledge/${encodeURIComponent(knowledgeId)}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders()
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to delete company knowledge');
+  }
+
+  async getContacts(companyId?: string, query?: string, segment?: string): Promise<DbContactRow[]> {
+    const params = new URLSearchParams();
+    if (companyId) params.append('organizationId', companyId);
+    if (query) params.append('query', query);
+    if (segment) params.append('segment', segment);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`/api/contacts${qs}`, { headers: this.getAuthHeaders() });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to fetch contacts');
+    return json.contacts || [];
+  }
+
+  async saveContact(data: Partial<DbContactRow> & { organizationId?: string; companyId?: string }): Promise<DbContactRow> {
+    const res = await fetch('/api/contacts', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to save contact');
+    return json.contact;
+  }
+
+  async deleteContact(contactId: string): Promise<void> {
+    const res = await fetch(`/api/contacts/${encodeURIComponent(contactId)}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders()
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to delete contact');
+  }
+
+  async getAudienceLists(companyId?: string): Promise<DbAudienceListRow[]> {
+    const url = companyId ? `/api/audience-lists?organizationId=${encodeURIComponent(companyId)}` : '/api/audience-lists';
+    const res = await fetch(url, { headers: this.getAuthHeaders() });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to fetch audience lists');
+    return json.lists || [];
+  }
+
+  async saveAudienceList(data: {
+    name: string;
+    description?: string;
+    listType?: string;
+    memberContactIds?: string[];
+    organizationId?: string;
+    companyId?: string;
+  }): Promise<DbAudienceListRow> {
+    const res = await fetch('/api/audience-lists', {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to save audience list');
+    return json.list;
+  }
+
+  async getAudienceListMembers(listId: string): Promise<{ contactIds: string[]; contacts: DbContactRow[] }> {
+    const res = await fetch(`/api/audience-lists/${encodeURIComponent(listId)}/members`, { headers: this.getAuthHeaders() });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to fetch audience list members');
+    return { contactIds: json.contactIds || [], contacts: json.contacts || [] };
+  }
+
+  async deleteAudienceList(listId: string): Promise<void> {
+    const res = await fetch(`/api/audience-lists/${encodeURIComponent(listId)}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders()
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to delete audience list');
+  }
+
+  async getCampaignContextSources(campaignId: string): Promise<DbCampaignContextSourceRow[]> {
+    const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/context-sources`, { headers: this.getAuthHeaders() });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to fetch campaign context sources');
+    return json.sources || [];
+  }
+
+  async attachCampaignContextSource(campaignId: string, data: {
+    sourceId: string;
+    useMode?: string;
+    summary?: string;
+    contextJson?: any;
+  }): Promise<DbCampaignContextSourceRow> {
+    const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/context-sources`, {
+      method: 'POST',
+      headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to attach campaign context');
+    return json.source;
+  }
+
+  async detachCampaignContextSource(campaignId: string, id: string): Promise<void> {
+    const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/context-sources/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders()
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Failed to detach campaign context');
   }
 }
 

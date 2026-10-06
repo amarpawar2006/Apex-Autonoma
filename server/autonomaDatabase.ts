@@ -17,6 +17,12 @@ import {
   DbMembershipRow,
   DbApprovalRequestRow,
   DbSessionRow,
+  DbKnowledgeSourceRow,
+  DbCompanyKnowledgeRow,
+  DbContactRow,
+  DbAudienceListRow,
+  DbAudienceListMemberRow,
+  DbCampaignContextSourceRow,
   AppsScriptResponse
 } from '../src/types/database.js';
 import { INITIAL_CAMPAIGNS, INITIAL_MONTH_ASSETS } from '../src/data/initialCampaigns.js';
@@ -412,66 +418,108 @@ public async initializeProductionPersistence(): Promise<{
     };
   }
 
-  const remote = await supabaseStorage.loadStoreFromSupabase();
-
-  const hasRemoteData = Boolean(
-    (remote?.companies && remote.companies.length > 0) ||
-    (remote?.users && remote.users.length > 0) ||
-    (remote?.campaigns && remote.campaigns.length > 0) ||
-    (remote?.assets && remote.assets.length > 0)
-  );
-
-  if (hasRemoteData && remote) {
-    this.store = {
-      ...this.store,
-      ...(remote.companies ? { companies: remote.companies } : {}),
-      ...(remote.users ? { users: remote.users } : {}),
-      ...(remote.memberships ? { memberships: remote.memberships } : {}),
-      ...(remote.campaigns ? { campaigns: remote.campaigns } : {}),
-      ...(remote.assets ? { assets: remote.assets } : {}),
-      ...(remote.media ? { media: remote.media } : {}),
-      ...(remote.settings ? { settings: remote.settings } : {}),
-      ...(remote.approvalRequests ? { approvalRequests: remote.approvalRequests } : {}),
-      ...(remote.sessions ? { sessions: remote.sessions } : {}),
-      initialized: true
-    };
-
-    this.persistToDisk();
-    this.hasHydrated = true;
-
-    console.log(
-      `[Autonoma DB] Supabase authoritative bootstrap complete: ${
-        this.store.companies?.length || 0
-      } companies, ${this.store.users?.length || 0} users, ${
-        this.store.campaigns.length
-      } campaigns, ${this.store.assets.length} assets.`
+  try {
+    const timeoutPromise = new Promise<null>((resolve) =>
+      setTimeout(() => {
+        console.warn('[Autonoma DB] Supabase fetch timed out after 3500ms; proceeding with local disk cache.');
+        resolve(null);
+      }, 3500)
     );
 
+    const remote = await Promise.race([
+      supabaseStorage.loadStoreFromSupabase(),
+      timeoutPromise
+    ]);
+
+    const hasRemoteData = Boolean(
+      (remote?.companies && remote.companies.length > 0) ||
+      (remote?.users && remote.users.length > 0) ||
+      (remote?.campaigns && remote.campaigns.length > 0) ||
+      (remote?.assets && remote.assets.length > 0) ||
+      (remote?.knowledgeSources && remote.knowledgeSources.length > 0) ||
+      (remote?.companyKnowledge && remote.companyKnowledge.length > 0) ||
+      (remote?.contacts && remote.contacts.length > 0) ||
+      (remote?.audienceLists && remote.audienceLists.length > 0)
+    );
+
+    if (hasRemoteData && remote) {
+      this.store = {
+        ...this.store,
+        ...(remote.companies ? { companies: remote.companies } : {}),
+        ...(remote.users ? { users: remote.users } : {}),
+        ...(remote.memberships ? { memberships: remote.memberships } : {}),
+        ...(remote.campaigns ? { campaigns: remote.campaigns } : {}),
+        ...(remote.assets ? { assets: remote.assets } : {}),
+        ...(remote.media ? { media: remote.media } : {}),
+        ...(remote.settings ? { settings: remote.settings } : {}),
+        ...(remote.approvalRequests ? { approvalRequests: remote.approvalRequests } : {}),
+        ...(remote.sessions ? { sessions: remote.sessions } : {}),
+        ...(remote.knowledgeSources ? { knowledgeSources: remote.knowledgeSources } : {}),
+        ...(remote.companyKnowledge ? { companyKnowledge: remote.companyKnowledge } : {}),
+        ...(remote.contacts ? { contacts: remote.contacts } : {}),
+        ...(remote.audienceLists ? { audienceLists: remote.audienceLists } : {}),
+        ...(remote.audienceListMembers ? { audienceListMembers: remote.audienceListMembers } : {}),
+        ...(remote.campaignContextSources ? { campaignContextSources: remote.campaignContextSources } : {}),
+        initialized: true
+      };
+
+      this.persistToDisk();
+      this.hasHydrated = true;
+
+      console.log(
+        `[Autonoma DB] Supabase authoritative bootstrap complete: ${
+          this.store.companies?.length || 0
+        } companies, ${this.store.users?.length || 0} users, ${
+          this.store.campaigns.length
+        } campaigns, ${this.store.assets.length} assets, ${
+          this.store.knowledgeSources?.length || 0
+        } knowledge sources, ${
+          this.store.companyKnowledge?.length || 0
+        } knowledge items, ${
+          this.store.contacts?.length || 0
+        } contacts, ${
+          this.store.audienceLists?.length || 0
+        } audience lists, ${
+          this.store.campaignContextSources?.length || 0
+        } campaign context sources.`
+      );
+
+      return {
+        source: 'supabase',
+        companies: this.store.companies?.length || 0,
+        users: this.store.users?.length || 0,
+        memberships: this.store.memberships?.length || 0,
+        campaigns: this.store.campaigns.length,
+        assets: this.store.assets.length
+      };
+    }
+
+    const migration = await supabaseStorage.migrateStore(this.store);
+
+    if (migration.migrated) {
+      this.hasHydrated = true;
+    }
+
     return {
-      source: 'supabase',
+      source: migration.migrated ? 'supabase' : 'local',
       companies: this.store.companies?.length || 0,
       users: this.store.users?.length || 0,
       memberships: this.store.memberships?.length || 0,
       campaigns: this.store.campaigns.length,
-      assets: this.store.assets.length
+      assets: this.store.assets.length,
+      migrated: migration.migrated
+    };
+  } catch (err: any) {
+    console.warn('[Autonoma DB] Supabase bootstrap encountered an issue, serving local cache:', err?.message || err);
+    return {
+      source: 'local',
+      companies: this.store.companies?.length || 0,
+      users: this.store.users?.length || 0,
+      memberships: this.store.memberships?.length || 0,
+      campaigns: this.store.campaigns?.length || 0,
+      assets: this.store.assets?.length || 0
     };
   }
-
-  const migration = await supabaseStorage.migrateStore(this.store);
-
-  if (migration.migrated) {
-    this.hasHydrated = true;
-  }
-
-  return {
-    source: migration.migrated ? 'supabase' : 'local',
-    companies: this.store.companies?.length || 0,
-    users: this.store.users?.length || 0,
-    memberships: this.store.memberships?.length || 0,
-    campaigns: this.store.campaigns.length,
-    assets: this.store.assets.length,
-    migrated: migration.migrated
-  };
 }
 
   private loadFromDisk(): AutonomaDatabaseStore {
@@ -512,6 +560,12 @@ public async initializeProductionPersistence(): Promise<{
           if (!parsed.memberships || !Array.isArray(parsed.memberships)) parsed.memberships = [];
           if (!parsed.approvalRequests || !Array.isArray(parsed.approvalRequests)) parsed.approvalRequests = [];
           if (!parsed.sessions || !Array.isArray(parsed.sessions)) parsed.sessions = [];
+          if (!parsed.knowledgeSources || !Array.isArray(parsed.knowledgeSources)) parsed.knowledgeSources = [];
+          if (!parsed.companyKnowledge || !Array.isArray(parsed.companyKnowledge)) parsed.companyKnowledge = [];
+          if (!parsed.contacts || !Array.isArray(parsed.contacts)) parsed.contacts = [];
+          if (!parsed.audienceLists || !Array.isArray(parsed.audienceLists)) parsed.audienceLists = [];
+          if (!parsed.audienceListMembers || !Array.isArray(parsed.audienceListMembers)) parsed.audienceListMembers = [];
+          if (!parsed.campaignContextSources || !Array.isArray(parsed.campaignContextSources)) parsed.campaignContextSources = [];
 
           // Only bootstrap default company if it has NEVER been explicitly deleted
           let legacyCo = parsed.companies.find((c: any) => c.companyId === DEFAULT_ORG_ID);
@@ -1966,16 +2020,25 @@ public async initializeProductionPersistence(): Promise<{
   // ACTIVITY LOG & SYNC
   // ==========================================
 
-  public logActivity(entityType: string, entityId: string, action: string, details: Record<string, any> = {}): void {
+  public logActivity(
+    entityType: string,
+    entityId: string,
+    action: string,
+    details: Record<string, any> = {},
+    actorUserId?: string,
+    organizationId?: string
+  ): void {
+    const logDetails = actorUserId ? { ...details, actorUserId } : details;
+    const logOrgId = organizationId || (details && details.companyId) || (details && details.organizationId) || DEFAULT_ORG_ID;
     const log: DbActivityLogRow = {
       logId: `LOG-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
-      organizationId: DEFAULT_ORG_ID,
+      organizationId: logOrgId,
       entityType,
       entityId,
       action,
-      source: 'AutonomaServer',
+      source: actorUserId || 'AutonomaServer',
       timestamp: new Date().toISOString(),
-      detailsJson: JSON.stringify(details)
+      detailsJson: JSON.stringify(logDetails)
     };
 
     this.store.activityLog.unshift(log);
@@ -2327,6 +2390,362 @@ public async initializeProductionPersistence(): Promise<{
         ...(sheetsWarning ? { warning: sheetsWarning } : {})
       }
     };
+  }
+
+  // ==========================================
+  // KNOWLEDGE SOURCES API (LEGACY DATA & CONTEXT)
+  // ==========================================
+
+  public getKnowledgeSources(companyId?: string): DbKnowledgeSourceRow[] {
+    const list = this.store.knowledgeSources || [];
+    if (companyId) {
+      return list.filter(s => s.organizationId === companyId);
+    }
+    return list;
+  }
+
+  public getKnowledgeSource(sourceId: string, companyId?: string): DbKnowledgeSourceRow | null {
+    const list = this.store.knowledgeSources || [];
+    const source = list.find(s => s.sourceId === sourceId);
+    if (!source) return null;
+    if (companyId && source.organizationId !== companyId) return null;
+    return source;
+  }
+
+  public async saveKnowledgeSource(source: DbKnowledgeSourceRow, actorUserId: string = 'SYSTEM'): Promise<DbKnowledgeSourceRow> {
+    if (!this.store.knowledgeSources) this.store.knowledgeSources = [];
+    const idx = this.store.knowledgeSources.findIndex(s => s.sourceId === source.sourceId);
+    if (idx >= 0) {
+      this.store.knowledgeSources[idx] = { ...this.store.knowledgeSources[idx], ...source };
+    } else {
+      this.store.knowledgeSources.unshift(source);
+    }
+
+    this.persistToDisk();
+    await supabaseStorage.upsertKnowledgeSource(source);
+    return source;
+  }
+
+  public async deleteKnowledgeSource(sourceId: string, companyId?: string, actorUserId: string = 'SYSTEM'): Promise<boolean> {
+    if (!this.store.knowledgeSources) return false;
+    const idx = this.store.knowledgeSources.findIndex(s => s.sourceId === sourceId && (!companyId || s.organizationId === companyId));
+    if (idx < 0) return false;
+
+    const source = this.store.knowledgeSources[idx];
+    this.store.knowledgeSources.splice(idx, 1);
+
+    // Cascade remove associated knowledge items and campaign context sources
+    if (this.store.companyKnowledge) {
+      this.store.companyKnowledge = this.store.companyKnowledge.filter(k => k.sourceId !== sourceId);
+    }
+    if (this.store.campaignContextSources) {
+      this.store.campaignContextSources = this.store.campaignContextSources.filter(c => c.sourceId !== sourceId);
+    }
+
+    this.logActivity('KNOWLEDGE_SOURCE', sourceId, 'SOURCE_DELETED', {
+      fileName: source.fileName,
+      companyId: source.organizationId
+    }, actorUserId);
+
+    this.persistToDisk();
+    await supabaseStorage.deleteKnowledgeSource(sourceId, companyId);
+    if (source.storageUrl) {
+      await supabaseStorage.deletePrivateImportFile(source.storageUrl);
+    }
+    return true;
+  }
+
+  // ==========================================
+  // COMPANY KNOWLEDGE API
+  // ==========================================
+
+  public getCompanyKnowledge(companyId?: string, category?: string): DbCompanyKnowledgeRow[] {
+    const list = this.store.companyKnowledge || [];
+    let filtered = companyId ? list.filter(k => k.organizationId === companyId) : [...list];
+    if (category) {
+      filtered = filtered.filter(k => k.category === category);
+    }
+    return filtered;
+  }
+
+  public async saveCompanyKnowledge(item: DbCompanyKnowledgeRow, actorUserId: string = 'SYSTEM'): Promise<DbCompanyKnowledgeRow> {
+    if (!this.store.companyKnowledge) this.store.companyKnowledge = [];
+    const idx = this.store.companyKnowledge.findIndex(k => k.knowledgeId === item.knowledgeId);
+    if (idx >= 0) {
+      this.store.companyKnowledge[idx] = { ...this.store.companyKnowledge[idx], ...item, updatedAt: new Date().toISOString() };
+    } else {
+      this.store.companyKnowledge.unshift({
+        ...item,
+        createdAt: item.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    this.persistToDisk();
+    await supabaseStorage.upsertCompanyKnowledge(item);
+    return item;
+  }
+
+  public async deleteCompanyKnowledge(knowledgeId: string, companyId?: string): Promise<boolean> {
+    if (!this.store.companyKnowledge) return false;
+    const idx = this.store.companyKnowledge.findIndex(k => k.knowledgeId === knowledgeId && (!companyId || k.organizationId === companyId));
+    if (idx < 0) return false;
+
+    this.store.companyKnowledge.splice(idx, 1);
+    this.persistToDisk();
+    await supabaseStorage.deleteCompanyKnowledge(knowledgeId, companyId);
+    return true;
+  }
+
+  // ==========================================
+  // CONTACTS API (WITH DEDUPLICATION GUARD)
+  // ==========================================
+
+  public getContacts(companyId?: string, query?: string, segment?: string): DbContactRow[] {
+    const list = this.store.contacts || [];
+    let filtered = companyId ? list.filter(c => c.organizationId === companyId) : [...list];
+    if (segment && segment !== 'all') {
+      filtered = filtered.filter(c => c.segment?.toLowerCase() === segment.toLowerCase());
+    }
+    if (query && query.trim()) {
+      const q = query.toLowerCase().trim();
+      filtered = filtered.filter(c => 
+        c.name.toLowerCase().includes(q) ||
+        (c.email && c.email.toLowerCase().includes(q)) ||
+        (c.company && c.company.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.includes(q)) ||
+        (c.location && c.location.toLowerCase().includes(q))
+      );
+    }
+    return filtered;
+  }
+
+  public async saveContact(contact: DbContactRow, actorUserId: string = 'SYSTEM'): Promise<DbContactRow> {
+    if (!this.store.contacts) this.store.contacts = [];
+    const idx = this.store.contacts.findIndex(c => c.contactId === contact.contactId && c.organizationId === contact.organizationId);
+    if (idx >= 0) {
+      this.store.contacts[idx] = { ...this.store.contacts[idx], ...contact, updatedAt: new Date().toISOString() };
+      this.logActivity('CONTACT', contact.contactId, 'CONTACT_UPDATED', { email: contact.email, companyId: contact.organizationId }, actorUserId);
+    } else {
+      this.store.contacts.push({ ...contact, createdAt: contact.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() });
+      this.logActivity('CONTACT', contact.contactId, 'CONTACT_CREATED', { email: contact.email, companyId: contact.organizationId }, actorUserId);
+    }
+
+    this.persistToDisk();
+    await supabaseStorage.upsertContact(contact);
+    return contact;
+  }
+
+  public async batchSaveContacts(
+    companyId: string,
+    contactsList: DbContactRow[],
+    sourceId?: string,
+    actorUserId: string = 'SYSTEM'
+  ): Promise<{ inserted: number; updated: number; contacts: DbContactRow[] }> {
+    if (!this.store.contacts) this.store.contacts = [];
+    let inserted = 0;
+    let updated = 0;
+    const resultContacts: DbContactRow[] = [];
+
+    for (const newC of contactsList) {
+      const normEmail = newC.email ? newC.email.toLowerCase().trim() : '';
+      const normPhone = newC.phone ? newC.phone.replace(/[^\d+]/g, '') : '';
+
+      // Match existing contact strictly within the same organization by normalized email or phone
+      const existingIdx = this.store.contacts.findIndex(c => {
+        if (c.organizationId !== companyId) return false;
+        if (normEmail && c.email && c.email.toLowerCase().trim() === normEmail) return true;
+        if (normPhone && c.phone && c.phone.replace(/[^\d+]/g, '') === normPhone) return true;
+        return false;
+      });
+
+      if (existingIdx >= 0) {
+        // Merge without creating duplicate records blindly
+        const existing = this.store.contacts[existingIdx];
+        const merged: DbContactRow = {
+          ...existing,
+          name: existing.name || newC.name,
+          company: existing.company || newC.company,
+          email: existing.email || newC.email,
+          phone: existing.phone || newC.phone,
+          linkedinUrl: existing.linkedinUrl || newC.linkedinUrl,
+          instagramHandle: existing.instagramHandle || newC.instagramHandle,
+          otherHandlesJson: existing.otherHandlesJson || newC.otherHandlesJson,
+          location: existing.location || newC.location,
+          segment: existing.segment || newC.segment,
+          notes: existing.notes || newC.notes,
+          sourceId: existing.sourceId || sourceId,
+          updatedAt: new Date().toISOString()
+        };
+        this.store.contacts[existingIdx] = merged;
+        updated++;
+        resultContacts.push(merged);
+        this.logActivity('CONTACT', merged.contactId, 'CONTACT_UPDATED', { email: merged.email, companyId }, actorUserId);
+      } else {
+        const contactId = newC.contactId || `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const freshContact: DbContactRow = {
+          ...newC,
+          contactId,
+          organizationId: companyId,
+          sourceId: sourceId || newC.sourceId,
+          createdAt: newC.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        this.store.contacts.push(freshContact);
+        inserted++;
+        resultContacts.push(freshContact);
+        this.logActivity('CONTACT', contactId, 'CONTACT_CREATED', { email: freshContact.email, companyId }, actorUserId);
+      }
+    }
+
+    this.persistToDisk();
+    await supabaseStorage.batchUpsertContacts(resultContacts);
+
+    return { inserted, updated, contacts: resultContacts };
+  }
+
+  public async batchUpsertContacts(
+    contactsList: DbContactRow[],
+    companyId: string,
+    actorUserId: string = 'SYSTEM',
+    sourceId?: string
+  ): Promise<{ inserted: number; updated: number; contacts: DbContactRow[] }> {
+    return this.batchSaveContacts(companyId, contactsList, sourceId, actorUserId);
+  }
+
+  public async deleteContact(contactId: string, companyId?: string): Promise<boolean> {
+    if (!this.store.contacts) return false;
+    const idx = this.store.contacts.findIndex(c => c.contactId === contactId && (!companyId || c.organizationId === companyId));
+    if (idx < 0) return false;
+
+    this.store.contacts.splice(idx, 1);
+    if (this.store.audienceListMembers) {
+      this.store.audienceListMembers = this.store.audienceListMembers.filter(m => m.contactId !== contactId);
+    }
+
+    this.persistToDisk();
+    await supabaseStorage.deleteContact(contactId, companyId);
+    return true;
+  }
+
+  // ==========================================
+  // AUDIENCE LISTS API
+  // ==========================================
+
+  public getAudienceLists(companyId?: string): DbAudienceListRow[] {
+    const list = this.store.audienceLists || [];
+    if (companyId) {
+      return list.filter(l => l.organizationId === companyId);
+    }
+    return list;
+  }
+
+  public getAudienceListMembers(listId: string): string[] {
+    const members = this.store.audienceListMembers || [];
+    return members.filter(m => m.listId === listId).map(m => m.contactId);
+  }
+
+  public async saveAudienceList(
+    list: DbAudienceListRow,
+    memberContactIds?: string[],
+    actorUserId: string = 'SYSTEM'
+  ): Promise<DbAudienceListRow> {
+    if (!this.store.audienceLists) this.store.audienceLists = [];
+    if (!this.store.audienceListMembers) this.store.audienceListMembers = [];
+
+    const listId = list.listId || `list_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const fullList: DbAudienceListRow = {
+      ...list,
+      listId,
+      createdAt: list.createdAt || new Date().toISOString()
+    };
+
+    const idx = this.store.audienceLists.findIndex(l => l.listId === listId);
+    if (idx >= 0) {
+      this.store.audienceLists[idx] = fullList;
+    } else {
+      this.store.audienceLists.unshift(fullList);
+      this.logActivity('AUDIENCE_LIST', listId, 'AUDIENCE_LIST_CREATED', {
+        name: fullList.name,
+        contactCount: fullList.contactCount,
+        companyId: fullList.organizationId
+      }, actorUserId);
+    }
+
+    if (memberContactIds && memberContactIds.length > 0) {
+      this.store.audienceListMembers = this.store.audienceListMembers.filter(m => m.listId !== listId);
+      for (const cid of memberContactIds) {
+        this.store.audienceListMembers.push({ listId, contactId: cid });
+      }
+    }
+
+    this.persistToDisk();
+    await supabaseStorage.upsertAudienceList(fullList, memberContactIds);
+    return fullList;
+  }
+
+  public async deleteAudienceList(listId: string, companyId?: string): Promise<boolean> {
+    if (!this.store.audienceLists) return false;
+    const idx = this.store.audienceLists.findIndex(l => l.listId === listId && (!companyId || l.organizationId === companyId));
+    if (idx < 0) return false;
+
+    this.store.audienceLists.splice(idx, 1);
+    if (this.store.audienceListMembers) {
+      this.store.audienceListMembers = this.store.audienceListMembers.filter(m => m.listId !== listId);
+    }
+
+    this.persistToDisk();
+    await supabaseStorage.deleteAudienceList(listId, companyId);
+    return true;
+  }
+
+  // ==========================================
+  // CAMPAIGN CONTEXT SOURCES API
+  // ==========================================
+
+  public getCampaignContextSources(campaignId: string, companyId?: string): DbCampaignContextSourceRow[] {
+    const list = this.store.campaignContextSources || [];
+    return list.filter(c => c.campaignId === campaignId && (!companyId || c.organizationId === companyId));
+  }
+
+  public async saveCampaignContextSource(
+    source: DbCampaignContextSourceRow,
+    actorUserId: string = 'SYSTEM'
+  ): Promise<DbCampaignContextSourceRow> {
+    if (!this.store.campaignContextSources) this.store.campaignContextSources = [];
+    const id = source.id || `ccs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const fullSource: DbCampaignContextSourceRow = {
+      ...source,
+      id,
+      createdAt: source.createdAt || new Date().toISOString()
+    };
+
+    const idx = this.store.campaignContextSources.findIndex(s => s.id === id);
+    if (idx >= 0) {
+      this.store.campaignContextSources[idx] = fullSource;
+    } else {
+      this.store.campaignContextSources.unshift(fullSource);
+      this.logActivity('CAMPAIGN_CONTEXT', id, 'CAMPAIGN_CONTEXT_ATTACHED', {
+        campaignId: fullSource.campaignId,
+        sourceId: fullSource.sourceId,
+        companyId: fullSource.organizationId
+      }, actorUserId);
+    }
+
+    this.persistToDisk();
+    await supabaseStorage.upsertCampaignContextSource(fullSource);
+    return fullSource;
+  }
+
+  public async deleteCampaignContextSource(id: string, companyId?: string): Promise<boolean> {
+    if (!this.store.campaignContextSources) return false;
+    const idx = this.store.campaignContextSources.findIndex(s => s.id === id && (!companyId || s.organizationId === companyId));
+    if (idx < 0) return false;
+
+    this.store.campaignContextSources.splice(idx, 1);
+    this.persistToDisk();
+    await supabaseStorage.deleteCampaignContextSource(id, companyId);
+    return true;
   }
 }
 

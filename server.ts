@@ -23,6 +23,7 @@ import { aiProviderService } from './server/aiProviderService.js';
 import { supabaseStorage } from './server/supabaseStorage.js';
 import { analyzeBrandGuidelinesPdf } from './server/brandPdfService.js';
 import { generateDynamicSchedule } from './server/schedulingEngine.js';
+import { dataImportService } from './server/dataImportService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -253,10 +254,13 @@ async function fetchSafePublicPage(urlStr: string): Promise<{ success: boolean; 
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const portArgIdx = process.argv.indexOf('--port');
+  const portArg = portArgIdx !== -1 && process.argv[portArgIdx + 1] ? Number(process.argv[portArgIdx + 1]) : null;
+  const PORT = portArg || (process.env.PORT && process.env.PORT !== '8080' ? Number(process.env.PORT) : 3000);
   const isProd = process.env.NODE_ENV === 'production';
 
-  app.use(express.json({ limit: '25mb' }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 try {
   const persistence = await autonomaDb.initializeProductionPersistence();
 
@@ -1979,6 +1983,540 @@ Generate a JSON object strictly adhering to the schema.`;
   });
 
   // ==========================================
+  // DATA & CAMPAIGN CONTEXT IMPORT API
+  // Strict company isolation, PII safety, staged inspection
+  // ==========================================
+
+  // 1. Inspect uploaded files (Never auto-import blindly)
+  app.post('/api/import/inspect', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const actorUserId = (req as any).user?.userId || 'SYSTEM';
+      const { files, sessionId: inputSessionId, organizationId: reqOrgId, companyId: reqCompId } = req.body || {};
+
+      if (!files || !Array.isArray(files) || files.length === 0) {
+        return res.status(400).json({ success: false, error: 'No files provided for inspection.' });
+      }
+
+      // Pre-upload limits check: 10 files maximum, 25MB individual limit, supported extensions
+      const validation = dataImportService.validateFiles(
+        files.map((f: any) => ({ name: f.fileName || f.name || '', size: Number(f.size || 0) }))
+      );
+      if (!validation.valid) {
+        return res.status(400).json({ success: false, error: validation.error });
+      }
+
+      let targetCompanyId: string;
+      if (isSuperAdmin) {
+        const raw = reqOrgId || reqCompId;
+        if (!raw || raw === 'ALL') {
+          return res.status(400).json({ success: false, error: 'A specific company must be explicitly selected before uploading data.' });
+        }
+        targetCompanyId = String(raw).trim();
+      } else {
+        targetCompanyId = activeCompanyId;
+      }
+
+      const sessionId = inputSessionId || `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      // Decode base64 file buffers
+      const fileItems = files.map((f: any) => {
+        const rawB64 = (f.fileData || f.data || '').replace(/^data:[^;]+;base64,/, '');
+        const buffer = Buffer.from(rawB64, 'base64');
+        return {
+          fileName: f.fileName || f.name || 'unnamed_file',
+          buffer,
+          size: buffer.length,
+          mimeType: f.mimeType || f.type
+        };
+      });
+
+      // Log upload action (clean metadata only)
+      autonomaDb.logActivity('KNOWLEDGE_SOURCE', sessionId, 'IMPORT_UPLOAD', {
+        companyId: targetCompanyId,
+        fileCount: fileItems.length,
+        fileNames: fileItems.map(f => f.fileName)
+      }, actorUserId, targetCompanyId);
+
+      const { inspections, errors } = await dataImportService.inspectAndStageFiles(
+        sessionId,
+        targetCompanyId,
+        actorUserId,
+        fileItems
+      );
+
+      // Log inspection completed
+      autonomaDb.logActivity('KNOWLEDGE_SOURCE', sessionId, 'IMPORT_INSPECTION', {
+        companyId: targetCompanyId,
+        stagedCount: inspections.length,
+        errorCount: errors.length
+      }, actorUserId, targetCompanyId);
+
+      res.json({
+        success: true,
+        sessionId,
+        inspections,
+        errors: errors.length > 0 ? errors : undefined
+      });
+    } catch (err: any) {
+      console.error('[Data Import] Inspection error:', err);
+      res.status(500).json({ success: false, error: err?.message || 'Failed to inspect uploaded files' });
+    }
+  });
+
+  // 2. Confirm import of selected data after inspection
+  app.post('/api/import/confirm', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const actorUserId = (req as any).user?.userId || 'SYSTEM';
+      const { sessionId, sourceIds, choices = {}, campaignId, organizationId: reqOrgId, companyId: reqCompId } = req.body || {};
+
+      if (!sessionId || !sourceIds || !Array.isArray(sourceIds) || sourceIds.length === 0) {
+        return res.status(400).json({ success: false, error: 'Missing sessionId or sourceIds to confirm import.' });
+      }
+
+      let targetCompanyId: string;
+      if (isSuperAdmin) {
+        const raw = reqOrgId || reqCompId;
+        if (!raw || raw === 'ALL') {
+          return res.status(400).json({ success: false, error: 'A specific company must be explicitly selected before confirming imports.' });
+        }
+        targetCompanyId = String(raw).trim();
+      } else {
+        targetCompanyId = activeCompanyId;
+      }
+
+      const result = await dataImportService.confirmImport({
+        sessionId,
+        sourceIds,
+        choices,
+        campaignId,
+        organizationId: targetCompanyId,
+        actorUserId
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error || 'Import could not be completed.' });
+      }
+
+      res.json(result);
+    } catch (err: any) {
+      console.error('[Data Import] Confirm error:', err);
+      res.status(500).json({ success: false, error: err?.message || 'Import could not be completed.' });
+    }
+  });
+
+  // 3. Cancel/clean up staged session
+  app.post('/api/import/cancel', authenticateUser, (req: Request, res: Response) => {
+    try {
+      const { sessionId } = req.body || {};
+      if (sessionId) {
+        dataImportService.clearSession(sessionId);
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
+  // ==========================================
+  // KNOWLEDGE SOURCES API (COMPANY ISOLATION)
+  // ==========================================
+  app.get(['/api/knowledge-sources', '/api/import-sources'], authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const rawOrg = req.query.organizationId || req.query.companyId;
+      const queryOrgId = rawOrg ? String(rawOrg).trim() : undefined;
+
+      let targetCompanyId: string | undefined = undefined;
+      if (!isSuperAdmin) {
+        if (queryOrgId && queryOrgId !== activeCompanyId) {
+          return res.status(403).json({ success: false, error: 'Unauthorized: Access limited to your active organization' });
+        }
+        targetCompanyId = activeCompanyId;
+      } else {
+        targetCompanyId = (queryOrgId && queryOrgId !== 'ALL') ? queryOrgId : undefined;
+      }
+
+      const sources = autonomaDb.getKnowledgeSources(targetCompanyId);
+      res.json({ success: true, sources });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to fetch knowledge sources' });
+    }
+  });
+
+  app.delete(['/api/knowledge-sources/:sourceId', '/api/import-sources/:sourceId'], authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const actorUserId = (req as any).user?.userId || 'SYSTEM';
+      const { sourceId } = req.params;
+
+      const source = autonomaDb.getKnowledgeSource(sourceId);
+      if (!source) {
+        return res.status(404).json({ success: false, error: 'Knowledge source not found' });
+      }
+
+      if (!isSuperAdmin && source.organizationId !== activeCompanyId) {
+        return res.status(403).json({ success: false, error: 'Cannot delete knowledge source belonging to another company' });
+      }
+
+      await autonomaDb.deleteKnowledgeSource(sourceId, source.organizationId, actorUserId);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to delete knowledge source' });
+    }
+  });
+
+  // ==========================================
+  // COMPANY KNOWLEDGE API
+  // ==========================================
+  app.get(['/api/company-knowledge', '/api/knowledge'], authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const rawOrg = req.query.organizationId || req.query.companyId;
+      const queryOrgId = rawOrg ? String(rawOrg).trim() : undefined;
+      const category = req.query.category ? String(req.query.category).trim() : undefined;
+
+      let targetCompanyId: string | undefined = undefined;
+      if (!isSuperAdmin) {
+        if (queryOrgId && queryOrgId !== activeCompanyId) {
+          return res.status(403).json({ success: false, error: 'Unauthorized: Access limited to your active organization' });
+        }
+        targetCompanyId = activeCompanyId;
+      } else {
+        targetCompanyId = (queryOrgId && queryOrgId !== 'ALL') ? queryOrgId : undefined;
+      }
+
+      const knowledge = autonomaDb.getCompanyKnowledge(targetCompanyId, category);
+      res.json({ success: true, knowledge });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to fetch company knowledge' });
+    }
+  });
+
+  app.post(['/api/company-knowledge', '/api/knowledge'], authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const actorUserId = (req as any).user?.userId || 'SYSTEM';
+      const { category, title, content, structuredJson, sourceId, organizationId: reqOrgId, companyId: reqCompId } = req.body || {};
+
+      if (!title || !content) {
+        return res.status(400).json({ success: false, error: 'Title and content are required' });
+      }
+
+      let targetCompanyId: string;
+      if (isSuperAdmin) {
+        const raw = reqOrgId || reqCompId;
+        if (!raw || raw === 'ALL') {
+          return res.status(400).json({ success: false, error: 'A specific company must be explicitly selected before creating records.' });
+        }
+        targetCompanyId = String(raw).trim();
+      } else {
+        targetCompanyId = activeCompanyId;
+      }
+
+      const item = await autonomaDb.saveCompanyKnowledge({
+        knowledgeId: `knw_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        organizationId: targetCompanyId,
+        sourceId: sourceId || `manual_${Date.now()}`,
+        category: category || 'COMPANY_KNOWLEDGE',
+        title: title.trim(),
+        content: content.trim(),
+        structuredJson: structuredJson ? (typeof structuredJson === 'string' ? structuredJson : JSON.stringify(structuredJson)) : undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, actorUserId);
+
+      res.json({ success: true, item });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to save company knowledge' });
+    }
+  });
+
+  app.delete(['/api/company-knowledge/:knowledgeId', '/api/knowledge/:knowledgeId'], authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const { knowledgeId } = req.params;
+
+      const deleted = await autonomaDb.deleteCompanyKnowledge(knowledgeId, isSuperAdmin ? undefined : activeCompanyId);
+      if (!deleted) {
+        return res.status(404).json({ success: false, error: 'Knowledge item not found' });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to delete company knowledge' });
+    }
+  });
+
+  // ==========================================
+  // CONTACTS API (STRICT ISOLATION & DEDUPLICATION)
+  // ==========================================
+  app.get('/api/contacts', authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const rawOrg = req.query.organizationId || req.query.companyId;
+      const queryOrgId = rawOrg ? String(rawOrg).trim() : undefined;
+
+      let targetCompanyId: string | undefined = undefined;
+      if (!isSuperAdmin) {
+        if (queryOrgId && queryOrgId !== activeCompanyId) {
+          return res.status(403).json({ success: false, error: 'Unauthorized: Access limited to your active organization' });
+        }
+        targetCompanyId = activeCompanyId;
+      } else {
+        targetCompanyId = (queryOrgId && queryOrgId !== 'ALL') ? queryOrgId : undefined;
+      }
+
+      let contacts = autonomaDb.getContacts(targetCompanyId);
+      const query = req.query.query ? String(req.query.query).toLowerCase().trim() : '';
+      const segment = req.query.segment ? String(req.query.segment).trim() : '';
+
+      if (query) {
+        contacts = contacts.filter(c => 
+          (c.name && c.name.toLowerCase().includes(query)) ||
+          (c.company && c.company.toLowerCase().includes(query)) ||
+          (c.email && c.email.toLowerCase().includes(query)) ||
+          (c.phone && c.phone.includes(query)) ||
+          (c.location && c.location.toLowerCase().includes(query))
+        );
+      }
+
+      if (segment) {
+        contacts = contacts.filter(c => c.segment === segment);
+      }
+
+      res.json({ success: true, contacts, total: contacts.length });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to fetch contacts' });
+    }
+  });
+
+  app.post('/api/contacts', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const actorUserId = (req as any).user?.userId || 'SYSTEM';
+      const { name, company, email, phone, linkedinUrl, instagramHandle, otherHandles, location, segment, notes, organizationId: reqOrgId, companyId: reqCompId } = req.body || {};
+
+      if (!name && !email && !phone) {
+        return res.status(400).json({ success: false, error: 'At least name, email, or phone is required' });
+      }
+
+      let targetCompanyId: string;
+      if (isSuperAdmin) {
+        const raw = reqOrgId || reqCompId;
+        if (!raw || raw === 'ALL') {
+          return res.status(400).json({ success: false, error: 'A specific company must be explicitly selected before creating records.' });
+        }
+        targetCompanyId = String(raw).trim();
+      } else {
+        targetCompanyId = activeCompanyId;
+      }
+
+      const contact = await autonomaDb.saveContact({
+        contactId: `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        organizationId: targetCompanyId,
+        name: (name || email?.split('@')[0] || 'Contact').trim(),
+        company: company ? String(company).trim() : undefined,
+        email: email ? String(email).toLowerCase().trim() : undefined,
+        phone: phone ? String(phone).trim() : undefined,
+        linkedinUrl: linkedinUrl ? String(linkedinUrl).trim() : undefined,
+        instagramHandle: instagramHandle ? String(instagramHandle).trim() : undefined,
+        otherHandlesJson: otherHandles ? JSON.stringify(otherHandles) : undefined,
+        location: location ? String(location).trim() : undefined,
+        segment: segment ? String(segment).trim() : undefined,
+        notes: notes ? String(notes).trim() : undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, actorUserId);
+
+      res.json({ success: true, contact });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to save contact' });
+    }
+  });
+
+  app.delete('/api/contacts/:contactId', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const { contactId } = req.params;
+
+      const deleted = await autonomaDb.deleteContact(contactId, isSuperAdmin ? undefined : activeCompanyId);
+      if (!deleted) {
+        return res.status(404).json({ success: false, error: 'Contact not found' });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to delete contact' });
+    }
+  });
+
+  // ==========================================
+  // AUDIENCE & DISTRIBUTION LISTS API
+  // ==========================================
+  app.get('/api/audience-lists', authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const rawOrg = req.query.organizationId || req.query.companyId;
+      const queryOrgId = rawOrg ? String(rawOrg).trim() : undefined;
+
+      let targetCompanyId: string | undefined = undefined;
+      if (!isSuperAdmin) {
+        if (queryOrgId && queryOrgId !== activeCompanyId) {
+          return res.status(403).json({ success: false, error: 'Unauthorized: Access limited to your active organization' });
+        }
+        targetCompanyId = activeCompanyId;
+      } else {
+        targetCompanyId = (queryOrgId && queryOrgId !== 'ALL') ? queryOrgId : undefined;
+      }
+
+      const lists = autonomaDb.getAudienceLists(targetCompanyId);
+      res.json({ success: true, lists });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to fetch audience lists' });
+    }
+  });
+
+  app.post('/api/audience-lists', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const actorUserId = (req as any).user?.userId || 'SYSTEM';
+      const { name, description, listType, memberContactIds = [], organizationId: reqOrgId, companyId: reqCompId } = req.body || {};
+
+      if (!name || !name.trim()) {
+        return res.status(400).json({ success: false, error: 'List name is required' });
+      }
+
+      let targetCompanyId: string;
+      if (isSuperAdmin) {
+        const raw = reqOrgId || reqCompId;
+        if (!raw || raw === 'ALL') {
+          return res.status(400).json({ success: false, error: 'A specific company must be explicitly selected before creating records.' });
+        }
+        targetCompanyId = String(raw).trim();
+      } else {
+        targetCompanyId = activeCompanyId;
+      }
+
+      const listId = `aud_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const list = await autonomaDb.saveAudienceList({
+        listId,
+        organizationId: targetCompanyId,
+        name: name.trim(),
+        description: description ? description.trim() : undefined,
+        contactCount: memberContactIds.length,
+        listType: listType || 'AUDIENCE',
+        metadataJson: JSON.stringify({ manualCreated: true }),
+        createdAt: new Date().toISOString()
+      }, memberContactIds, actorUserId);
+
+      res.json({ success: true, list });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to create audience list' });
+    }
+  });
+
+  app.get('/api/audience-lists/:listId/members', authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
+    try {
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const { listId } = req.params;
+
+      const contactIds = autonomaDb.getAudienceListMembers(listId);
+      const allContacts = autonomaDb.getContacts(activeCompanyId);
+      const members = allContacts.filter(c => contactIds.includes(c.contactId));
+
+      res.json({ success: true, contactIds, contacts: members });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to fetch audience list members' });
+    }
+  });
+
+  app.delete('/api/audience-lists/:listId', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const isSuperAdmin = (req as any).user?.isSuperAdmin;
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const { listId } = req.params;
+
+      const deleted = await autonomaDb.deleteAudienceList(listId, isSuperAdmin ? undefined : activeCompanyId);
+      if (!deleted) {
+        return res.status(404).json({ success: false, error: 'Audience list not found' });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to delete audience list' });
+    }
+  });
+
+  // ==========================================
+  // CAMPAIGN CONTEXT SOURCES API
+  // ==========================================
+  app.get('/api/campaigns/:campaignId/context-sources', authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
+    try {
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const { campaignId } = req.params;
+
+      const sources = autonomaDb.getCampaignContextSources(campaignId, activeCompanyId);
+      res.json({ success: true, sources });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to fetch campaign context sources' });
+    }
+  });
+
+  app.post('/api/campaigns/:campaignId/context-sources', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const actorUserId = (req as any).user?.userId || 'SYSTEM';
+      const { campaignId } = req.params;
+      const { sourceId, useMode, summary, contextJson } = req.body || {};
+
+      if (!sourceId) {
+        return res.status(400).json({ success: false, error: 'sourceId is required' });
+      }
+
+      const source = await autonomaDb.saveCampaignContextSource({
+        id: `ccs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        organizationId: activeCompanyId,
+        campaignId,
+        sourceId,
+        useMode: useMode || 'CAMPAIGN_CONTEXT',
+        summary,
+        contextJson: contextJson ? (typeof contextJson === 'string' ? contextJson : JSON.stringify(contextJson)) : undefined,
+        createdAt: new Date().toISOString()
+      }, actorUserId);
+
+      res.json({ success: true, source });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to attach campaign context source' });
+    }
+  });
+
+  app.delete('/api/campaigns/:campaignId/context-sources/:id', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+    try {
+      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const { id } = req.params;
+
+      const deleted = await autonomaDb.deleteCampaignContextSource(id, activeCompanyId);
+      if (!deleted) {
+        return res.status(404).json({ success: false, error: 'Campaign context source not found' });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to delete campaign context source' });
+    }
+  });
+
+  // ==========================================
   // AI & MEDIA PROVIDER SETTINGS API
   // Multi-provider configuration (Gemini, OpenAI, NVIDIA, Veo)
   // ==========================================
@@ -2699,6 +3237,7 @@ Instructions:
         primaryGoal,
         secondaryGoals = [],
         companyContext,
+        importedCampaignContext,
         platforms = ['instagram', 'facebook', 'linkedin'],
         formats = ['carousel', 'reel_short', 'static_poster'],
         duration = '7_days',
@@ -2861,6 +3400,10 @@ STRICT CONTEXT AND PROMOTION DIRECTIVES:
 Your task is to generate a comprehensive, strategic social media campaign driven EXCLUSIVELY by the user's submitted campaign brief and explicit goals, aligned with the company brand context.
 
 ${companyContextBlock}
+${importedCampaignContext && typeof importedCampaignContext === 'string' && importedCampaignContext.trim() ? `
+IMPORTED CAMPAIGN CONTEXT (Derived strictly from user-approved business data sources):
+${importedCampaignContext.trim()}
+` : ''}
 
 STRICT MANDATORY DIRECTIVES (PREVENT PRODUCT MISMATCH):
 YOU MUST GENERATE CONTENT FOR THIS EXACT COMPANY AND DOMAIN ONLY (${compName} - ${compProfile?.organizationType || 'business'}).

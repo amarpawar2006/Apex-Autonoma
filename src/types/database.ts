@@ -226,6 +226,79 @@ export interface DbActivityLogRow {
   detailsJson: string;
 }
 
+export interface DbKnowledgeSourceRow {
+  sourceId: string;
+  organizationId: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  sourceType: 'FILE_UPLOAD' | 'GOOGLE_DRIVE';
+  storageUrl?: string;
+  status: 'UPLOADED' | 'INSPECTING' | 'READY_FOR_REVIEW' | 'IMPORTED' | 'FAILED';
+  createdBy: string;
+  createdAt: string;
+  metadataJson?: string;
+}
+
+export interface DbCompanyKnowledgeRow {
+  knowledgeId: string;
+  organizationId: string;
+  sourceId: string;
+  category: 'COMPANY_KNOWLEDGE' | 'PRODUCT' | 'CAMPAIGN_HISTORY' | 'AUDIENCE' | 'OTHER';
+  title: string;
+  content: string;
+  structuredJson?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DbContactRow {
+  contactId: string;
+  organizationId: string;
+  sourceId?: string;
+  name: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  linkedinUrl?: string;
+  instagramHandle?: string;
+  otherHandlesJson?: string;
+  location?: string;
+  segment?: string;
+  tagsJson?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DbAudienceListRow {
+  listId: string;
+  organizationId: string;
+  sourceId?: string;
+  name: string;
+  description?: string;
+  contactCount: number;
+  listType: 'CONTACT' | 'DISTRIBUTION_LIST' | 'AUDIENCE';
+  metadataJson?: string;
+  createdAt: string;
+}
+
+export interface DbAudienceListMemberRow {
+  listId: string;
+  contactId: string;
+}
+
+export interface DbCampaignContextSourceRow {
+  id: string;
+  organizationId: string;
+  campaignId: string;
+  sourceId: string;
+  useMode: 'CAMPAIGN_CONTEXT' | 'SCHEDULING_DISTRIBUTION' | 'FULL_IMPORT';
+  summary?: string;
+  contextJson?: string;
+  createdAt: string;
+}
+
 export interface AutonomaDatabaseStore {
   version: string;
   organizationId: string;
@@ -244,6 +317,12 @@ export interface AutonomaDatabaseStore {
   dailySnapshots: DbDailySnapshotRow[];
   settings: DbSettingsRow;
   activityLog: DbActivityLogRow[];
+  knowledgeSources?: DbKnowledgeSourceRow[];
+  companyKnowledge?: DbCompanyKnowledgeRow[];
+  contacts?: DbContactRow[];
+  audienceLists?: DbAudienceListRow[];
+  audienceListMembers?: DbAudienceListMemberRow[];
+  campaignContextSources?: DbCampaignContextSourceRow[];
   deletedCampaignIds?: string[];
   deletedAssetIds?: string[];
   deletedCompanyIds?: string[];

@@ -26,7 +26,8 @@ import {
   ArrowRight,
   Copy,
   Send,
-  RefreshCw
+  RefreshCw,
+  Database
 } from 'lucide-react';
 import { 
   Company, 
@@ -38,6 +39,7 @@ import {
   CompanyUnderstoodSummary 
 } from '../../types/auth';
 import { autonomaDataService } from '../../services/autonomaDataService';
+import { CompanyDataKnowledgeView } from './CompanyDataKnowledgeView';
 
 const displayValue = (value: unknown, fallback = ''): string => {
   if (value === null || value === undefined || value === '') return fallback;
@@ -96,7 +98,7 @@ interface CompanyManagementModalProps {
   currentUser: AuthUser;
   currentUserRole: UserRole;
   onCompanyUpdated: (updatedCompany: Company) => void;
-  initialTab?: 'ai_context' | 'profile' | 'understanding' | 'members';
+  initialTab?: 'ai_context' | 'profile' | 'understanding' | 'members' | 'company_data';
 }
 
 export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
@@ -108,7 +110,7 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
   onCompanyUpdated,
   initialTab = 'ai_context'
 }) => {
-  const [activeTab, setActiveTab] = useState<'ai_context' | 'profile' | 'understanding' | 'members'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'ai_context' | 'profile' | 'understanding' | 'members' | 'company_data'>(initialTab);
   const [members, setMembers] = useState<Membership[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -759,6 +761,18 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
           >
             <Users className="w-3.5 h-3.5" />
             <span>Team ({members.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('company_data')}
+            className={`pb-2.5 px-3.5 font-semibold transition-all border-b-2 flex items-center space-x-1.5 shrink-0 ${
+              activeTab === 'company_data'
+                ? 'border-[#FF4500] text-[#1D1D1F] font-bold'
+                : 'border-transparent text-[#6E6E73] hover:text-[#1D1D1F]'
+            }`}
+          >
+            <Database className="w-3.5 h-3.5 text-[#FF4500]" />
+            <span>Company Data &amp; Knowledge</span>
           </button>
         </div>
 
@@ -1937,6 +1951,19 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* TAB 4: COMPANY DATA & KNOWLEDGE                      */}
+          {/* ==================================================== */}
+          {activeTab === 'company_data' && (
+            <div className="space-y-5">
+              <CompanyDataKnowledgeView
+                activeCompany={activeCompany}
+                userRole={currentUserRole}
+                isSuperAdmin={currentUser.isSuperAdmin}
+              />
             </div>
           )}
         </div>

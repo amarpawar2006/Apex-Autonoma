@@ -29,6 +29,7 @@ import { Platform, ContentFormat, Campaign, SocialAsset } from '../types/campaig
 import { calculateOptimalAssetCount, createAutonomaCampaign } from '../services/campaignService';
 import { autonomaDataService } from '../services/autonomaDataService';
 import { improveBriefWithAI, ImproveBriefResponse } from '../services/geminiService';
+import { ExistingDataImportSection } from './campaign/ExistingDataImportSection';
 
 interface AiCampaignGeneratorModalProps {
   isOpen: boolean;
@@ -158,6 +159,10 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   const [error, setError] = useState<string | null>(null);
   const [createdResult, setCreatedResult] = useState<{ campaign: Campaign; assets: SocialAsset[] } | null>(null);
   const [pendingCommitResult, setPendingCommitResult] = useState<{ campaign: Campaign; assets: SocialAsset[] } | null>(null);
+
+  // Approved imported business context & sources
+  const [approvedImportedContext, setApprovedImportedContext] = useState<string>('');
+  const [, setApprovedImportedSourceIds] = useState<string[]>([]);
 
   // Request sequence tracker to prevent late response from an earlier request replacing current campaign
   const activeRequestIdRef = React.useRef<number>(0);
@@ -363,6 +368,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
         brief: brief.trim(),
         primaryGoal,
         secondaryGoals,
+        importedCampaignContext: approvedImportedContext || undefined,
         platforms: effectivePlatformList,
         autoPlatforms: letAutonomaDecidePlatforms,
         formats: selectedFormats,
@@ -1309,6 +1315,18 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* 8. Use Existing Data — Optional */}
+              <div className="border-t border-black/[0.06] pt-3">
+                <ExistingDataImportSection
+                  campaignId={activeCampaignShellRef.current?.id}
+                  onApprovedContextChange={(ctxText, ids) => {
+                    setApprovedImportedContext(ctxText);
+                    setApprovedImportedSourceIds(ids);
+                  }}
+                  disabled={isLoading}
+                />
               </div>
             </div>
 

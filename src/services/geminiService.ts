@@ -6,6 +6,7 @@ export interface CampaignSynthesisRequest {
   primaryGoal?: string;
   secondaryGoals?: string[];
   companyContext?: any;
+  importedCampaignContext?: string;
   platforms: Platform[];
   formats: ContentFormat[];
   duration: 'single' | '3_days' | '7_days' | '30_days' | 'custom';

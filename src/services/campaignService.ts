@@ -23,6 +23,7 @@ export interface CampaignCreationOptions {
   primaryGoal?: string;
   secondaryGoals?: string[];
   companyContext?: any;
+  importedCampaignContext?: string;
   platforms: Platform[];
   autoPlatforms?: boolean;
   formats: ContentFormat[];
@@ -383,6 +384,7 @@ export async function createAutonomaCampaign(
       primaryGoal: options.primaryGoal,
       secondaryGoals: options.secondaryGoals,
       companyContext: options.companyContext,
+      importedCampaignContext: options.importedCampaignContext,
       platforms: finalPlatforms,
       formats: finalFormats,
       duration,

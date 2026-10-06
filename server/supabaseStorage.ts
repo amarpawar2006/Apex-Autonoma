@@ -1,5 +1,13 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { AutonomaDatabaseStore } from '../src/types/database.js';
+import { 
+  AutonomaDatabaseStore,
+  DbKnowledgeSourceRow,
+  DbCompanyKnowledgeRow,
+  DbContactRow,
+  DbAudienceListRow,
+  DbAudienceListMemberRow,
+  DbCampaignContextSourceRow
+} from '../src/types/database.js';
 
 export interface SupabaseConfig {
   url?: string;
@@ -261,8 +269,126 @@ export class SupabaseStorageAdapter {
         updatedAt: settingsRow.updated_at || settingsRow.updatedAt || new Date().toISOString()
       } : undefined;
 
-      if (companies.length > 0 || users.length > 0 || campaigns.length > 0) {
-        console.log(`[Supabase Adapter] Authoritative state loaded: ${companies.length} companies, ${users.length} users, ${memberships.length} memberships, ${campaigns.length} campaigns, ${assets.length} assets, ${media.length} media records, ${approvalRequests.length} approval requests, ${sessions.length} active sessions.`);
+      // ==========================================
+      // REHYDRATE IMPORTED DATA TABLES (ITEM 1)
+      // ==========================================
+      const [
+        knowledgeSourcesRes,
+        companyKnowledgeRes,
+        contactsRes,
+        audienceListsRes,
+        audienceListMembersRes,
+        campaignContextSourcesRes
+      ] = await Promise.all([
+        this.client.from('knowledge_sources').select('*').then((r: any) => r, (err: any) => ({ data: [], error: err })),
+        this.client.from('company_knowledge').select('*').then((r: any) => r, (err: any) => ({ data: [], error: err })),
+        this.client.from('contacts').select('*').then((r: any) => r, (err: any) => ({ data: [], error: err })),
+        this.client.from('audience_lists').select('*').then((r: any) => r, (err: any) => ({ data: [], error: err })),
+        this.client.from('audience_list_members').select('*').then((r: any) => r, (err: any) => ({ data: [], error: err })),
+        this.client.from('campaign_context_sources').select('*').then((r: any) => r, (err: any) => ({ data: [], error: err }))
+      ]);
+
+      if (knowledgeSourcesRes.error) {
+        console.warn('[Supabase Adapter] Warning: optional import table "knowledge_sources" unavailable:', knowledgeSourcesRes.error.message || knowledgeSourcesRes.error);
+      }
+      const knowledgeSources: DbKnowledgeSourceRow[] = (knowledgeSourcesRes.data || []).map((row: any) => ({
+        sourceId: row.source_id || row.sourceId,
+        organizationId: row.organization_id || row.organizationId,
+        fileName: row.file_name || row.fileName,
+        fileType: row.file_type || row.fileType,
+        fileSize: Number(row.file_size ?? row.fileSize) || 0,
+        sourceType: row.source_type || row.sourceType || 'FILE_UPLOAD',
+        storageUrl: row.storage_url || row.storageUrl || undefined,
+        status: row.status || 'IMPORTED',
+        createdBy: row.created_by || row.createdBy || 'SYSTEM',
+        createdAt: row.created_at || row.createdAt,
+        metadataJson: row.metadata_json || row.metadataJson || undefined
+      }));
+
+      if (companyKnowledgeRes.error) {
+        console.warn('[Supabase Adapter] Warning: optional import table "company_knowledge" unavailable:', companyKnowledgeRes.error.message || companyKnowledgeRes.error);
+      }
+      const companyKnowledge: DbCompanyKnowledgeRow[] = (companyKnowledgeRes.data || []).map((row: any) => ({
+        knowledgeId: row.knowledge_id || row.knowledgeId,
+        organizationId: row.organization_id || row.organizationId,
+        sourceId: row.source_id || row.sourceId || '',
+        category: row.category || 'COMPANY_KNOWLEDGE',
+        title: row.title || '',
+        content: row.content || '',
+        structuredJson: row.structured_json || row.structuredJson || undefined,
+        createdAt: row.created_at || row.createdAt,
+        updatedAt: row.updated_at || row.updatedAt || new Date().toISOString()
+      }));
+
+      if (contactsRes.error) {
+        console.warn('[Supabase Adapter] Warning: optional import table "contacts" unavailable:', contactsRes.error.message || contactsRes.error);
+      }
+      const contacts: DbContactRow[] = (contactsRes.data || []).map((row: any) => ({
+        contactId: row.contact_id || row.contactId,
+        organizationId: row.organization_id || row.organizationId,
+        sourceId: row.source_id || row.sourceId || undefined,
+        name: row.name || '',
+        company: row.company || undefined,
+        email: row.email || undefined,
+        phone: row.phone || undefined,
+        linkedinUrl: row.linkedin_url || row.linkedinUrl || undefined,
+        instagramHandle: row.instagram_handle || row.instagramHandle || undefined,
+        otherHandlesJson: row.other_handles_json || row.otherHandlesJson || undefined,
+        location: row.location || undefined,
+        segment: row.segment || undefined,
+        tagsJson: row.tags_json || row.tagsJson || undefined,
+        notes: row.notes || undefined,
+        createdAt: row.created_at || row.createdAt,
+        updatedAt: row.updated_at || row.updatedAt || new Date().toISOString()
+      }));
+
+      if (audienceListsRes.error) {
+        console.warn('[Supabase Adapter] Warning: optional import table "audience_lists" unavailable:', audienceListsRes.error.message || audienceListsRes.error);
+      }
+      const audienceLists: DbAudienceListRow[] = (audienceListsRes.data || []).map((row: any) => ({
+        listId: row.list_id || row.listId,
+        organizationId: row.organization_id || row.organizationId,
+        sourceId: row.source_id || row.sourceId || undefined,
+        name: row.name || '',
+        description: row.description || undefined,
+        contactCount: Number(row.contact_count ?? row.contactCount) || 0,
+        listType: row.list_type || row.listType || 'CONTACT',
+        metadataJson: row.metadata_json || row.metadataJson || undefined,
+        createdAt: row.created_at || row.createdAt
+      }));
+
+      if (audienceListMembersRes.error) {
+        console.warn('[Supabase Adapter] Warning: optional import table "audience_list_members" unavailable:', audienceListMembersRes.error.message || audienceListMembersRes.error);
+      }
+      const audienceListMembers: DbAudienceListMemberRow[] = (audienceListMembersRes.data || []).map((row: any) => ({
+        listId: row.list_id || row.listId,
+        contactId: row.contact_id || row.contactId
+      }));
+
+      if (campaignContextSourcesRes.error) {
+        console.warn('[Supabase Adapter] Warning: optional import table "campaign_context_sources" unavailable:', campaignContextSourcesRes.error.message || campaignContextSourcesRes.error);
+      }
+      const campaignContextSources: DbCampaignContextSourceRow[] = (campaignContextSourcesRes.data || []).map((row: any) => ({
+        id: row.id,
+        organizationId: row.organization_id || row.organizationId,
+        campaignId: row.campaign_id || row.campaignId,
+        sourceId: row.source_id || row.sourceId,
+        useMode: row.use_mode || row.useMode || 'CAMPAIGN_CONTEXT',
+        summary: row.summary || undefined,
+        contextJson: row.context_json || row.contextJson || undefined,
+        createdAt: row.created_at || row.createdAt
+      }));
+
+      if (
+        companies.length > 0 ||
+        users.length > 0 ||
+        campaigns.length > 0 ||
+        knowledgeSources.length > 0 ||
+        companyKnowledge.length > 0 ||
+        contacts.length > 0 ||
+        audienceLists.length > 0
+      ) {
+        console.log(`[Supabase Adapter] Authoritative state loaded: ${companies.length} companies, ${users.length} users, ${memberships.length} memberships, ${campaigns.length} campaigns, ${assets.length} assets, ${media.length} media records, ${approvalRequests.length} approval requests, ${sessions.length} active sessions, ${knowledgeSources.length} knowledge sources, ${companyKnowledge.length} knowledge items, ${contacts.length} contacts, ${audienceLists.length} audience lists, ${audienceListMembers.length} list members, ${campaignContextSources.length} campaign context sources.`);
         return {
           companies: companies as any,
           users: users as any,
@@ -272,7 +398,13 @@ export class SupabaseStorageAdapter {
           media: media as any,
           approvalRequests: approvalRequests as any,
           sessions: sessions as any,
-          ...(settings ? { settings: settings as any } : {})
+          ...(settings ? { settings: settings as any } : {}),
+          ...(!knowledgeSourcesRes.error ? { knowledgeSources: knowledgeSources as any } : {}),
+          ...(!companyKnowledgeRes.error ? { companyKnowledge: companyKnowledge as any } : {}),
+          ...(!contactsRes.error ? { contacts: contacts as any } : {}),
+          ...(!audienceListsRes.error ? { audienceLists: audienceLists as any } : {}),
+          ...(!audienceListMembersRes.error ? { audienceListMembers: audienceListMembers as any } : {}),
+          ...(!campaignContextSourcesRes.error ? { campaignContextSources: campaignContextSources as any } : {})
         };
       }
 
@@ -795,6 +927,284 @@ export class SupabaseStorageAdapter {
     const { error } = await this.client.from('sessions').delete().eq('user_id', userId);
     if (error) {
       console.warn('[Supabase Adapter] User sessions delete warning:', error.message);
+    }
+  }
+
+  // ==========================================
+  // PRIVATE FILE STORAGE FOR IMPORTED DATA
+  // ==========================================
+
+  /**
+   * Uploads an imported file into the private scoped bucket:
+   * company-imports/{organizationId}/{sourceId}/{filename}
+   */
+  public async uploadPrivateImportFile(
+    organizationId: string,
+    sourceId: string,
+    filename: string,
+    data: Buffer,
+    contentType: string = 'application/octet-stream'
+  ): Promise<{ storagePath: string; error?: string }> {
+    if (!this.ready || !this.client) {
+      return { storagePath: `local://company-imports/${organizationId}/${sourceId}/${filename}` };
+    }
+
+    try {
+      const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const safeOrgId = organizationId.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const safeSourceId = sourceId.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const objectPath = `${safeOrgId}/${safeSourceId}/${safeName}`;
+
+      const { error } = await this.client.storage
+        .from('company-imports')
+        .upload(objectPath, data, { contentType, upsert: true });
+
+      if (error) {
+        console.warn('[Supabase Storage] Note on company-imports bucket upload:', error.message);
+        return { storagePath: `local://company-imports/${objectPath}` };
+      }
+
+      return { storagePath: `company-imports/${objectPath}` };
+    } catch (e: any) {
+      console.warn('[Supabase Storage] Private file upload warning:', e?.message);
+      return { storagePath: `local://company-imports/${organizationId}/${sourceId}/${filename}` };
+    }
+  }
+
+  /**
+   * Removes a private imported file from storage
+   */
+  public async deletePrivateImportFile(storagePath: string): Promise<boolean> {
+    if (!this.ready || !this.client || !storagePath || storagePath.startsWith('local://')) {
+      return true;
+    }
+    try {
+      const cleanPath = storagePath.replace(/^company-imports\//, '');
+      const { error } = await this.client.storage.from('company-imports').remove([cleanPath]);
+      if (error) {
+        console.warn('[Supabase Storage] Delete private file warning:', error.message);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ==========================================
+  // KNOWLEDGE SOURCES ADAPTERS
+  // ==========================================
+
+  public async upsertKnowledgeSource(source: any): Promise<void> {
+    if (!this.ready || !this.client) return;
+    try {
+      await this.client.from('knowledge_sources').upsert({
+        source_id: source.sourceId,
+        organization_id: source.organizationId,
+        file_name: source.fileName,
+        file_type: source.fileType,
+        file_size: Number(source.fileSize) || 0,
+        source_type: source.sourceType || 'FILE_UPLOAD',
+        storage_url: source.storageUrl || null,
+        status: source.status || 'UPLOADED',
+        created_by: source.createdBy,
+        created_at: source.createdAt || new Date().toISOString(),
+        metadata_json: source.metadataJson || null
+      }, { onConflict: 'source_id' });
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Knowledge source upsert note:', e?.message);
+    }
+  }
+
+  public async deleteKnowledgeSource(sourceId: string, organizationId?: string): Promise<void> {
+    if (!this.ready || !this.client) return;
+    try {
+      let query = this.client.from('knowledge_sources').delete().eq('source_id', sourceId);
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      await query;
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Knowledge source delete note:', e?.message);
+    }
+  }
+
+  // ==========================================
+  // COMPANY KNOWLEDGE ADAPTERS
+  // ==========================================
+
+  public async upsertCompanyKnowledge(item: any): Promise<void> {
+    if (!this.ready || !this.client) return;
+    try {
+      await this.client.from('company_knowledge').upsert({
+        knowledge_id: item.knowledgeId,
+        organization_id: item.organizationId,
+        source_id: item.sourceId || null,
+        category: item.category || 'COMPANY_KNOWLEDGE',
+        title: item.title,
+        content: item.content,
+        structured_json: item.structuredJson || null,
+        created_at: item.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'knowledge_id' });
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Company knowledge upsert note:', e?.message);
+    }
+  }
+
+  public async deleteCompanyKnowledge(knowledgeId: string, organizationId?: string): Promise<void> {
+    if (!this.ready || !this.client) return;
+    try {
+      let query = this.client.from('company_knowledge').delete().eq('knowledge_id', knowledgeId);
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      await query;
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Company knowledge delete note:', e?.message);
+    }
+  }
+
+  // ==========================================
+  // CONTACTS ADAPTERS
+  // ==========================================
+
+  public async upsertContact(contact: any): Promise<void> {
+    if (!this.ready || !this.client) return;
+    try {
+      await this.client.from('contacts').upsert({
+        contact_id: contact.contactId,
+        organization_id: contact.organizationId,
+        source_id: contact.sourceId || null,
+        name: contact.name,
+        company: contact.company || null,
+        email: contact.email ? contact.email.toLowerCase().trim() : null,
+        phone: contact.phone || null,
+        linkedin_url: contact.linkedinUrl || null,
+        instagram_handle: contact.instagramHandle || null,
+        other_handles_json: contact.otherHandlesJson || null,
+        location: contact.location || null,
+        segment: contact.segment || null,
+        tags_json: contact.tagsJson || null,
+        notes: contact.notes || null,
+        created_at: contact.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'contact_id' });
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Contact upsert note:', e?.message);
+    }
+  }
+
+  public async batchUpsertContacts(contactsList: any[]): Promise<void> {
+    if (!this.ready || !this.client || contactsList.length === 0) return;
+    try {
+      const rows = contactsList.map(c => ({
+        contact_id: c.contactId,
+        organization_id: c.organizationId,
+        source_id: c.sourceId || null,
+        name: c.name,
+        company: c.company || null,
+        email: c.email ? c.email.toLowerCase().trim() : null,
+        phone: c.phone || null,
+        linkedin_url: c.linkedinUrl || null,
+        instagram_handle: c.instagramHandle || null,
+        other_handles_json: c.otherHandlesJson || null,
+        location: c.location || null,
+        segment: c.segment || null,
+        tags_json: c.tagsJson || null,
+        notes: c.notes || null,
+        created_at: c.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }));
+      // Batch in chunks of 100
+      for (let i = 0; i < rows.length; i += 100) {
+        const chunk = rows.slice(i, i + 100);
+        await this.client.from('contacts').upsert(chunk, { onConflict: 'contact_id' });
+      }
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Batch contacts upsert note:', e?.message);
+    }
+  }
+
+  public async deleteContact(contactId: string, organizationId?: string): Promise<void> {
+    if (!this.ready || !this.client) return;
+    try {
+      let query = this.client.from('contacts').delete().eq('contact_id', contactId);
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      await query;
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Contact delete note:', e?.message);
+    }
+  }
+
+  // ==========================================
+  // AUDIENCE LISTS ADAPTERS
+  // ==========================================
+
+  public async upsertAudienceList(list: any, memberContactIds?: string[]): Promise<void> {
+    if (!this.ready || !this.client) return;
+    try {
+      await this.client.from('audience_lists').upsert({
+        list_id: list.listId,
+        organization_id: list.organizationId,
+        source_id: list.sourceId || null,
+        name: list.name,
+        description: list.description || null,
+        contact_count: Number(list.contactCount) || 0,
+        list_type: list.listType || 'CONTACT',
+        metadata_json: list.metadataJson || null,
+        created_at: list.createdAt || new Date().toISOString()
+      }, { onConflict: 'list_id' });
+
+      if (memberContactIds && memberContactIds.length > 0) {
+        const memberRows = memberContactIds.map(cid => ({
+          list_id: list.listId,
+          contact_id: cid
+        }));
+        await this.client.from('audience_list_members').upsert(memberRows, { onConflict: 'list_id,contact_id' as any });
+      }
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Audience list upsert note:', e?.message);
+    }
+  }
+
+  public async deleteAudienceList(listId: string, organizationId?: string): Promise<void> {
+    if (!this.ready || !this.client) return;
+    try {
+      await this.client.from('audience_list_members').delete().eq('list_id', listId);
+      let query = this.client.from('audience_lists').delete().eq('list_id', listId);
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      await query;
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Audience list delete note:', e?.message);
+    }
+  }
+
+  // ==========================================
+  // CAMPAIGN CONTEXT SOURCES ADAPTERS
+  // ==========================================
+
+  public async upsertCampaignContextSource(source: any): Promise<void> {
+    if (!this.ready || !this.client) return;
+    try {
+      await this.client.from('campaign_context_sources').upsert({
+        id: source.id,
+        organization_id: source.organizationId,
+        campaign_id: source.campaignId,
+        source_id: source.sourceId,
+        use_mode: source.useMode || 'CAMPAIGN_CONTEXT',
+        summary: source.summary || null,
+        context_json: source.contextJson || null,
+        created_at: source.createdAt || new Date().toISOString()
+      }, { onConflict: 'id' });
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Campaign context source upsert note:', e?.message);
+    }
+  }
+
+  public async deleteCampaignContextSource(id: string, organizationId?: string): Promise<void> {
+    if (!this.ready || !this.client) return;
+    try {
+      let query = this.client.from('campaign_context_sources').delete().eq('id', id);
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      await query;
+    } catch (e: any) {
+      console.warn('[Supabase Adapter] Campaign context source delete note:', e?.message);
     }
   }
 }

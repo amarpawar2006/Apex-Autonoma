@@ -20,12 +20,14 @@ import {
   UserX,
   Users,
   X,
+  Database
 } from 'lucide-react';
 import { ApexLogo } from '../ApexLogo';
 import { ApprovalRequest, Company, User } from '../../types/auth';
 import { autonomaDataService } from '../../services/autonomaDataService';
+import { CompanyDataKnowledgeView } from './CompanyDataKnowledgeView';
 
-type AdminTab = 'overview' | 'companies' | 'users';
+type AdminTab = 'overview' | 'companies' | 'users' | 'data_knowledge';
 type AdminUser = User & { memberships?: Array<{ companyId: string; companyName?: string; role?: string; status?: string }> };
 type DeleteTarget = { kind: 'company'; company: Company } | { kind: 'user'; user: AdminUser } | null;
 
@@ -238,6 +240,7 @@ export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({ curren
     { id: 'overview', label: 'Overview', icon: Activity },
     { id: 'companies', label: 'Companies', icon: Building2, count: companies.length },
     { id: 'users', label: 'Users & Access', icon: Users, count: users.length },
+    { id: 'data_knowledge', label: 'Global Data & Knowledge', icon: Database },
   ];
 
   return (
@@ -709,6 +712,15 @@ export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({ curren
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'data_knowledge' && (
+          <div className="space-y-6">
+            <CompanyDataKnowledgeView
+              isSuperAdmin={true}
+              userRole="COMPANY_ADMIN"
+            />
           </div>
         )}
       </main>
