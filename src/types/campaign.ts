@@ -58,10 +58,13 @@ export interface Campaign {
   customPlatform?: string;
   languageStyle?: string;
   additionalInstructions?: string;
-  // Part 1 Reliability & Retry Fields
-  generationStatus?: 'GENERATING' | 'READY' | 'GENERATION_FAILED';
+  // Part 1 & Zero-Loss Reliability Fields
+  generationStatus?: 'GENERATING' | 'READY' | 'GENERATED_WITH_FALLBACK' | 'GENERATION_FAILED';
   lastGenerationError?: string;
   lastGenerationAttemptAt?: string;
+  syncStatus?: 'SYNCED' | 'SYNC_PENDING' | 'SYNC_FAILED';
+  lastSyncError?: string;
+  lastSyncAttemptAt?: string;
   generationOptions?: any;
 }
 

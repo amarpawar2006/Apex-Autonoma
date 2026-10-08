@@ -72,6 +72,8 @@ export interface HeaderProps {
   onToggleGuidedHelp?: () => void;
   onOpenHelp?: () => void;
   uiBlocked?: boolean;
+  isMobileMenuOpen?: boolean;
+  setIsMobileMenuOpen?: (open: boolean | ((prev: boolean) => boolean)) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -96,12 +98,22 @@ export const Header: React.FC<HeaderProps> = ({
   guidedHelpEnabled,
   onToggleGuidedHelp,
   onOpenHelp,
-  uiBlocked = false
+  uiBlocked = false,
+  isMobileMenuOpen,
+  setIsMobileMenuOpen
 }) => {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [internalMobileOpen, setInternalMobileOpen] = useState(false);
+  const mobileOpen = isMobileMenuOpen !== undefined ? isMobileMenuOpen : internalMobileOpen;
+  const setMobileOpen = (val: boolean | ((prev: boolean) => boolean)) => {
+    if (setIsMobileMenuOpen) {
+      setIsMobileMenuOpen(val);
+    } else {
+      setInternalMobileOpen(val);
+    }
+  };
   const [switchingCompanyId, setSwitchingCompanyId] = useState<string | null>(null);
 
   useEffect(() => {

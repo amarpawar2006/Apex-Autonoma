@@ -49,6 +49,7 @@ import { PrivacyPage } from './components/public/PrivacyPage';
 import { TermsPage } from './components/public/TermsPage';
 import { SupportPage } from './components/public/SupportPage';
 import { InviteLandingPage } from './components/public/InviteLandingPage';
+import { BottomNavigation } from './components/BottomNavigation';
 
 export default function App() {
   // ==========================================
@@ -95,10 +96,11 @@ export default function App() {
   const [productionModalAsset, setProductionModalAsset] = useState<SocialAsset | null>(null);
   const [studioSelectedAssetId, setStudioSelectedAssetId] = useState<string>('');
 
-  // Modals state
+  // Modals & Navigation state
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   // Guided Help state (Defaults to ON per Controlled Batch 1)
   const [guidedHelpEnabled, setGuidedHelpEnabled] = useState<boolean>(() => {
@@ -526,6 +528,10 @@ export default function App() {
           setCompanyManagementInitialTab(tab || 'profile');
           setIsCompanyManagementOpen(true);
         }}
+        onCreateCampaign={() => {
+          setIsSuperAdminWorkspaceOpen(false);
+          setIsAiModalOpen(true);
+        }}
         onSignOut={handleSignOut}
       />
     );
@@ -575,10 +581,12 @@ export default function App() {
         onToggleGuidedHelp={toggleGuidedHelp}
         onOpenHelp={() => setIsHelpOpen(true)}
         uiBlocked={Boolean(selectedAsset || productionModalAsset || isAiModalOpen || isSettingsModalOpen || isCompanyManagementOpen)}
+        isMobileMenuOpen={isMobileMenuOpen}
+        setIsMobileMenuOpen={setIsMobileMenuOpen}
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-6 pb-20 md:pb-6">
         {/* Contextual Guided Help across the App (Default ON per Controlled Batch 1) */}
         {activeTab === 'todays_production' && (
         <GuidedHelpCard
@@ -839,6 +847,17 @@ export default function App() {
           }}
         />
       )}
+
+      {/* Persistent Mobile Bottom Navigation (Shortcuts Layer: Today, Campaigns, CREATE, Content, More) */}
+      <BottomNavigation
+        activeTab={activeTab}
+        onSelectTab={(tab) => {
+          setActiveTab(tab);
+          if (tab !== 'campaigns') setViewingCampaign(null);
+        }}
+        onCreateCampaign={() => setIsAiModalOpen(true)}
+        onOpenMore={() => setIsMobileMenuOpen(true)}
+      />
     </div>
   );
 }

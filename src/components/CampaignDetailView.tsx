@@ -22,11 +22,14 @@ import {
   ChevronRight,
   Filter,
   Archive,
-  Globe
+  Globe,
+  Download,
+  RefreshCw
 } from 'lucide-react';
 import { Campaign, CampaignStatus, SocialAsset, ContentFormat, Platform, PostStatus } from '../types/campaign';
 import { getCampaignAssetMetrics } from '../services/campaignService';
 import { WhatsAppPostingPackModal } from './WhatsAppPostingPackModal';
+import { downloadCampaignRecoveryFile } from '../utils/recoveryUtils';
 
 
 const strategyText = (value: unknown, fallback = ''): string => {
@@ -57,8 +60,11 @@ interface CampaignDetailViewProps {
   onUpdateStatus?: (assetId: string, newStatus: PostStatus) => void;
   onArchiveCampaign?: (campaignId: string) => Promise<void> | void;
   onArchiveAsset?: (assetId: string) => Promise<void> | void;
+  onRetrySync?: (campaign: Campaign, assets: SocialAsset[]) => Promise<void> | void;
+  onUpgradeCampaignWithAi?: (campaignId: string) => Promise<void> | void;
   companyName?: string;
   defaultWhatsAppRecipient?: string;
+  activeCompanyId?: string;
 }
 
 export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
@@ -75,12 +81,17 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
   onArchiveAsset,
   companyName,
   defaultWhatsAppRecipient,
+  onRetrySync,
+  onUpgradeCampaignWithAi,
+  activeCompanyId = '',
 }) => {
   const [assetFilter, setAssetFilter] = useState<'all' | 'needs_media' | 'ready' | 'approved'>('all');
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState<boolean>(false);
   const [isArchiveCampaignModalOpen, setIsArchiveCampaignModalOpen] = useState(false);
   const [assetToArchive, setAssetToArchive] = useState<SocialAsset | null>(null);
   const [isArchiving, setIsArchiving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   // Filter assets specifically belonging to this active campaign (excluding individually archived)
   const campaignAssets = assets.filter((a) => a.campaignId === campaign.id && !a.isArchived);
@@ -128,6 +139,92 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
       {/* Navigation & Header */}
+      {/* 1. Sync Pending / Sync Failed Banner */}
+      {campaign.syncStatus && campaign.syncStatus !== 'SYNCED' && (
+        <div className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+          campaign.syncStatus === 'SYNC_FAILED'
+            ? 'border-rose-200 bg-rose-50 text-rose-900'
+            : 'border-amber-200 bg-amber-50 text-amber-900'
+        }`}>
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className={`w-4 h-4 shrink-0 ${campaign.syncStatus === 'SYNC_FAILED' ? 'text-rose-600' : 'text-amber-600'}`} />
+            <div>
+              <span className="font-semibold">
+                {campaign.syncStatus === 'SYNC_FAILED' ? 'Cloud sync failed.' : 'Campaign generated successfully. Cloud sync is pending.'}
+              </span>
+              <p className="text-[11px] opacity-80 mt-0.5">
+                Your campaign and all {campaignAssets.length} deliverables are safe in this browser.
+                {campaign.lastSyncError ? ` (${campaign.lastSyncError})` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {onRetrySync && (
+              <button
+                disabled={isSyncing}
+                onClick={async () => {
+                  setIsSyncing(true);
+                  try {
+                    await onRetrySync(campaign, campaignAssets);
+                  } finally {
+                    setIsSyncing(false);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-black/[0.1] text-xs font-semibold hover:bg-black/[0.04] transition active:scale-95"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Syncing…' : 'Retry Sync'}</span>
+              </button>
+            )}
+            <button
+              onClick={() => {
+                downloadCampaignRecoveryFile(
+                  campaign,
+                  campaignAssets,
+                  activeCompanyId,
+                  companyName || 'Autonoma Workspace'
+                );
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1D1D1F] text-white text-xs font-semibold hover:bg-black/80 transition active:scale-95"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download Recovery File</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Deterministic Fallback Banner with Upgrade with AI */}
+      {campaign.generationStatus === 'GENERATED_WITH_FALLBACK' && (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-indigo-950">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+            <div>
+              <span className="font-semibold">AI generation was temporarily unavailable.</span>
+              <p className="text-[11px] text-indigo-700 mt-0.5">
+                Autonoma created a safe draft campaign so your work was not lost.
+              </p>
+            </div>
+          </div>
+          {onUpgradeCampaignWithAi && (
+            <button
+              disabled={isUpgrading}
+              onClick={async () => {
+                setIsUpgrading(true);
+                try {
+                  await onUpgradeCampaignWithAi(campaign.id);
+                } finally {
+                  setIsUpgrading(false);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm transition active:scale-95 shrink-0"
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${isUpgrading ? 'animate-spin' : ''}`} />
+              <span>{isUpgrading ? 'Upgrading…' : 'UPGRADE WITH AI'}</span>
+            </button>
+          )}
+        </div>
+      )}
       <div className="space-y-4">
         <button
           onClick={onBack}

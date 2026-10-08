@@ -22,11 +22,14 @@ import {
   BarChart3,
   Globe,
   RotateCcw,
-  Loader2
+  Loader2,
+  Upload,
+  Download
 } from 'lucide-react';
 import { Campaign, CampaignStatus, SocialAsset, Platform } from '../types/campaign';
 import { getCampaignAssetMetrics } from '../services/campaignService';
 import { isCampaignActive } from '../utils/archiveUtils';
+import { validateCampaignRecoveryPackage } from '../utils/recoveryUtils';
 
 interface CampaignsViewProps {
   campaigns: Campaign[];
@@ -37,6 +40,9 @@ interface CampaignsViewProps {
   onUpdateCampaignStatus: (campaignId: string, status: CampaignStatus) => void;
   onArchiveCampaign?: (campaignId: string) => Promise<void> | void;
   onRetryGeneration?: (campaignId: string) => Promise<any>;
+  onImportRecoveryCampaign?: (campaign: Campaign, assets: SocialAsset[]) => Promise<void> | void;
+  activeCompanyId?: string;
+  isSuperAdmin?: boolean;
 }
 
 export const CampaignsView: React.FC<CampaignsViewProps> = ({
@@ -48,7 +54,13 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   onUpdateCampaignStatus,
   onArchiveCampaign,
   onRetryGeneration,
+  onImportRecoveryCampaign,
+  activeCompanyId = '',
+  isSuperAdmin = false,
 }) => {
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [importStatusMessage, setImportStatusMessage] = useState<string | null>(null);
+  const [importErrorMessage, setImportErrorMessage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | CampaignStatus>('ALL');
   const [archiveTarget, setArchiveTarget] = useState<{ campaign: Campaign; assetCount: number } | null>(null);
@@ -167,14 +179,73 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={onOpenCreateCampaign}
-          className="inline-flex items-center space-x-2 px-4 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-sm font-medium rounded-2xl shadow-sm transition-all active:scale-95 self-start sm:self-auto"
-        >
-          <Sparkles className="w-4 h-4" />
-          <span>New Campaign</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {/* Hidden File Input for Recovery JSON */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".json,application/json"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setImportErrorMessage(null);
+              setImportStatusMessage('Reading recovery file…');
+              try {
+                const text = await file.text();
+                const parsed = JSON.parse(text);
+                const check = validateCampaignRecoveryPackage(parsed, activeCompanyId, isSuperAdmin);
+                if (!check.valid || !check.package) {
+                  throw new Error(check.error || 'Recovery package validation failed.');
+                }
+                const pkg = check.package;
+                if (onImportRecoveryCampaign) {
+                  await onImportRecoveryCampaign(pkg.campaign, pkg.assets);
+                  setImportStatusMessage(`Imported campaign "${pkg.campaign.name}" (${pkg.assets.length} assets) successfully.`);
+                  setTimeout(() => setImportStatusMessage(null), 4000);
+                }
+              } catch (err: any) {
+                console.error('[Campaign Recovery Import] Error:', err);
+                setImportErrorMessage(err?.message || 'Failed to import recovery file.');
+              } finally {
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }
+            }}
+          />
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center space-x-1.5 px-3.5 py-2.5 bg-white hover:bg-black/[0.04] border border-black/[0.08] text-[#1D1D1F] text-xs font-semibold rounded-2xl shadow-2xs transition-all active:scale-95"
+            title="Import an Autonoma campaign recovery JSON file"
+          >
+            <Upload className="w-3.5 h-3.5 text-[#FF4500]" />
+            <span>Import Recovery File</span>
+          </button>
+
+          <button
+            onClick={onOpenCreateCampaign}
+            className="inline-flex items-center space-x-2 px-4 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-sm font-medium rounded-2xl shadow-sm transition-all active:scale-95"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>New Campaign</span>
+          </button>
+        </div>
       </div>
+
+      {/* Recovery Notifications */}
+      {importStatusMessage && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs text-emerald-800 flex items-center justify-between">
+          <span>{importStatusMessage}</span>
+          <button onClick={() => setImportStatusMessage(null)} className="text-emerald-600 font-bold ml-2">×</button>
+        </div>
+      )}
+      {importErrorMessage && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-800 flex items-center justify-between">
+          <span>{importErrorMessage}</span>
+          <button onClick={() => setImportErrorMessage(null)} className="text-rose-600 font-bold ml-2">×</button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white rounded-2xl border border-black/[0.06] p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">

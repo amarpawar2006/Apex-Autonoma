@@ -256,27 +256,23 @@ async function startServer() {
   const app = express();
   const portArgIdx = process.argv.indexOf('--port');
   const portArg = portArgIdx !== -1 && process.argv[portArgIdx + 1] ? Number(process.argv[portArgIdx + 1]) : null;
-  const PORT = portArg || (process.env.PORT && process.env.PORT !== '8080' ? Number(process.env.PORT) : 3000);
+  const PORT = portArg || Number(process.env.PORT) || 3000;
   const isProd = process.env.NODE_ENV === 'production';
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
-try {
-  const persistence = await autonomaDb.initializeProductionPersistence();
 
-  console.log(
-    `[Server Startup] Persistence ready via ${persistence.source}: ` +
-    `${persistence.companies} companies, ` +
-    `${persistence.campaigns} campaigns, ` +
-    `${persistence.assets} assets.`
-  );
-} catch (err: any) {
-  console.error(
-    '[Server Startup] Production persistence bootstrap failed:',
-    err?.message || err
-  );
-  throw err;
-}
+  // Synchronize remote Supabase persistence in the background; local disk persistence is already ready.
+  autonomaDb.initializeProductionPersistence().then((persistence) => {
+    console.log(
+      `[Server Startup] Persistence ready via ${persistence.source}: ` +
+      `${persistence.companies} companies, ` +
+      `${persistence.campaigns} campaigns, ` +
+      `${persistence.assets} assets.`
+    );
+  }).catch((err: any) => {
+    console.warn('[Server Startup] Persistence background sync note:', err?.message || err);
+  });
   // Hydrate AI Provider and Email Services from persisted settings
   try {
     const currentSettings = autonomaDb.getSettings()?.settings;
@@ -4469,7 +4465,7 @@ STRICT GUARDRAILS:
 
   // Mount Vite middleware in development, or serve built assets in production
   const hasDist = fs.existsSync(path.resolve(__dirname, 'dist', 'index.html'));
-  const useStaticDist = isProd || hasDist;
+  const useStaticDist = isProd && hasDist;
 
   if (!useStaticDist) {
     const vite = await createViteServer({

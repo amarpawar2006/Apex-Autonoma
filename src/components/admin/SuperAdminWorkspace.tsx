@@ -42,6 +42,7 @@ interface SuperAdminWorkspaceProps {
   onNavigateToTab?: (tab: string) => void;
   onOpenHelp?: () => void;
   onOpenCompanyManagement?: (tab?: 'profile' | 'company_data') => void;
+  onCreateCampaign?: () => void;
 }
 
 const StatCard = ({ label, value, hint, tone = 'neutral' }: { label: string; value: number; hint: string; tone?: 'neutral' | 'orange' | 'green' | 'red' }) => {
@@ -68,7 +69,8 @@ export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({
   availableCompanies = [],
   onNavigateToTab,
   onOpenHelp,
-  onOpenCompanyManagement
+  onOpenCompanyManagement,
+  onCreateCampaign
 }) => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
@@ -326,7 +328,12 @@ export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
             <button
-              onClick={() => onEnterCompanyWorkspace('org_apex_pune')}
+              onClick={() => {
+                const targetId = activeCompany?.companyId || activeCompany?.id || selectedCompanyId || (companies[0]?.companyId || companies[0]?.id);
+                if (targetId) {
+                  onEnterCompanyWorkspace(targetId);
+                }
+              }}
               className="hidden items-center gap-2 rounded-xl border border-black/[0.08] bg-white px-3 py-1.5 text-xs font-semibold text-[#1D1D1F] transition hover:bg-neutral-50 shadow-2xs lg:flex"
             >
               <FolderKanban className="h-3.5 w-3.5 text-[#FF4500]" />
@@ -387,9 +394,13 @@ export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({
             onEnterCompanyWorkspace(companyId);
           }}
           onCreateCampaign={() => {
-            const targetId = activeCompany?.companyId || activeCompany?.id;
-            if (targetId) {
-              onEnterCompanyWorkspace(targetId);
+            if (onCreateCampaign) {
+              onCreateCampaign();
+            } else {
+              const targetId = activeCompany?.companyId || activeCompany?.id;
+              if (targetId) {
+                onEnterCompanyWorkspace(targetId);
+              }
             }
           }}
           onOpenHelp={onOpenHelp}
