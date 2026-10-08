@@ -20,12 +20,14 @@ import {
   UserX,
   Users,
   X,
-  Database
+  Database,
+  Menu
 } from 'lucide-react';
 import { ApexLogo } from '../ApexLogo';
 import { ApprovalRequest, Company, User } from '../../types/auth';
 import { autonomaDataService } from '../../services/autonomaDataService';
 import { CompanyDataKnowledgeView } from './CompanyDataKnowledgeView';
+import { GlobalMobileDrawer } from '../GlobalMobileDrawer';
 
 type AdminTab = 'overview' | 'companies' | 'users' | 'data_knowledge';
 type AdminUser = User & { memberships?: Array<{ companyId: string; companyName?: string; role?: string; status?: string }> };
@@ -35,6 +37,11 @@ interface SuperAdminWorkspaceProps {
   currentUser: User;
   onEnterCompanyWorkspace: (companyId: string) => void;
   onSignOut: () => void;
+  activeCompany?: Company | null;
+  availableCompanies?: Array<{ id: string; name: string; role?: string; organizationType?: string }>;
+  onNavigateToTab?: (tab: string) => void;
+  onOpenHelp?: () => void;
+  onOpenCompanyManagement?: (tab?: 'profile' | 'company_data') => void;
 }
 
 const StatCard = ({ label, value, hint, tone = 'neutral' }: { label: string; value: number; hint: string; tone?: 'neutral' | 'orange' | 'green' | 'red' }) => {
@@ -53,7 +60,17 @@ const StatCard = ({ label, value, hint, tone = 'neutral' }: { label: string; val
   );
 };
 
-export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({ currentUser, onEnterCompanyWorkspace, onSignOut }) => {
+export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({
+  currentUser,
+  onEnterCompanyWorkspace,
+  onSignOut,
+  activeCompany,
+  availableCompanies = [],
+  onNavigateToTab,
+  onOpenHelp,
+  onOpenCompanyManagement
+}) => {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -246,15 +263,26 @@ export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({ curren
   return (
     <div className="min-h-screen bg-[#FBFBFD] text-[#1D1D1F]">
       <header className="sticky top-0 z-40 border-b border-black/[0.08] bg-white/90 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-4 px-4 sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-3">
+        <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-2 sm:gap-4 px-3 sm:px-6 lg:px-8">
+          
+          {/* Global Hamburger for Mobile/Tablet */}
+          <button
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#6E6E73] hover:bg-black/[0.04] hover:text-[#1D1D1F] md:hidden transition-colors"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Toggle navigation menu"
+            aria-expanded={mobileNavOpen}
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+
+          <div className="flex min-w-0 items-center gap-2.5">
             <ApexLogo variant="mark" size="sm" />
-            <div className="hidden min-w-0 sm:block">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold tracking-tight text-[#1D1D1F]">Autonoma Control</span>
-                <span className="rounded-md border border-[#FF4500]/25 bg-orange-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-[#FF4500]">Super Admin</span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="text-xs sm:text-sm font-bold tracking-tight text-[#1D1D1F] truncate">Autonoma Control</span>
+                <span className="shrink-0 rounded-md border border-[#FF4500]/25 bg-orange-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-[#FF4500]">Super Admin</span>
               </div>
-              <div className="text-[10px] text-[#6E6E73]">System & multi-tenant workspace administration</div>
+              <div className="hidden text-[10px] text-[#6E6E73] sm:block">System & multi-tenant workspace administration</div>
             </div>
           </div>
 
@@ -331,6 +359,47 @@ export const SuperAdminWorkspace: React.FC<SuperAdminWorkspaceProps> = ({ curren
             </button>
           ))}
         </div>
+
+        {/* Global Mobile Navigation Drawer for Super Admin */}
+        <GlobalMobileDrawer
+          isOpen={mobileNavOpen}
+          onClose={() => setMobileNavOpen(false)}
+          onSelectTab={(tab) => {
+            if (onNavigateToTab) {
+              onNavigateToTab(tab);
+            } else {
+              const targetId = activeCompany?.companyId || activeCompany?.id;
+              if (targetId) {
+                onEnterCompanyWorkspace(targetId);
+              }
+            }
+          }}
+          currentUser={currentUser}
+          activeCompany={activeCompany}
+          userRole="SUPER_ADMIN"
+          availableCompanies={availableCompanies.length ? availableCompanies : companies.map(c => ({
+            id: c.companyId || c.id || '',
+            name: c.name,
+            role: 'SUPER_ADMIN',
+            organizationType: c.profile?.organizationType
+          }))}
+          onSwitchCompany={async (companyId) => {
+            onEnterCompanyWorkspace(companyId);
+          }}
+          onCreateCampaign={() => {
+            const targetId = activeCompany?.companyId || activeCompany?.id;
+            if (targetId) {
+              onEnterCompanyWorkspace(targetId);
+            }
+          }}
+          onOpenHelp={onOpenHelp}
+          onOpenCompanyManagement={onOpenCompanyManagement}
+          onOpenSuperAdminWorkspace={() => {
+            setActiveTab('overview');
+          }}
+          onSignOut={onSignOut}
+          isInSuperAdminMode={true}
+        />
       </header>
 
       <main className="relative z-10 mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">

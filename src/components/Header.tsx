@@ -28,6 +28,7 @@ import {
 import { Campaign } from '../types/campaign';
 import { Company, User, UserRole } from '../types/auth';
 import { ApexLogo } from './ApexLogo';
+import { GlobalMobileDrawer } from './GlobalMobileDrawer';
 
 export type AppNavTab =
   | 'todays_production'
@@ -63,7 +64,7 @@ export interface HeaderProps {
   activeCompany?: Company | null;
   userRole?: UserRole | null;
   onSignOut?: () => void;
-  onOpenCompanyManagement?: () => void;
+  onOpenCompanyManagement?: (tab?: 'profile' | 'company_data') => void;
   onOpenSuperAdminWorkspace?: () => void;
   availableCompanies?: CompanyOption[];
   onSwitchCompany?: (companyId: string) => void | Promise<void>;
@@ -209,22 +210,24 @@ export const Header: React.FC<HeaderProps> = ({
     <div className="sticky top-0 z-[100] w-full select-none overflow-visible">
       {/* Light-First Clean Header Shell */}
       <header className="border-b border-black/[0.07] bg-white/95 text-[#1D1D1F] shadow-2xs backdrop-blur-xl transition-colors">
-        <div className="mx-auto flex h-15 sm:h-16 max-w-[1500px] items-center gap-2 sm:gap-3 px-3.5 sm:px-5 lg:px-7">
+        <div className="mx-auto flex h-15 sm:h-16 max-w-[1500px] items-center gap-1.5 sm:gap-3 px-2.5 sm:px-5 lg:px-7">
           
-          {/* Mobile Menu Hamburger */}
+          {/* 1. Mobile Menu Hamburger (Fixed 44px touch target) */}
           <button
-            className="rounded-xl p-2 text-[#6E6E73] hover:bg-black/[0.04] hover:text-[#1D1D1F] md:hidden transition-colors"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#6E6E73] hover:bg-black/[0.04] hover:text-[#1D1D1F] md:hidden transition-colors"
             onClick={() => setMobileOpen((v) => !v)}
             aria-label="Toggle navigation menu"
+            aria-expanded={mobileOpen}
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
 
-          {/* Autonoma Home Branding */}
+          {/* 2. Autonoma Home Branding (Mark on mobile, brand text on sm+) */}
           <button
             onClick={() => selectTab('todays_production')}
-            className="flex shrink-0 items-center gap-2.5 transition-transform active:scale-95"
+            className="flex shrink-0 items-center gap-2 transition-transform active:scale-95"
             title="Autonoma home"
+            aria-label="Autonoma home"
           >
             <ApexLogo variant="mark" size="sm" />
             <span className="hidden text-[13px] font-bold tracking-[0.06em] text-[#1D1D1F] sm:block">
@@ -234,8 +237,8 @@ export const Header: React.FC<HeaderProps> = ({
 
           <div className="hidden h-5 w-px bg-black/[0.08] sm:block mx-0.5" />
 
-          {/* Workspace Switcher */}
-          <div className="relative min-w-0" data-autonoma-menu>
+          {/* 3. Workspace Switcher (min-w-0 flex-1 text truncation, never overlaps buttons) */}
+          <div className="relative min-w-0 flex-1 md:flex-initial" data-autonoma-menu>
             <button
               disabled={uiBlocked}
               onClick={() => {
@@ -247,11 +250,11 @@ export const Header: React.FC<HeaderProps> = ({
               aria-haspopup="menu"
               aria-expanded={workspaceOpen}
               aria-label="Switch company workspace"
-              className="flex max-w-[170px] sm:max-w-[240px] items-center gap-2 rounded-xl border border-black/[0.08] bg-black/[0.025] hover:bg-black/[0.05] px-2.5 py-1.5 text-left transition-all shadow-2xs"
+              className="flex w-full md:w-auto md:max-w-[240px] items-center gap-1.5 sm:gap-2 rounded-xl border border-black/[0.08] bg-black/[0.025] hover:bg-black/[0.05] px-2 sm:px-2.5 py-1.5 text-left transition-all shadow-2xs min-w-0"
             >
               <Building2 className="h-3.5 w-3.5 shrink-0 text-[#FF4500]" />
 
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="truncate text-[11px] font-semibold text-[#1D1D1F]">
                   {activeCompany?.name || 'Choose workspace'}
                 </div>
@@ -369,9 +372,9 @@ export const Header: React.FC<HeaderProps> = ({
           </nav>
 
           {/* Actions & Utilities Right Bar */}
-          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
             
-            {/* Contextual Help */}
+            {/* Contextual Help (Desktop only) */}
             {onOpenHelp && (
               <button
                 onClick={onOpenHelp}
@@ -385,18 +388,19 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Create Campaign CTA */}
+            {/* 4. Create Campaign CTA (+) (Fixed 44px touch target on mobile, text on sm+) */}
             <button
               onClick={onOpenAiGenerator}
               disabled={uiBlocked}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#FF4500] px-3.5 text-[11px] font-semibold text-white shadow-sm hover:bg-[#EA3E00] active:scale-95 transition-all shrink-0"
+              aria-label="Create campaign"
+              className="inline-flex h-11 w-11 sm:h-9 sm:w-auto items-center justify-center gap-1.5 rounded-xl bg-[#FF4500] sm:px-3.5 text-[11px] font-semibold text-white shadow-sm hover:bg-[#EA3E00] active:scale-95 transition-all shrink-0"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
               <span className="hidden sm:inline">Create campaign</span>
             </button>
 
-            {/* More Tools Menu */}
-            <div className="relative" data-autonoma-menu>
+            {/* Secondary More Menu (Hidden on narrow mobile < 640px to prevent crowding; accessible via hamburger) */}
+            <div className="relative hidden sm:block" data-autonoma-menu>
               <button
                 disabled={uiBlocked}
                 onClick={() => {
@@ -494,7 +498,7 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
 
-            {/* Account Profile Avatar & Settings */}
+            {/* 5. Account Profile Avatar (Fixed 44px touch target on mobile) */}
             <div className="relative" data-autonoma-menu>
               <button
                 disabled={uiBlocked}
@@ -507,7 +511,7 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-haspopup="menu"
                 aria-expanded={accountOpen}
                 aria-label="Open account menu"
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/[0.08] bg-black/[0.03] text-[11px] font-bold text-[#1D1D1F] transition hover:bg-black/[0.06]"
+                className="flex h-11 w-11 sm:h-9 sm:w-9 items-center justify-center rounded-xl border border-black/[0.08] bg-black/[0.03] text-xs sm:text-[11px] font-bold text-[#1D1D1F] transition hover:bg-black/[0.06] shrink-0"
               >
                 {currentUser?.name?.[0]?.toUpperCase() || 'U'}
               </button>
@@ -558,62 +562,26 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Mobile Navigation Drawer (Blinkit/Zomato consumer-grade touch responsiveness) */}
-        {mobileOpen && (
-          <div className="border-t border-black/[0.06] bg-[#FBFBFD] p-3.5 md:hidden animate-in slide-in-from-top-2 duration-150">
-            <div className="grid grid-cols-2 gap-2">
-              {primary.map((item) => {
-                const Icon = item.icon;
-                const active = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => selectTab(item.id)}
-                    className={`flex min-h-11 items-center gap-2 rounded-xl px-3.5 text-xs font-medium transition ${
-                      active
-                        ? 'bg-[#FF4500] text-white shadow-xs font-semibold'
-                        : 'bg-white border border-black/[0.06] text-[#4A4A4F]'
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="my-2.5 h-px bg-black/[0.06]" />
-
-            <div className="grid grid-cols-2 gap-1.5">
-              {secondary.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => selectTab(item.id)}
-                  className={`min-h-10 rounded-xl px-3 text-left text-xs transition flex items-center justify-between ${
-                    activeTab === item.id ? 'bg-[#FF4500]/10 text-[#FF4500] font-semibold' : 'text-[#6E6E73] hover:bg-black/[0.03]'
-                  }`}
-                >
-                  <span>{item.label}</span>
-                  {Boolean(item.count) && (
-                    <span className="text-[10px] text-[#86868B]">{item.count}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-
-            {currentUser?.isSuperAdmin && onOpenSuperAdminWorkspace && (
-              <button
-                onClick={() => {
-                  onOpenSuperAdminWorkspace();
-                  setMobileOpen(false);
-                }}
-                className="mt-2.5 w-full rounded-xl border border-purple-200 bg-purple-50 px-3 py-2.5 text-xs font-semibold text-purple-900"
-              >
-                Super Admin Console
-              </button>
-            )}
-          </div>
-        )}
+        {/* Global Mobile Navigation Drawer (Dimmed backdrop, full height, consistent 44-48px rows) */}
+        <GlobalMobileDrawer
+          isOpen={mobileOpen}
+          onClose={() => setMobileOpen(false)}
+          activeTab={activeTab}
+          onSelectTab={selectTab}
+          currentUser={currentUser}
+          activeCompany={activeCompany}
+          userRole={userRole}
+          availableCompanies={companies}
+          onSwitchCompany={switchWorkspace}
+          switchingCompanyId={switchingCompanyId}
+          onCreateCampaign={onOpenAiGenerator}
+          onOpenHelp={onOpenHelp}
+          onOpenSettings={onOpenSettings}
+          onOpenCompanyManagement={onOpenCompanyManagement}
+          onOpenSuperAdminWorkspace={onOpenSuperAdminWorkspace}
+          onSignOut={onSignOut}
+          archivedCount={archivedCount}
+        />
       </header>
 
       {/* Subheader / Campaign Selector & Quick Context */}

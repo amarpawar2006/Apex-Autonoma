@@ -77,7 +77,7 @@ export default function App() {
 
   // Company Admin management modal
   const [isCompanyManagementOpen, setIsCompanyManagementOpen] = useState<boolean>(false);
-  const [companyManagementInitialTab, setCompanyManagementInitialTab] = useState<'ai_context' | 'profile' | 'understanding' | 'members'>('ai_context');
+  const [companyManagementInitialTab, setCompanyManagementInitialTab] = useState<'ai_context' | 'profile' | 'understanding' | 'members' | 'company_data'>('ai_context');
 
   // Workspace Navigation Tab
   const [activeTab, setActiveTab] = useState<AppNavTab>('todays_production');
@@ -512,8 +512,19 @@ export default function App() {
     return (
       <SuperAdminWorkspace
         currentUser={currentUser}
+        activeCompany={activeCompany}
+        availableCompanies={availableCompanies}
         onEnterCompanyWorkspace={(companyId) => {
           handleSwitchCompany(companyId);
+        }}
+        onNavigateToTab={(tab) => {
+          setActiveTab(tab as any);
+          setIsSuperAdminWorkspaceOpen(false);
+        }}
+        onOpenHelp={() => setIsHelpOpen(true)}
+        onOpenCompanyManagement={(tab) => {
+          setCompanyManagementInitialTab(tab || 'profile');
+          setIsCompanyManagementOpen(true);
         }}
         onSignOut={handleSignOut}
       />
@@ -553,8 +564,8 @@ export default function App() {
         activeCompany={activeCompany}
         userRole={userRole}
         onSignOut={handleSignOut}
-        onOpenCompanyManagement={() => {
-          setCompanyManagementInitialTab('profile');
+        onOpenCompanyManagement={(tab) => {
+          setCompanyManagementInitialTab(tab || 'profile');
           setIsCompanyManagementOpen(true);
         }}
         onOpenSuperAdminWorkspace={() => setIsSuperAdminWorkspaceOpen(true)}
