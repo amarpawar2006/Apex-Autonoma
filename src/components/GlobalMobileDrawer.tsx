@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Plus,
@@ -18,8 +19,7 @@ import {
   Settings,
   LogOut,
   ChevronDown,
-  Check,
-  Sparkles
+  Check
 } from 'lucide-react';
 import { AppNavTab, CompanyOption } from './Header';
 import { Company, User, UserRole } from '../types/auth';
@@ -68,18 +68,29 @@ export const GlobalMobileDrawer: React.FC<GlobalMobileDrawerProps> = ({
 }) => {
   const [workspaceExpanded, setWorkspaceExpanded] = React.useState(false);
 
-  // Lock body scroll when mobile drawer is open
+  // Lock document scrolling while the drawer is open.
   React.useEffect(() => {
-    if (isOpen) {
-      const originalOverflow = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = originalOverflow;
-      };
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
 
-  if (!isOpen) return null;
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const isSuperAdmin = Boolean(currentUser?.isSuperAdmin);
   const isCompanyAdmin = userRole === 'COMPANY_ADMIN' || isSuperAdmin;
@@ -163,17 +174,26 @@ export const GlobalMobileDrawer: React.FC<GlobalMobileDrawerProps> = ({
     { id: 'archive' as AppNavTab, label: 'Archive', icon: Archive, count: archivedCount },
   ];
 
-  return (
-    <div className="fixed inset-0 z-[300] flex md:hidden" role="dialog" aria-modal="true" aria-label="Global mobile navigation">
+  const drawer = (
+    <div
+      className="fixed inset-0 z-[9999] md:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Global mobile navigation"
+    >
       {/* Dimmed backdrop */}
-      <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
+      <button
+        type="button"
+        className="fixed inset-0 z-0 h-[100dvh] w-screen bg-black/60 backdrop-blur-sm"
         onClick={onClose}
-        aria-hidden="true"
+        aria-label="Close navigation drawer"
       />
 
       {/* Full-height Mobile Drawer */}
-      <div className="relative ml-0 flex h-full w-[85%] max-w-[340px] flex-col bg-white text-[#1D1D1F] shadow-2xl animate-in slide-in-from-left duration-200">
+      <aside
+        className="fixed inset-y-0 left-0 z-10 flex h-[100dvh] max-h-[100dvh] w-[85vw] max-w-[340px] flex-col overflow-hidden bg-white text-[#1D1D1F] shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
         
         {/* Drawer Header */}
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-black/[0.08] px-4 bg-[#FBFBFD]">
@@ -199,7 +219,8 @@ export const GlobalMobileDrawer: React.FC<GlobalMobileDrawerProps> = ({
         </div>
 
         {/* Drawer Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-3.5 py-4 space-y-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 py-4 pb-[max(24px,env(safe-area-inset-bottom))]">
+          <div className="space-y-5">
           
           {/* WORKSPACE SELECTOR */}
           <div className="space-y-1.5">
@@ -471,9 +492,12 @@ export const GlobalMobileDrawer: React.FC<GlobalMobileDrawerProps> = ({
             </div>
           </div>
 
+          </div>
         </div>
 
-      </div>
+      </aside>
     </div>
   );
+
+  return createPortal(drawer, document.body);
 };
