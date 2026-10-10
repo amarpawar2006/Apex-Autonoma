@@ -20,6 +20,13 @@ export interface EmailDeliveryResult {
   provider: 'resend' | 'smtp' | 'system_preview';
 }
 
+export function isMaskedSecret(value?: string): boolean {
+  if (!value) return false;
+  return value.includes('••••') ||
+         value.includes('(Server Secret)') ||
+         value.includes('SERVER_SECRET');
+}
+
 export class TransactionalEmailService {
   private config: TransactionalEmailConfig = {
     provider: 'system',
@@ -28,17 +35,31 @@ export class TransactionalEmailService {
 
   constructor(initialConfig?: TransactionalEmailConfig) {
     if (initialConfig) {
-      this.config = initialConfig;
+      this.setConfig(initialConfig);
     }
   }
 
   public setConfig(cfg: TransactionalEmailConfig) {
-    this.config = { ...this.config, ...cfg };
+    const cleanCfg: TransactionalEmailConfig = { ...cfg };
+    if (isMaskedSecret(cleanCfg.resendApiKey)) {
+      delete cleanCfg.resendApiKey;
+    }
+    if (isMaskedSecret(cleanCfg.smtpPass)) {
+      delete cleanCfg.smtpPass;
+    }
+    this.config = { ...this.config, ...cleanCfg };
+    // Defensively ensure internal config never retains masked strings
+    if (isMaskedSecret(this.config.resendApiKey)) {
+      delete this.config.resendApiKey;
+    }
+    if (isMaskedSecret(this.config.smtpPass)) {
+      delete this.config.smtpPass;
+    }
   }
 
   public getConfig(): TransactionalEmailConfig {
     const hasResendSecret = Boolean(process.env.RESEND_API_KEY);
-    const hasWorkspaceKey = Boolean(this.config.resendApiKey && !this.config.resendApiKey.includes('••••'));
+    const hasWorkspaceKey = Boolean(this.config.resendApiKey && !isMaskedSecret(this.config.resendApiKey));
     const isConfigured = hasWorkspaceKey || hasResendSecret || Boolean(this.config.smtpHost);
     const source: 'server_secret' | 'workspace_override' | 'unconfigured' = hasWorkspaceKey
       ? 'workspace_override'
@@ -46,11 +67,17 @@ export class TransactionalEmailService {
       ? 'server_secret'
       : 'unconfigured';
 
+    const effectiveFrom =
+      this.config.smtpFrom ||
+      process.env.SMTP_FROM ||
+      'Autonoma <onboarding@apex-engineering.co.in>';
+
     return {
       ...this.config,
       provider: this.config.provider === 'system' && (hasWorkspaceKey || hasResendSecret) ? 'resend' : this.config.provider,
       status: isConfigured ? 'CONFIGURED' : 'UNCONFIGURED',
       source,
+      smtpFrom: effectiveFrom,
       // Mask credentials for client security
       resendApiKey: hasWorkspaceKey
         ? `re_••••${this.config.resendApiKey!.slice(-4)}`
@@ -147,7 +174,11 @@ export class TransactionalEmailService {
     html: string;
     text?: string;
   }): Promise<EmailDeliveryResult> {
-    const resendKey = this.config.resendApiKey || process.env.RESEND_API_KEY;
+    const workspaceKey =
+      this.config.resendApiKey && !isMaskedSecret(this.config.resendApiKey)
+        ? this.config.resendApiKey
+        : undefined;
+    const resendKey = workspaceKey || process.env.RESEND_API_KEY;
     const smtpHost = this.config.smtpHost || process.env.SMTP_HOST;
 
     // 1. Priority 1: RESEND API if configured
@@ -155,6 +186,11 @@ export class TransactionalEmailService {
       try {
         const normalizedRecipient = options.to.trim().toLowerCase();
         console.log(`[Email Service] Dispatching via Resend to ${normalizedRecipient}...`);
+        const fromAddress =
+          this.config.smtpFrom ||
+          process.env.SMTP_FROM ||
+          'Autonoma <onboarding@apex-engineering.co.in>';
+
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
@@ -162,7 +198,7 @@ export class TransactionalEmailService {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            from: this.config.smtpFrom || process.env.SMTP_FROM || 'Autonoma <onboarding@resend.dev>',
+            from: fromAddress,
             to: [normalizedRecipient],
             subject: options.subject,
             html: options.html,
@@ -204,18 +240,27 @@ export class TransactionalEmailService {
     if (smtpHost) {
       try {
         console.log(`[Email Service] Dispatching via SMTP (${smtpHost}) to ${options.to}...`);
+        const pass =
+          (this.config.smtpPass && !isMaskedSecret(this.config.smtpPass) ? this.config.smtpPass : undefined) ||
+          process.env.SMTP_PASS ||
+          '';
         const transporter = nodemailer.createTransport({
           host: smtpHost,
           port: Number(this.config.smtpPort || process.env.SMTP_PORT || 587),
           secure: Boolean(this.config.smtpSecure || process.env.SMTP_SECURE === 'true'),
           auth: {
             user: this.config.smtpUser || process.env.SMTP_USER || '',
-            pass: this.config.smtpPass || process.env.SMTP_PASS || ''
+            pass
           }
         });
 
+        const fromAddress =
+          this.config.smtpFrom ||
+          process.env.SMTP_FROM ||
+          'Autonoma <onboarding@apex-engineering.co.in>';
+
         const info = await transporter.sendMail({
-          from: this.config.smtpFrom || process.env.SMTP_FROM || 'Autonoma <invites@autonoma.ai>',
+          from: fromAddress,
           to: options.to,
           subject: options.subject,
           html: options.html,
@@ -301,8 +346,29 @@ export class TransactionalEmailService {
 
     try {
       if (cfgToUse.provider === 'resend') {
-        const key = cfgToUse.resendApiKey || this.config.resendApiKey || process.env.RESEND_API_KEY;
-        if (!key) throw new Error('Resend API key is required');
+        const providedKey =
+          cfgToUse.resendApiKey && !isMaskedSecret(cfgToUse.resendApiKey)
+            ? cfgToUse.resendApiKey
+            : undefined;
+
+        const workspaceKey =
+          this.config.resendApiKey && !isMaskedSecret(this.config.resendApiKey)
+            ? this.config.resendApiKey
+            : undefined;
+
+        const key =
+          providedKey ||
+          workspaceKey ||
+          process.env.RESEND_API_KEY;
+
+        if (!key) throw new Error('Resend API key is not configured');
+
+        const from =
+          cfgToUse.smtpFrom ||
+          this.config.smtpFrom ||
+          process.env.SMTP_FROM ||
+          'Autonoma <onboarding@resend.dev>';
+
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
@@ -310,7 +376,7 @@ export class TransactionalEmailService {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            from: cfgToUse.smtpFrom || 'onboarding@resend.dev',
+            from,
             to: [targetEmail],
             subject: 'Autonoma Email Delivery Test',
             html: '<p>This is a test email confirming transactional email delivery is functioning.</p>'
@@ -332,13 +398,18 @@ export class TransactionalEmailService {
       if (cfgToUse.provider === 'smtp') {
         const host = cfgToUse.smtpHost || this.config.smtpHost || process.env.SMTP_HOST;
         if (!host) throw new Error('SMTP Host is required');
+        const pass =
+          (cfgToUse.smtpPass && !isMaskedSecret(cfgToUse.smtpPass) ? cfgToUse.smtpPass : undefined) ||
+          (this.config.smtpPass && !isMaskedSecret(this.config.smtpPass) ? this.config.smtpPass : undefined) ||
+          process.env.SMTP_PASS ||
+          '';
         const transporter = nodemailer.createTransport({
           host,
           port: Number(cfgToUse.smtpPort || 587),
           secure: Boolean(cfgToUse.smtpSecure),
           auth: {
             user: cfgToUse.smtpUser || this.config.smtpUser || '',
-            pass: cfgToUse.smtpPass || this.config.smtpPass || ''
+            pass
           }
         });
         await transporter.verify();

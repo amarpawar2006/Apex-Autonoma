@@ -116,6 +116,26 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
   const [testEmailAddress, setTestEmailAddress] = useState('');
   const [emailTesting, setEmailTesting] = useState(false);
   const [emailTestResult, setEmailTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null);
+  const [isReplacingResendKey, setIsReplacingResendKey] = useState(false);
+  const [customResendKey, setCustomResendKey] = useState('');
+
+  const isMaskedSecret = (value?: string): boolean => {
+    if (!value) return false;
+    return value.includes('••••') ||
+           value.includes('(Server Secret)') ||
+           value.includes('SERVER_SECRET');
+  };
+
+  const sanitizeEmailConfig = (cfg: TransactionalEmailConfig): TransactionalEmailConfig => {
+    const clean = { ...cfg };
+    if (isMaskedSecret(clean.resendApiKey)) {
+      delete clean.resendApiKey;
+    }
+    if (isMaskedSecret(clean.smtpPass)) {
+      delete clean.smtpPass;
+    }
+    return clean;
+  };
 
   // Sheets Integration States
   const [localWebhook, setLocalWebhook] = useState(sheetsWebhookUrl);
@@ -149,7 +169,13 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
           }
         }
         if (res.emailConfig) {
-          setEmailConfig(res.emailConfig);
+          const cfg = { ...res.emailConfig };
+          if (!cfg.smtpFrom) {
+            cfg.smtpFrom = 'Autonoma <onboarding@apex-engineering.co.in>';
+          }
+          setEmailConfig(cfg);
+          setIsReplacingResendKey(false);
+          setCustomResendKey('');
         }
       }).catch((e) => console.warn('Provider settings load:', e));
 
@@ -179,6 +205,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
       };
     }
 
+    const sanitizedEmailConfig = sanitizeEmailConfig(emailConfig);
+
     const payload = {
       aiProviders: {
         defaults: providersSettings.defaults,
@@ -188,7 +216,7 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
           enabled: Boolean(driveInput.trim())
         }
       },
-      emailConfig
+      emailConfig: sanitizedEmailConfig
     };
 
     await autonomaDataService.updateAiProviders(payload);
@@ -237,7 +265,8 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
     setEmailTesting(true);
     setEmailTestResult(null);
     try {
-      const res = await autonomaDataService.testEmailDelivery(testEmailAddress.trim() || undefined, emailConfig);
+      const sanitizedEmailConfig = sanitizeEmailConfig(emailConfig);
+      const res = await autonomaDataService.testEmailDelivery(testEmailAddress.trim() || undefined, sanitizedEmailConfig);
       setEmailTestResult({
         success: res.success,
         message: res.message || (res.success ? 'Email test passed!' : 'Email test failed'),
@@ -716,31 +745,113 @@ export const ApiKeySettingsModal: React.FC<ApiKeySettingsModalProps> = ({
                 </div>
               </div>
 
-              {emailConfig.provider === 'resend' && (
-                <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3">
-                  <span className="font-semibold text-xs text-[#1D1D1F]">Resend API Configuration</span>
-                  <label className="space-y-1 block text-xs">
-                    <span className="text-[10px] text-[#6E6E73]">Resend API Key (re_...)</span>
-                    <input
-                      type="password"
-                      placeholder="re_••••••••"
-                      value={emailConfig.resendApiKey || ''}
-                      onChange={(e) => setEmailConfig((p) => ({ ...p, resendApiKey: e.target.value }))}
-                      className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs font-mono outline-none"
-                    />
-                  </label>
-                  <label className="space-y-1 block text-xs">
-                    <span className="text-[10px] text-[#6E6E73]">From Address (e.g. Autonoma &lt;onboarding@resend.dev&gt;)</span>
-                    <input
-                      type="text"
-                      placeholder="Autonoma <onboarding@resend.dev>"
-                      value={emailConfig.smtpFrom || ''}
-                      onChange={(e) => setEmailConfig((p) => ({ ...p, smtpFrom: e.target.value }))}
-                      className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none"
-                    />
-                  </label>
-                </div>
-              )}
+              {emailConfig.provider === 'resend' && (() => {
+                const isServerSecretResend =
+                  emailConfig.source === 'server_secret' ||
+                  isMaskedSecret(emailConfig.resendApiKey) ||
+                  (emailConfig.hasResendKey && (!emailConfig.resendApiKey || isMaskedSecret(emailConfig.resendApiKey)));
+
+                return (
+                  <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-xs text-[#1D1D1F]">Resend API Configuration</span>
+                      <span className="text-[10px] text-[#86868B] uppercase tracking-wider font-semibold">Production Gateway</span>
+                    </div>
+
+                    {/* Resend API Key Field */}
+                    {isServerSecretResend && !isReplacingResendKey ? (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-medium text-[#6E6E73]">Resend API Key</span>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                            <ShieldCheck className="h-3 w-3" />
+                            Active Server Secret
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 flex items-center justify-between rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-2 text-xs font-mono text-slate-700">
+                            <span className="tracking-wider">•••••••• (Server Secret)</span>
+                            <span className="text-[10px] text-[#86868B] font-sans font-medium">Provisioned</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsReplacingResendKey(true);
+                              setCustomResendKey('');
+                              setEmailConfig((p) => ({ ...p, resendApiKey: '' }));
+                            }}
+                            className="px-3 py-2 text-xs font-semibold text-[#1D1D1F] bg-white border border-black/[0.1] rounded-xl hover:bg-slate-50 transition-colors shrink-0"
+                          >
+                            Replace key
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-[#86868B]">
+                          Transactional emails will securely use the AI Studio server secret.
+                        </p>
+                      </div>
+                    ) : isReplacingResendKey ? (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-medium text-[#6E6E73]">Enter Custom Resend API Key</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsReplacingResendKey(false);
+                              setCustomResendKey('');
+                              setEmailConfig((p) => ({ ...p, resendApiKey: undefined }));
+                            }}
+                            className="text-[10px] font-medium text-[#FF4500] hover:underline"
+                          >
+                            Cancel & keep server secret
+                          </button>
+                        </div>
+                        <input
+                          type="password"
+                          placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxx"
+                          value={customResendKey}
+                          onChange={(e) => {
+                            setCustomResendKey(e.target.value);
+                            setEmailConfig((p) => ({ ...p, resendApiKey: e.target.value }));
+                          }}
+                          className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-2 text-xs font-mono outline-none focus:border-[#FF4500]"
+                        />
+                        <p className="text-[11px] text-[#86868B]">
+                          Enter your custom key starting with <code className="text-[#FF4500]">re_</code> to override the server secret.
+                        </p>
+                      </div>
+                    ) : (
+                      <label className="space-y-1 block text-xs">
+                        <span className="text-[10px] text-[#6E6E73]">Resend API Key (re_...)</span>
+                        <input
+                          type="password"
+                          placeholder="re_..."
+                          value={emailConfig.resendApiKey || ''}
+                          onChange={(e) => setEmailConfig((p) => ({ ...p, resendApiKey: e.target.value }))}
+                          className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs font-mono outline-none focus:border-[#FF4500]"
+                        />
+                      </label>
+                    )}
+
+                    {/* From Address Field (Always editable) */}
+                    <label className="space-y-1 block text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-[#6E6E73]">From Address</span>
+                        <span className="text-[10px] text-[#86868B]">Production Sender</span>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Autonoma <onboarding@apex-engineering.co.in>"
+                        value={emailConfig.smtpFrom ?? 'Autonoma <onboarding@apex-engineering.co.in>'}
+                        onChange={(e) => setEmailConfig((p) => ({ ...p, smtpFrom: e.target.value }))}
+                        className="w-full rounded-xl border border-black/[0.08] bg-[#FBFBFD] px-3 py-1.5 text-xs outline-none focus:border-[#FF4500]"
+                      />
+                      <p className="text-[11px] text-[#86868B]">
+                        Current production address: <code className="font-mono text-[#1D1D1F]">Autonoma &lt;onboarding@apex-engineering.co.in&gt;</code>
+                      </p>
+                    </label>
+                  </div>
+                );
+              })()}
 
               {emailConfig.provider === 'smtp' && (
                 <div className="rounded-2xl border border-black/[0.06] bg-white p-4 shadow-2xs space-y-3 text-xs">
