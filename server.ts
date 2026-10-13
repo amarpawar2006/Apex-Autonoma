@@ -4062,10 +4062,28 @@ STRICT GUARDRAILS:
         required: ['rewrittenBrief', 'keyImprovements', 'focusedQuestions']
       };
 
+      // Helper to classify if a failure is retryable across model attempts:
+      // - Per-attempt timeout
+      // - Rate limit / quota / RESOURCE_EXHAUSTED / 429
+      // - Service unavailable / 5xx / gateway / network disruption
+      // - Temporary empty response or malformed JSON
+      function isRetryableAttemptError(err: any): boolean {
+        if (!err) return false;
+        if (err.isTimeout || err.name === 'TimeoutError') return true;
+        if (err.isParseError || err instanceof SyntaxError) return true;
+        const msg = String(err.message || err);
+        if (msg.includes('empty response')) return true;
+        if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) return true;
+        if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504')) return true;
+        if (msg.includes('UNAVAILABLE') || msg.includes('overloaded') || msg.includes('high demand') || msg.includes('busy')) return true;
+        if (msg.includes('fetch failed') || msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('network')) return true;
+        return false;
+      }
+
       // Controlled AI attempt execution with per-attempt timeout and fallback chain:
       // Attempt 1: gemini-3.8-flash (22s)
-      // If transient fail: wait 750ms -> Attempt 2: gemini-3.8-flash (22s)
-      // If transient fail: wait 750ms -> Attempt 3: gemini-2.5-flash (22s)
+      // If retryable fail: wait 750ms -> Attempt 2: gemini-3.8-flash (22s)
+      // If retryable fail: wait 750ms -> Attempt 3: gemini-2.5-flash (22s)
       const attemptsConfig = [
         { model: 'gemini-3.8-flash', timeoutMs: 22000, label: 'Attempt 1 (3.8-flash)' },
         { model: 'gemini-3.8-flash', timeoutMs: 22000, label: 'Attempt 2 (3.8-flash retry)' },
@@ -4073,7 +4091,7 @@ STRICT GUARDRAILS:
       ];
 
       let lastError: any = null;
-      let responseText = '';
+      let parsedData: any = null;
 
       for (let i = 0; i < attemptsConfig.length; i++) {
         const attempt = attemptsConfig[i];
@@ -4095,7 +4113,6 @@ STRICT GUARDRAILS:
               (err as any).isTimeout = true;
               reject(err);
             }, attempt.timeoutMs);
-            // unref if supported in node
             if (typeof timer.unref === 'function') timer.unref();
           });
 
@@ -4106,26 +4123,45 @@ STRICT GUARDRAILS:
           }
 
           // Validate JSON syntax immediately
-          JSON.parse(text);
-          responseText = text;
+          try {
+            parsedData = JSON.parse(text);
+          } catch (jsonErr: any) {
+            const parseError = new Error('Model output could not be parsed as valid JSON.');
+            (parseError as any).isParseError = true;
+            (parseError as any).rawText = text;
+            throw parseError;
+          }
+
           lastError = null;
           break; // Succeeded!
         } catch (attemptErr: any) {
           lastError = attemptErr;
           console.warn(`[improve-brief] ${attempt.label} failed:`, attemptErr?.message || attemptErr);
 
-          // If not the last attempt, brief pause before next attempt
+          // If failure is not retryable (e.g. invalid arguments or non-transient error), break early
+          if (!isRetryableAttemptError(attemptErr)) {
+            break;
+          }
+
+          // If retryable and not the last attempt, brief pause before next attempt
           if (i < attemptsConfig.length - 1) {
             await new Promise((resolve) => setTimeout(resolve, 750));
           }
         }
       }
 
-      if (!responseText) {
-        const errMsg = lastError?.message || '';
+      if (!parsedData) {
+        const errMsg = String(lastError?.message || '');
         const isTimeout = lastError?.isTimeout || lastError?.name === 'TimeoutError' || errMsg.includes('timed out');
         const isRateLimit = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED');
+        const isParseError = lastError?.isParseError || lastError instanceof SyntaxError || errMsg.includes('valid JSON');
 
+        if (isParseError) {
+          return res.status(500).json({
+            error: 'AI_PARSE_ERROR',
+            message: 'AI could not format the refined brief cleanly. Please retry or adjust your brief.'
+          });
+        }
         if (isTimeout) {
           return res.status(504).json({
             error: 'AI_TIMEOUT',
@@ -4141,17 +4177,6 @@ STRICT GUARDRAILS:
         return res.status(503).json({
           error: 'AI_UNAVAILABLE',
           message: 'AI refinement is temporarily unavailable. Your original brief is safe — you can continue or retry.'
-        });
-      }
-
-      let parsedData;
-      try {
-        parsedData = JSON.parse(responseText);
-      } catch (parseErr) {
-        console.error('Failed to parse Gemini JSON output:', responseText);
-        return res.status(500).json({
-          error: 'AI_PARSE_ERROR',
-          message: 'Model output could not be parsed as valid JSON. Please retry.'
         });
       }
 
