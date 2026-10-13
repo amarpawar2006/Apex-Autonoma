@@ -3976,23 +3976,46 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
       const activeCompany = (req as any).activeCompany;
       const comp = activeCompany ? autonomaDb.getCompany(activeCompany.companyId) : null;
       const compProfile: any = comp?.profile || activeCompany?.profile;
-      const compName = comp?.name || activeCompany?.name || companyContext?.organizationName;
+      const compName = comp?.name || activeCompany?.name || companyContext?.organizationName || 'Company';
       const confirmed = compProfile?.confirmedContext;
+      const brandSys = compProfile?.brandDesignSystem;
 
-      const effectiveCompanyContext = companyContext || {
-        organizationName: compName,
-        organizationType: compProfile?.organizationType,
-        offerings: compProfile?.offerings,
-        targetAudience: compProfile?.audience,
-        brandVoice: compProfile?.brandVoice,
-        brandSummary: compProfile?.description || confirmed?.organizationAndOffering,
-        website: compProfile?.website
-      };
+      let companyContextBlock = `COMPANY PROFILE & BRAND IDENTITY (${compName}):
+- Organization Name: ${compName}
+- Organization Type: ${compProfile?.organizationType || companyContext?.organizationType || 'business'}
+- Description: ${compProfile?.description || companyContext?.brandSummary || 'Not specified'}
+- Primary Products/Services: ${compProfile?.offerings || companyContext?.offerings || 'Derived from brief'}
+- Target Audience: ${compProfile?.audience || companyContext?.targetAudience || 'Derived from brief'}
+- Geography: ${compProfile?.geography || 'Not specified'}
+- Primary Goal: ${compProfile?.primaryGoal || 'Not specified'}
+- Brand Voice: ${compProfile?.brandVoice || companyContext?.brandVoice || 'Professional, grounded, authentic'}
+- Constraints / Avoid Claims: ${compProfile?.claimsAvoid || 'None specified'}`;
 
-      const hasCustomCompanyContext = Boolean(
-        effectiveCompanyContext?.organizationName &&
-        effectiveCompanyContext.organizationName !== 'Apex Engineering Pune'
-      );
+      if (confirmed) {
+        companyContextBlock += `\nCONFIRMED COMPANY UNDERSTANDING (v${confirmed.version}):
+- Organization & Offering: ${confirmed.organizationAndOffering}
+- Understood Audience: ${confirmed.audience}
+- Strategic Goals: ${confirmed.goals}
+- Strategic Brand Voice: ${confirmed.voice}
+- Default Contact CTA: ${confirmed.cta}
+- Strict Constraints: ${confirmed.constraints}`;
+      } else {
+        companyContextBlock += `\nCOMPANY CONTEXT STATUS: Draft (Unconfirmed by administrator — use grounded facts with professional discretion)`;
+      }
+
+      if (brandSys) {
+        companyContextBlock += `\nCUSTOMER BRAND DESIGN SYSTEM:
+- Company: ${compName}
+- Primary Brand Color: ${brandSys.primaryColor || '#1D1D1F'}
+- Secondary Brand Color: ${brandSys.secondaryColor || '#6B7280'}
+- Brand Voice: ${brandSys.brandVoiceNote || compProfile?.brandVoice || 'Clear, professional and grounded'}
+- Visual Direction: ${brandSys.visualStyleNotes || 'Clean, professional and brand-neutral'}`;
+      }
+
+      companyContextBlock += `\nSTRICT CONTEXT AND PROMOTION DIRECTIVES:
+1. Ground this campaign strictly in ${compName}'s authentic domain (${compProfile?.organizationType || 'business'}).
+2. BRC should receive riding-club content; a flour mill should receive relevant product/customer content. Do NOT inject Apex Engineering or software copy unless the company being promoted is actually Apex Engineering.
+3. If the campaign brief specifies a particular product, event, or promotion, that specific objective takes precedence.`;
 
       const ai = new GoogleGenAI({
         apiKey,
@@ -4003,90 +4026,122 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
         }
       });
 
-      const prompt = `You are an expert marketing strategist and campaign architect assisting a user in refining their organic social campaign brief.
+      const prompt = `You are the Executive Creative Director and Lead Growth Strategist at Autonoma assisting a user in refining their organic social campaign brief.
+
+${companyContextBlock}
 
 Selected Primary Goal: "${primaryGoal || 'Not specified'}"
 Selected Secondary Goals: "${Array.isArray(secondaryGoals) && secondaryGoals.length > 0 ? secondaryGoals.join(', ') : 'None'}"
-
-Company Context:
-- Organization Name: ${effectiveCompanyContext?.organizationName || 'Not specified'}
-- Organization Type: ${effectiveCompanyContext?.organizationType || 'business'}
-- Offerings / Activities: ${effectiveCompanyContext?.offerings || 'Derived from brief'}
-- Target Audience: ${effectiveCompanyContext?.targetAudience || 'Derived from brief'}
-- Brand Voice: ${effectiveCompanyContext?.brandVoice || 'Professional, grounded'}
-${effectiveCompanyContext?.brandSummary ? `- Brand Overview: ${effectiveCompanyContext.brandSummary}` : ''}
-${effectiveCompanyContext?.website ? `- Website: ${effectiveCompanyContext.website}` : ''}
-${!hasCustomCompanyContext ? '(Note: No custom company context exists yet. Ground the refinement in the brief and do NOT assume an industry or insert Apex services unless the user explicitly mentioned it.)' : ''}
 
 User's Original Campaign Input:
 "${brief.trim()}"
 
 STRICT GUARDRAILS:
 1. NEVER invent products, features, claims, prices, discounts, launch dates, budgets, or numerical performance targets.
-2. Do NOT insert Apex services or assume the company’s industry unless specified in explicit input or provided company context.
-3. If company context does not yet exist, use only explicit campaign information and request clarification where necessary.
-4. Improve clarity, target audience definition, intended action (call-to-action), and measurable organic direction aligned with the selected goals.
-5. Provide a small number (2-3 max) of focused, high-leverage questions for essential missing details that would make the campaign brief more concrete and actionable.
-6. Provide 2-3 brief bullet points explaining the key improvements made over the original draft.
-7. Return ONLY valid JSON adhering to the schema.`;
+2. Ground all terminology strictly in ${compName}'s domain. Do NOT assume an unrelated industry or insert Apex services unless explicitly stated.
+3. Improve clarity, target audience definition, intended call-to-action (CTA), and measurable organic direction aligned with the selected goals.
+4. Provide a small number (2-3 max) of focused, high-leverage questions for essential missing details that would make the campaign brief more concrete and actionable.
+5. Provide 2-3 brief bullet points explaining the key improvements made over the original draft.
+6. Return ONLY valid JSON adhering to the schema.`;
 
-      let response;
-      try {
-        response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                rewrittenBrief: { type: Type.STRING },
-                suggestedAudience: { type: Type.STRING },
-                suggestedPrimaryCta: { type: Type.STRING },
-                keyImprovements: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING }
-                },
-                focusedQuestions: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING }
-                }
-              },
-              required: ['rewrittenBrief', 'keyImprovements', 'focusedQuestions']
-            }
+      const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+          rewrittenBrief: { type: Type.STRING },
+          suggestedAudience: { type: Type.STRING },
+          suggestedPrimaryCta: { type: Type.STRING },
+          keyImprovements: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          },
+          focusedQuestions: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
           }
-        });
-      } catch (firstErr: any) {
-        console.warn('gemini-3.8-flash busy, falling back to gemini-2.5-flash:', firstErr?.message);
-        response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                rewrittenBrief: { type: Type.STRING },
-                suggestedAudience: { type: Type.STRING },
-                suggestedPrimaryCta: { type: Type.STRING },
-                keyImprovements: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING }
-                },
-                focusedQuestions: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING }
-                }
-              },
-              required: ['rewrittenBrief', 'keyImprovements', 'focusedQuestions']
+        },
+        required: ['rewrittenBrief', 'keyImprovements', 'focusedQuestions']
+      };
+
+      // Controlled AI attempt execution with per-attempt timeout and fallback chain:
+      // Attempt 1: gemini-3.8-flash (22s)
+      // If transient fail: wait 750ms -> Attempt 2: gemini-3.8-flash (22s)
+      // If transient fail: wait 750ms -> Attempt 3: gemini-2.5-flash (22s)
+      const attemptsConfig = [
+        { model: 'gemini-3.8-flash', timeoutMs: 22000, label: 'Attempt 1 (3.8-flash)' },
+        { model: 'gemini-3.8-flash', timeoutMs: 22000, label: 'Attempt 2 (3.8-flash retry)' },
+        { model: 'gemini-2.5-flash', timeoutMs: 22000, label: 'Attempt 3 (2.5-flash fallback)' }
+      ];
+
+      let lastError: any = null;
+      let responseText = '';
+
+      for (let i = 0; i < attemptsConfig.length; i++) {
+        const attempt = attemptsConfig[i];
+        try {
+          // Execute generateContent with per-attempt timeout
+          const attemptPromise = ai.models.generateContent({
+            model: attempt.model,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema
             }
+          });
+
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            const timer = setTimeout(() => {
+              const err = new Error(`Attempt timed out after ${attempt.timeoutMs}ms`);
+              (err as any).name = 'TimeoutError';
+              (err as any).isTimeout = true;
+              reject(err);
+            }, attempt.timeoutMs);
+            // unref if supported in node
+            if (typeof timer.unref === 'function') timer.unref();
+          });
+
+          const response: any = await Promise.race([attemptPromise, timeoutPromise]);
+          const text = response?.text || '';
+          if (!text || !text.trim()) {
+            throw new Error('Gemini API returned an empty response.');
           }
-        });
+
+          // Validate JSON syntax immediately
+          JSON.parse(text);
+          responseText = text;
+          lastError = null;
+          break; // Succeeded!
+        } catch (attemptErr: any) {
+          lastError = attemptErr;
+          console.warn(`[improve-brief] ${attempt.label} failed:`, attemptErr?.message || attemptErr);
+
+          // If not the last attempt, brief pause before next attempt
+          if (i < attemptsConfig.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 750));
+          }
+        }
       }
 
-      const responseText = response.text || '';
       if (!responseText) {
-        throw new Error('Gemini API returned an empty response.');
+        const errMsg = lastError?.message || '';
+        const isTimeout = lastError?.isTimeout || lastError?.name === 'TimeoutError' || errMsg.includes('timed out');
+        const isRateLimit = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED');
+
+        if (isTimeout) {
+          return res.status(504).json({
+            error: 'AI_TIMEOUT',
+            message: 'AI refinement timed out while perfecting your brief. Your original brief is safe — you can retry or continue.'
+          });
+        }
+        if (isRateLimit) {
+          return res.status(429).json({
+            error: 'AI_RATE_LIMIT',
+            message: 'AI service is busy right now. Your original brief is safe — you can retry in a moment.'
+          });
+        }
+        return res.status(503).json({
+          error: 'AI_UNAVAILABLE',
+          message: 'AI refinement is temporarily unavailable. Your original brief is safe — you can continue or retry.'
+        });
       }
 
       let parsedData;
@@ -4094,7 +4149,10 @@ STRICT GUARDRAILS:
         parsedData = JSON.parse(responseText);
       } catch (parseErr) {
         console.error('Failed to parse Gemini JSON output:', responseText);
-        throw new Error('Model output could not be parsed as valid JSON.');
+        return res.status(500).json({
+          error: 'AI_PARSE_ERROR',
+          message: 'Model output could not be parsed as valid JSON. Please retry.'
+        });
       }
 
       return res.json({

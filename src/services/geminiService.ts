@@ -333,8 +333,13 @@ export interface ImproveBriefResponse {
 export async function improveBriefWithAI(
   req: ImproveBriefRequest
 ): Promise<ImproveBriefResponse> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('Offline — connect to the internet to use AI refinement.');
+  }
+
+  // Resilient 90-second client safety timeout allowing server retry & fallback chain to finish
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
 
   try {
     const response = await fetch('/api/campaign/improve-brief', {
@@ -350,14 +355,35 @@ export async function improveBriefWithAI(
 
     if (!response.ok) {
       let errorMessage = `Server error (${response.status})`;
+      let errorCode = '';
       try {
         const errJson = await response.json();
         if (errJson?.message) {
           errorMessage = errJson.message;
         }
+        if (errJson?.error) {
+          errorCode = errJson.error;
+        }
       } catch {
         // ignore
       }
+
+      if (errorCode === 'AI_TIMEOUT' || response.status === 504) {
+        throw new Error('AI refinement timed out while perfecting your brief. Please retry.');
+      }
+      if (errorCode === 'AI_RATE_LIMIT' || response.status === 429) {
+        throw new Error('AI service is temporarily busy handling requests. Please try again in a moment.');
+      }
+      if (errorCode === 'AI_UNAVAILABLE' || errorCode === 'MISSING_API_KEY' || response.status === 503) {
+        throw new Error('AI refinement is temporarily unavailable. Your original brief is safe — you can continue or retry.');
+      }
+      if (errorCode === 'AI_EMPTY_RESPONSE' || errorCode === 'AI_PARSE_ERROR') {
+        throw new Error('AI could not format the refined brief cleanly. Please retry or adjust your brief.');
+      }
+      if (errorCode === 'INVALID_INPUT' || response.status === 400) {
+        throw new Error(errorMessage || 'Please provide a descriptive campaign brief to refine.');
+      }
+
       throw new Error(errorMessage);
     }
 
@@ -370,7 +396,10 @@ export async function improveBriefWithAI(
   } catch (err: any) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      throw new Error('Brief improvement request timed out.');
+      throw new Error('AI refinement timed out while perfecting your brief. Please retry.');
+    }
+    if (err.message?.includes('Failed to fetch') || err.name === 'TypeError') {
+      throw new Error('Network error — please check your connection and retry.');
     }
     throw err;
   }

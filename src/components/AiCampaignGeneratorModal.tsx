@@ -238,13 +238,23 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   };
 
   // Handle "Improve with AI" action
+  const [isRetryingBrief, setIsRetryingBrief] = useState<boolean>(false);
+
   const handleImproveBrief = async () => {
     if (!brief.trim()) return;
 
     activeRequestIdRef.current += 1;
     const reqId = activeRequestIdRef.current;
     setIsImprovingBrief(true);
+    setIsRetryingBrief(false);
     setImproveError(null);
+
+    // If request takes longer than 20s, let the user know the system is automatically handling retries
+    const retryFeedbackTimer = setTimeout(() => {
+      if (activeRequestIdRef.current === reqId) {
+        setIsRetryingBrief(true);
+      }
+    }, 20000);
 
     try {
       const response = await improveBriefWithAI({
@@ -261,10 +271,12 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
     } catch (err: any) {
       if (reqId !== activeRequestIdRef.current) return;
       console.warn('[Campaign Director] Improve brief error:', err);
-      setImproveError(err?.message || 'Could not improve brief with AI. You can continue editing manually.');
+      setImproveError(err?.message || 'AI refinement is temporarily unavailable. Your original brief is safe — you can continue or retry.');
     } finally {
+      clearTimeout(retryFeedbackTimer);
       if (reqId === activeRequestIdRef.current) {
         setIsImprovingBrief(false);
+        setIsRetryingBrief(false);
       }
     }
   };
@@ -831,7 +843,13 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                       ) : (
                         <Sparkles className="w-3 h-3" />
                       )}
-                      <span>{isImprovingBrief ? 'Improving…' : 'Improve with AI'}</span>
+                      <span>
+                        {isRetryingBrief
+                          ? 'AI taking longer, retrying automatically…'
+                          : isImprovingBrief
+                          ? 'Improving…'
+                          : 'Improve with AI'}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -852,20 +870,36 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                   <span>{brief.length} characters</span>
                 </p>
 
-                {/* AI Error State with Retry */}
+                {/* AI Error State with Retry & Continue without rewrite */}
                 {improveError && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center justify-between gap-2 animate-in fade-in duration-200">
-                    <div className="flex items-center space-x-2">
-                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                      <span>{improveError}</span>
+                  <div className="p-3.5 bg-amber-50/90 border border-amber-200/80 rounded-2xl text-xs text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+                    <div className="flex items-start space-x-2.5">
+                      <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <p className="font-semibold text-amber-950">
+                          {improveError}
+                        </p>
+                        <p className="text-[11px] text-amber-800/80">
+                          Your original brief is completely safe and unchanged.
+                        </p>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleImproveBrief}
-                      className="px-2.5 py-1 bg-white border border-red-300 rounded-lg text-[11px] font-semibold text-red-800 hover:bg-red-100 transition-colors shrink-0"
-                    >
-                      Retry
-                    </button>
+                    <div className="flex items-center space-x-2 self-end sm:self-center shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setImproveError(null)}
+                        className="px-2.5 py-1 text-[11px] font-medium text-amber-800 hover:text-amber-950 transition-colors"
+                      >
+                        Continue without rewrite
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleImproveBrief}
+                        className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-semibold shadow-sm transition-all active:scale-95 shrink-0"
+                      >
+                        Retry
+                      </button>
+                    </div>
                   </div>
                 )}
 
