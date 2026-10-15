@@ -653,6 +653,7 @@ export default function App() {
               onOpenProductionModal={(a) => setProductionModalAsset(a)}
               onUpdateCampaignStatus={handleUpdateCampaignStatus}
               onNavigateToMasterSheet={handleNavigateToMasterSheetWithFilter}
+              onRetryGeneration={handleRetryCampaignGeneration}
               onUpdateStatus={handleUpdateStatus}
             />
           ) : (
