@@ -3834,6 +3834,15 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
 
       const responseText = response.text || '';
       const parsedData = JSON.parse(responseText);
+      if (!Array.isArray(parsedData.assets) || parsedData.assets.length !== deliveryCount) {
+        throw new Error(`AI returned ${Array.isArray(parsedData.assets) ? parsedData.assets.length : 0} deliverables; ${deliveryCount} were required. Retry will keep the same campaign shell.`);
+      }
+      const invalidAssetIndex = parsedData.assets.findIndex((item: any) =>
+        !item || !String(item.title || '').trim() || !String(item.hook || '').trim() || !String(item.caption || '').trim() || !String(item.CTA || '').trim()
+      );
+      if (invalidAssetIndex >= 0) {
+        throw new Error(`AI returned incomplete content for deliverable ${invalidAssetIndex + 1}. Retry will keep the same campaign shell.`);
+      }
 
       const now = new Date();
       const startDateStr = now.toISOString().split('T')[0];
@@ -3855,7 +3864,7 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
         const postTimeIST = slot?.postTime || (idx % 2 === 0 ? '09:45 AM' : '04:15 PM');
         const assetCode = `APEX-2026-C${existingRow.campaignId.replace(/[^0-9]/g, '').slice(-3) || '101'}-${String(idx + 1).padStart(3, '0')}`;
         const matrixItem = deliveryMatrix[idx];
-        const platform = (item.platform?.toLowerCase() as Platform) || (matrixItem?.platform as Platform) || platforms[0];
+        const platform = (matrixItem?.platform as Platform) || platforms[0];
         const format = (item.format?.toLowerCase() as ContentFormat) || formats[idx % formats.length];
 
         return {
@@ -3869,8 +3878,8 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
           targetDate,
           postTimeIST,
           platform,
-          language: item.language || matrixItem?.language || languages[0] || 'English',
-          conceptIndex: item.conceptIndex || matrixItem?.conceptIndex || 1,
+          language: matrixItem?.language || languages[0] || 'English',
+          conceptIndex: matrixItem?.conceptIndex || 1,
           secondaryPlatforms: platforms.filter(p => p !== platform),
           format,
           stream: 'automation_systems' as ContentStream,
