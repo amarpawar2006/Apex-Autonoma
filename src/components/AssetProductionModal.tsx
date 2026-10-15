@@ -167,13 +167,18 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
 
       setProvidersData(providers);
 
-      if (defImg === 'cloudflare' || defImg === 'openai' || defImg === 'gemini') {
-        setSelectedImageProvider(defImg);
-      } else {
-        setSelectedImageProvider('cloudflare');
+      const configuredImageProviders = (['cloudflare', 'openai', 'gemini'] as ImageProviderOptionId[])
+        .filter((id) => Boolean(providers?.[id]?.hasKey));
+      const preferredImageProvider =
+        (defImg === 'cloudflare' || defImg === 'openai' || defImg === 'gemini') && providers?.[defImg]?.hasKey
+          ? defImg
+          : configuredImageProviders[0];
+
+      if (preferredImageProvider) {
+        setSelectedImageProvider(preferredImageProvider);
       }
 
-      setActiveImageProviderId(defImg || 'cloudflare');
+      setActiveImageProviderId(preferredImageProvider || defImg || 'cloudflare');
       setActiveVideoProviderId(defVid);
       setActiveImageModel(defImg ? providers?.[defImg]?.selectedModel : '@cf/black-forest-labs/flux-1-schnell');
       setActiveVideoModel(defVid ? providers?.[defVid]?.selectedModel : undefined);
@@ -282,11 +287,13 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     setIsBillingRequired(false);
     setProductionStatus('GENERATING');
 
-    const currentModel = selectedImageProvider === 'cloudflare'
-      ? '@cf/black-forest-labs/flux-1-schnell'
-      : selectedImageProvider === 'openai'
-      ? 'gpt-image-2'
-      : 'gemini-3.1-flash-lite-image';
+    const currentModel = providersData[selectedImageProvider]?.selectedModel || (
+      selectedImageProvider === 'cloudflare'
+        ? '@cf/black-forest-labs/flux-1-schnell'
+        : selectedImageProvider === 'openai'
+        ? 'gpt-image-2'
+        : 'gemini-3.1-flash-lite-image'
+    );
 
     const result = await generateAssetImage(activePrompt, '3:4', asset.assetCode, customApiKey, {
       providerId: selectedImageProvider,
@@ -335,11 +342,13 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       slide?.visualPrompt ||
       `Create a clean brand-aligned supporting visual for ${slide?.headline || asset.title}. Follow the active company's saved Brand Design System. Avoid unrelated brand colors or identities.`;
 
-    const currentModel = selectedImageProvider === 'cloudflare'
-      ? '@cf/black-forest-labs/flux-1-schnell'
-      : selectedImageProvider === 'openai'
-      ? 'gpt-image-2'
-      : 'gemini-3.1-flash-lite-image';
+    const currentModel = providersData[selectedImageProvider]?.selectedModel || (
+      selectedImageProvider === 'cloudflare'
+        ? '@cf/black-forest-labs/flux-1-schnell'
+        : selectedImageProvider === 'openai'
+        ? 'gpt-image-2'
+        : 'gemini-3.1-flash-lite-image'
+    );
 
     const result = await generateAssetImage(slidePrompt, '16:9', `${asset.assetCode.replace(/^APEX-/, 'AUTO-')}-S${slideNumber}`, customApiKey, {
       providerId: selectedImageProvider,
@@ -566,8 +575,8 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   const isReady = productionStatus === 'READY';
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Asset production" onMouseDown={(e) => { if (e.target === e.currentTarget && !isGenerating && !isUploadingMedia) onClose(); }} className="fixed inset-0 z-[500] flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-md overflow-y-auto">
-      <div className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl w-full max-w-5xl my-4 text-[#1D1D1F] flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div role="dialog" aria-modal="true" aria-label="Asset production" onMouseDown={(e) => { if (e.target === e.currentTarget && !isGenerating && !isUploadingMedia) onClose(); }} className="fixed inset-0 z-[500] flex items-stretch sm:items-center justify-center p-0 sm:p-6 bg-black/40 backdrop-blur-md overflow-hidden sm:overflow-y-auto">
+      <div className="bg-white rounded-none sm:rounded-3xl border-0 sm:border border-black/[0.08] shadow-2xl w-full max-w-5xl sm:my-4 text-[#1D1D1F] flex flex-col h-[100dvh] sm:h-auto sm:max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Top Header Deck */}
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-black/[0.06] flex items-center justify-between gap-4 bg-white sticky top-0 z-10">
           <div className="flex items-center space-x-3 min-w-0">
@@ -691,7 +700,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 sm:space-y-6 min-h-0">
           {/* Diagnostic Alert if generation error occurred */}
           {generationError && (
             <div className="p-4 bg-orange-50/60 rounded-2xl border border-orange-200 text-xs text-orange-950 space-y-2">
@@ -933,8 +942,9 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                       {(() => {
                         const currentOption = IMAGE_PROVIDER_OPTIONS.find((p) => p.id === selectedImageProvider) || IMAGE_PROVIDER_OPTIONS[0];
                         const currentCfg = providersData[selectedImageProvider];
-                        const isConfigured = Boolean(currentCfg?.hasKey || (selectedImageProvider === 'cloudflare' && (providersData.cloudflare?.hasKey ?? true)));
-                        const isServerSecret = currentCfg?.source === 'server_secret' || (selectedImageProvider === 'cloudflare' && currentCfg?.source !== 'workspace_override');
+                        const configuredOptions = IMAGE_PROVIDER_OPTIONS.filter((opt) => Boolean(providersData[opt.id]?.hasKey));
+                        const isConfigured = Boolean(currentCfg?.hasKey);
+                        const isServerSecret = currentCfg?.source === 'server_secret';
                         const statusLabel = isServerSecret ? 'Configured via server secret' : (isConfigured ? 'Configured' : 'Not configured');
 
                         return (
@@ -958,11 +968,13 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                                 onChange={(e) => setSelectedImageProvider(e.target.value as ImageProviderOptionId)}
                                 className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs font-semibold text-[#1D1D1F] outline-none shadow-2xs focus:border-[#FF4500] cursor-pointer"
                               >
-                                {IMAGE_PROVIDER_OPTIONS.map((opt) => (
+                                {configuredOptions.length > 0 ? configuredOptions.map((opt) => (
                                   <option key={opt.id} value={opt.id}>
                                     {opt.title} {opt.badge ? `(${opt.badge})` : ''}
                                   </option>
-                                ))}
+                                )) : (
+                                  <option value={selectedImageProvider}>No configured AI image provider</option>
+                                )}
                               </select>
                             </div>
 
@@ -995,17 +1007,25 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
 
                             <button
                               onClick={handleGenerateImage}
-                              disabled={isGenerating}
-                              className="w-full py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 disabled:opacity-50 cursor-pointer"
+                              disabled={isGenerating || !isConfigured}
+                              className="w-full py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                             >
                               <Sparkles className="w-3.5 h-3.5" />
                               <span>{isGenerating ? 'Synthesizing…' : 'Generate Image'}</span>
                             </button>
 
-                            {/* Secondary note explaining when to choose OpenAI vs Gemini */}
-                            <p className="text-[11px] text-[#86868B] leading-relaxed text-center px-1">
-                              Tip: Choose <strong className="font-semibold text-[#1D1D1F]">OpenAI</strong> for complex, premium visuals or refined branding scenes. Choose <strong className="font-semibold text-[#1D1D1F]">Gemini</strong> if you have an active Gemini billing quota.
-                            </p>
+                            {!isConfigured ? (
+                              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
+                                No working credential is available for this provider. Configure an image provider in AI & Media Settings before generating.
+                                {onOpenSettings && (
+                                  <button onClick={onOpenSettings} className="ml-1 font-semibold underline underline-offset-2">Open settings</button>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-[11px] text-[#86868B] leading-relaxed text-center px-1">
+                                Only configured image providers are shown. Autonoma will keep brand typography out of the AI image and apply accurate text through the Brand System renderer.
+                              </p>
+                            )}
                           </div>
                         );
                       })()}
