@@ -3712,13 +3712,25 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
       const platforms = existingCampaign.platforms?.length ? existingCampaign.platforms : ['instagram', 'facebook', 'linkedin'];
       const formats = existingCampaign.formats?.length ? existingCampaign.formats : ['carousel', 'reel_short', 'static_poster'];
       const duration = opts.duration || '7_days';
-      const conceptCount = Math.max(1, Math.min(8, Number(opts.advancedOptions?.assetCount) || (duration === 'single' ? 1 : duration === '3_days' ? 3 : duration === '30_days' ? 8 : 7)));
       const daysSpan = duration === 'single' ? 1 : duration === '3_days' ? 3 : duration === '30_days' ? 30 : 7;
       const languages = existingCampaign.languages?.length ? existingCampaign.languages : ['English'];
-      const deliveryCount = conceptCount * Math.max(1, platforms.length) * Math.max(1, languages.length);
-      if (deliveryCount > 36) {
-        throw new Error(`Retry requests ${deliveryCount} deliverables. Reduce the campaign to 36 or fewer platform/language variants per generation.`);
-      }
+
+      // Retry must be at least as reliable as first-pass generation. Older saved shells may
+      // contain an assetCount that predates delivery-count caps, so normalize it here instead
+      // of rejecting the retry and stranding the campaign.
+      const variantMultiplier = Math.max(1, platforms.length) * Math.max(1, languages.length);
+      const MAX_DELIVERABLES_PER_REQUEST = 36;
+      const maxConceptsForRetry = Math.max(1, Math.floor(MAX_DELIVERABLES_PER_REQUEST / variantMultiplier));
+      const desiredConcepts = Math.max(
+        1,
+        Math.min(
+          8,
+          Number(opts.advancedOptions?.assetCount) ||
+            (duration === 'single' ? 1 : duration === '3_days' ? 3 : duration === '30_days' ? 8 : 7)
+        )
+      );
+      const conceptCount = Math.min(desiredConcepts, maxConceptsForRetry);
+      const deliveryCount = conceptCount * variantMultiplier;
       const deliveryMatrix = Array.from({ length: conceptCount }, (_, conceptIdx) =>
         platforms.flatMap((platform) => languages.map((language) => ({ conceptIndex: conceptIdx + 1, platform, language })))
       ).flat();
