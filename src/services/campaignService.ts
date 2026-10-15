@@ -235,15 +235,15 @@ export function calculateOptimalAssetCount(
   customOverride?: number,
   languageCount: number = 1
 ): number {
-  if (customOverride && customOverride > 0) {
-    return Math.min(25, Math.max(1, customOverride));
-  }
-
-  // Keep a single AI synthesis request within a demo-safe amount of structured output.
-  // The concept count is independent of platform/language variants, so a 7-day campaign
-  // with 3 platforms and 2 languages should not silently become a 42-item response.
+  // Keep one AI synthesis request bounded. Concept count must always account for the
+  // number of platform/language variants, including when the user supplies an override.
   const variantMultiplier = Math.max(1, platformCount) * Math.max(1, languageCount);
-  const maxConceptsForOneRun = Math.max(1, Math.floor(12 / variantMultiplier));
+  const MAX_DELIVERABLES_PER_REQUEST = 36;
+  const maxConceptsForOneRun = Math.max(1, Math.floor(MAX_DELIVERABLES_PER_REQUEST / variantMultiplier));
+
+  if (customOverride && customOverride > 0) {
+    return Math.min(25, maxConceptsForOneRun, Math.max(1, customOverride));
+  }
 
   let desiredConcepts = 1;
   switch (duration) {
