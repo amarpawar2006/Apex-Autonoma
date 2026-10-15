@@ -169,6 +169,10 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   // Persisted shell ref to ensure retries reuse the exact same campaign ID without duplicates
   const activeCampaignShellRef = React.useRef<Campaign | null>(null);
 
+  // AI brief retry feedback state must be declared with the rest of the hooks.
+  // Keeping hooks above any conditional return prevents React hook-order crashes.
+  const [isRetryingBrief, setIsRetryingBrief] = useState<boolean>(false);
+
   // Reset to clean draft on fresh open
   React.useEffect(() => {
     if (isOpen) {
@@ -238,8 +242,6 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   };
 
   // Handle "Improve with AI" action
-  const [isRetryingBrief, setIsRetryingBrief] = useState<boolean>(false);
-
   const handleImproveBrief = async () => {
     if (!brief.trim()) return;
 
