@@ -586,7 +586,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
         {/* If Campaign was just created, show Apple-style summary confirmation */}
         {createdResult ? (
           <div className="space-y-6 animate-in fade-in duration-200">
-            <div className="sticky top-0 z-20 -mx-4 -mt-4 sm:mx-0 sm:mt-0 px-4 pt-4 pb-3 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xl sm:backdrop-blur-none flex items-start justify-between border-b sm:border-b-0 border-black/[0.05]">
+            <div className="sticky top-0 z-20 sm:static sm:z-auto -mx-4 -mt-4 sm:mx-0 sm:mt-0 px-4 pt-4 pb-3 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xl sm:backdrop-blur-none flex items-start justify-between border-b sm:border-b-0 border-black/[0.05]">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                   <CheckCircle2 className="w-6 h-6" />
@@ -712,7 +712,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
           /* Normal Create Form */
           <>
             {/* Header */}
-            <div className="sticky top-0 z-20 -mx-4 -mt-4 sm:mx-0 sm:mt-0 px-4 pt-4 pb-3 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xl sm:backdrop-blur-none flex items-start justify-between border-b sm:border-b-0 border-black/[0.05]">
+            <div className="sticky top-0 z-20 sm:static sm:z-auto -mx-4 -mt-4 sm:mx-0 sm:mt-0 px-4 pt-4 pb-3 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xl sm:backdrop-blur-none flex items-start justify-between border-b sm:border-b-0 border-black/[0.05]">
               <div className="space-y-1">
                 <h2 id="create-campaign-title" className="text-2xl font-semibold tracking-tight text-[#1D1D1F]">
                   Create a campaign
@@ -1437,7 +1437,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
             )}
 
             {/* Action Bar */}
-            <div className="sticky bottom-0 z-20 -mx-4 -mb-4 sm:mx-0 sm:mb-0 px-4 py-3 sm:p-0 sm:pt-4 bg-white/95 sm:bg-transparent backdrop-blur-xl sm:backdrop-blur-none flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-black/[0.06]">
+            <div className="sticky bottom-0 z-20 sm:static sm:z-auto -mx-4 -mb-4 sm:mx-0 sm:mb-0 px-4 py-3 sm:p-0 sm:pt-4 bg-white/95 sm:bg-transparent backdrop-blur-xl sm:backdrop-blur-none flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-black/[0.06]">
               <div className="text-[11px] text-[#86868B] hidden sm:block">
                 Creates first-class Campaign entity · Preserves existing assets
               </div>
