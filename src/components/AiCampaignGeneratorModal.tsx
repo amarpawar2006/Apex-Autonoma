@@ -710,7 +710,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
           /* Normal Create Form */
           <>
             {/* Header */}
-            <div className="flex items-start justify-between">
+            <div className="sticky top-0 z-20 -mx-4 -mt-4 sm:mx-0 sm:mt-0 px-4 pt-4 pb-3 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xl sm:backdrop-blur-none flex items-start justify-between border-b sm:border-b-0 border-black/[0.05]">
               <div className="space-y-1">
                 <h2 id="create-campaign-title" className="text-2xl font-semibold tracking-tight text-[#1D1D1F]">
                   Create a campaign
