@@ -488,7 +488,9 @@ export async function createAutonomaCampaign(
         const fallbackPlatform = finalPlatforms[Math.floor(variantIndex / languageCount)] || finalPlatforms[0];
         const fallbackLanguage = languages[variantIndex % languageCount] || 'English';
         const fallbackConceptIndex = Math.floor(idx / (languageCount * platformCount)) + 1;
-        const platform: Platform = (item.platform?.toLowerCase() as Platform) || fallbackPlatform;
+        // The delivery matrix is authoritative. Model-provided routing metadata may drift,
+        // but content must remain assigned to the exact requested platform/language variant.
+        const platform: Platform = fallbackPlatform;
         const format: ContentFormat = (item.format?.toLowerCase() as ContentFormat) || finalFormats[idx % finalFormats.length];
 
         return {
@@ -502,8 +504,8 @@ export async function createAutonomaCampaign(
           targetDate: targetDate,
           postTimeIST: postTimeIST,
           platform: platform,
-          language: item.language || fallbackLanguage,
-          conceptIndex: item.conceptIndex || fallbackConceptIndex,
+          language: fallbackLanguage,
+          conceptIndex: fallbackConceptIndex,
           secondaryPlatforms: finalPlatforms.filter(p => p !== platform),
           format: format,
           stream: inferredStream,
