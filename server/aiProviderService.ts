@@ -518,6 +518,18 @@ export class AiProviderService {
       }
     }
 
+    // AI image models are used for imagery/backgrounds only. Brand typography and
+    // exact copy are rendered deterministically by the client so campaign text is never
+    // misspelled or hallucinated inside generated pixels.
+    enriched = `${enriched}
+
+STRICT OUTPUT RULES:
+- Generate the visual/background/composition only.
+- Do NOT render readable words, headlines, captions, labels, UI text, watermarks, or fake logos.
+- Do NOT imitate or invent a company logo.
+- Leave clean negative space for deterministic brand typography and logo placement.
+- Prioritize photorealistic or illustration quality, composition, lighting, subject accuracy, and brand palette.`;
+
     return enriched;
   }
 
