@@ -30,6 +30,7 @@ import { Campaign, CampaignStatus, SocialAsset, ContentFormat, Platform, PostSta
 import { getCampaignAssetMetrics } from '../services/campaignService';
 import { WhatsAppPostingPackModal } from './WhatsAppPostingPackModal';
 import { downloadCampaignRecoveryFile } from '../utils/recoveryUtils';
+import { downloadFullCampaignReport } from '../utils/campaignExportUtils';
 
 
 const strategyText = (value: unknown, fallback = ''): string => {
@@ -137,7 +138,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-300">
+    <div className="w-full min-w-0 max-w-full space-y-5 sm:space-y-8 animate-in fade-in duration-300">
       {/* Navigation & Header */}
       {/* 1. Sync Pending / Sync Failed Banner */}
       {campaign.syncStatus && campaign.syncStatus !== 'SYNCED' && (
@@ -234,8 +235,8 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
           <span>All Campaigns</span>
         </button>
 
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-2">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 min-w-0">
+          <div className="space-y-2 min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="font-mono text-xs font-semibold text-[#86868B] bg-black/[0.04] px-2 py-0.5 rounded-md">
                 {campaign.campaignCode}
@@ -289,19 +290,29 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
           </div>
 
           {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto self-start lg:self-auto">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-stretch sm:items-center gap-2 w-full lg:w-auto self-start lg:self-auto">
+            <button
+              onClick={() => downloadFullCampaignReport(campaign, campaignAssets, companyName || 'Autonoma Workspace')}
+              className="col-span-2 sm:col-span-1 inline-flex w-full sm:w-auto items-center justify-center space-x-1.5 px-3.5 py-2 bg-[#1D1D1F] hover:bg-black text-white text-xs font-semibold rounded-xl shadow-sm transition-all active:scale-95 min-h-[42px]"
+              title="Download campaign details, strategy, calendar and all generated content"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download Full Campaign</span>
+            </button>
+
             <button
               onClick={() => setIsWhatsAppModalOpen(true)}
-              className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-sm transition-all active:scale-95 min-h-[38px]"
+              className="inline-flex w-full sm:w-auto items-center justify-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-sm transition-all active:scale-95 min-h-[42px]"
               title="Share entire campaign's posting pack to WhatsApp"
             >
               <Share2 className="w-3.5 h-3.5" />
-              <span>Share entire campaign ({campaignAssets.length})</span>
+              <span className="sm:hidden">WhatsApp ({campaignAssets.length})</span>
+              <span className="hidden sm:inline">Share entire campaign ({campaignAssets.length})</span>
             </button>
 
             <button
               onClick={() => onNavigateToMasterSheet(campaign.id)}
-              className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-white hover:bg-black/[0.03] border border-black/[0.08] text-xs font-medium text-[#1D1D1F] rounded-xl shadow-sm transition-all min-h-[38px]"
+              className="inline-flex w-full sm:w-auto items-center justify-center space-x-1.5 px-3.5 py-2 bg-white hover:bg-black/[0.03] border border-black/[0.08] text-xs font-medium text-[#1D1D1F] rounded-xl shadow-sm transition-all min-h-[42px]"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-[#6E6E73]" />
               <span>Open in Master Sheet</span>
@@ -309,7 +320,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
 
             <button
               onClick={() => setIsArchiveCampaignModalOpen(true)}
-              className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-white hover:bg-black/[0.03] border border-black/[0.08] text-xs font-medium text-[#6E6E73] hover:text-[#1D1D1F] rounded-xl shadow-sm transition-all min-h-[38px]"
+              className="inline-flex w-full sm:w-auto items-center justify-center space-x-1.5 px-3.5 py-2 bg-white hover:bg-black/[0.03] border border-black/[0.08] text-xs font-medium text-[#6E6E73] hover:text-[#1D1D1F] rounded-xl shadow-sm transition-all min-h-[42px]"
               title="Archive this campaign and its content"
             >
               <Archive className="w-3.5 h-3.5" />
@@ -318,7 +329,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
 
             <button
               onClick={() => onOpenCreateAsset(campaign.id)}
-              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-sm transition-all active:scale-95 min-h-[38px]"
+              className="inline-flex w-full sm:w-auto items-center justify-center space-x-1.5 px-4 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-sm transition-all active:scale-95 min-h-[42px]"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Create Asset</span>
@@ -373,7 +384,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
       {/* Strategic Dossier Grid */}
       {campaign.strategy && (
         <div className="bg-white rounded-3xl border border-black/[0.06] p-6 sm:p-8 space-y-6 shadow-sm">
-          <div className="flex items-center justify-between border-b border-black/[0.05] pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-black/[0.05] pb-4">
             <div className="flex items-center space-x-2.5">
               <div className="w-7 h-7 rounded-xl bg-orange-50 text-[#FF4500] flex items-center justify-center font-bold text-xs">
                 <Compass className="w-4 h-4" />
@@ -477,12 +488,12 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
           </div>
 
           {/* Filter pills */}
-          <div className="flex items-center space-x-1.5 self-start sm:self-auto">
+          <div className="flex items-center gap-1.5 self-start sm:self-auto w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 overscroll-x-contain">
             {(['all', 'needs_media', 'ready', 'approved'] as const).map((filter) => (
               <button
                 key={filter}
                 onClick={() => setAssetFilter(filter)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
                   assetFilter === filter
                     ? 'bg-[#1D1D1F] text-white shadow-sm'
                     : 'bg-white border border-black/[0.06] text-[#6E6E73] hover:text-[#1D1D1F]'
@@ -505,7 +516,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
             return (
               <div
                 key={asset.id}
-                className="bg-white rounded-2xl border border-black/[0.06] hover:border-black/[0.12] p-5 space-y-4 transition-all duration-200 hover:shadow-md flex flex-col justify-between"
+                className="bg-white rounded-2xl border border-black/[0.06] hover:border-black/[0.12] p-4 sm:p-5 space-y-4 transition-all duration-200 hover:shadow-md flex flex-col justify-between min-w-0"
               >
                 <div className="space-y-3">
                   {/* Top: Format & Platform & Strategic Purpose */}
@@ -549,7 +560,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
                   </div>
 
                   {/* Planned Timing & Estimates Status */}
-                  <div className="flex items-center space-x-2 text-[11px] text-[#86868B] pt-0.5">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[#86868B] pt-0.5">
                     <span>Planned Time: <strong className="text-[#1D1D1F] font-medium">{asset.postTimeIST || '11:30 AM'}</strong></span>
                     <span>·</span>
                     <span>Reach predictions: <strong className="text-[#86868B] font-medium">Not available</strong></span>
