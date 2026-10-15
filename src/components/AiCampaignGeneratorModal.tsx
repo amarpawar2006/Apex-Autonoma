@@ -319,7 +319,13 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   };
 
   const handleCreateCampaign = async () => {
-    if (!brief.trim()) return;
+    if (!brief.trim()) {
+      setError('Add a short campaign brief in “What do you want to achieve?” before creating the campaign. The grey example text is only a placeholder.');
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLTextAreaElement>('[data-campaign-brief]')?.focus();
+      });
+      return;
+    }
 
     activeRequestIdRef.current += 1;
     const reqId = activeRequestIdRef.current;
@@ -572,13 +578,13 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
   const showViralityNote = primaryGoal === 'More reach and shares' || secondaryGoals.includes('More reach and shares');
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="create-campaign-title" className="fixed inset-0 z-[300] flex items-start sm:items-center justify-center p-3 sm:p-6 bg-black/45 backdrop-blur-md overflow-y-auto">
-      <div ref={modalScrollRef} tabIndex={-1} className="bg-white rounded-3xl border border-black/[0.08] shadow-2xl max-w-2xl w-full p-4 sm:p-7 space-y-6 max-h-[calc(100vh-1.5rem)] sm:max-h-[92vh] overflow-y-auto overscroll-contain animate-in fade-in zoom-in-95 duration-200">
+    <div role="dialog" aria-modal="true" aria-labelledby="create-campaign-title" className="fixed inset-0 z-[300] flex items-stretch sm:items-center justify-center p-0 sm:p-6 bg-black/45 backdrop-blur-md overflow-hidden sm:overflow-y-auto">
+      <div ref={modalScrollRef} tabIndex={-1} className="bg-white rounded-none sm:rounded-3xl border-0 sm:border border-black/[0.08] shadow-2xl max-w-2xl w-full h-[100dvh] sm:h-auto p-4 sm:p-7 space-y-5 sm:space-y-6 max-h-none sm:max-h-[92vh] overflow-y-auto overscroll-contain animate-in fade-in zoom-in-95 duration-200">
         
         {/* If Campaign was just created, show Apple-style summary confirmation */}
         {createdResult ? (
           <div className="space-y-6 animate-in fade-in duration-200">
-            <div className="flex items-start justify-between">
+            <div className="sticky top-0 z-20 -mx-4 -mt-4 sm:mx-0 sm:mt-0 px-4 pt-4 pb-3 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xl sm:backdrop-blur-none flex items-start justify-between border-b sm:border-b-0 border-black/[0.05]">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                   <CheckCircle2 className="w-6 h-6" />
@@ -812,7 +818,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
               {/* 2. Natural Language Campaign Description & AI Brief Rewriting */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <label className="text-xs font-semibold text-[#1D1D1F] block">
                     What do you want to achieve?
                   </label>
@@ -856,8 +862,12 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
                 {/* Textarea */}
                 <textarea
+                  data-campaign-brief
                   value={brief}
-                  onChange={(e) => setBrief(e.target.value)}
+                  onChange={(e) => {
+                    setBrief(e.target.value);
+                    if (error && e.target.value.trim()) setError(null);
+                  }}
                   disabled={isLoading}
                   rows={3}
                   placeholder={`Example only — ${GOAL_EXAMPLES[primaryGoal] || 'Describe what you want to achieve...'}`}
@@ -1425,7 +1435,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
             )}
 
             {/* Action Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-black/[0.06]">
+            <div className="sticky bottom-0 z-20 -mx-4 -mb-4 sm:mx-0 sm:mb-0 px-4 py-3 sm:p-0 sm:pt-4 bg-white/95 sm:bg-transparent backdrop-blur-xl sm:backdrop-blur-none flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-black/[0.06]">
               <div className="text-[11px] text-[#86868B] hidden sm:block">
                 Creates first-class Campaign entity · Preserves existing assets
               </div>
@@ -1443,8 +1453,8 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                 <button
                   type="button"
                   onClick={handleCreateCampaign}
-                  disabled={isLoading || !brief.trim()}
-                  className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-2 px-5 py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50 min-h-[40px]"
+                  disabled={isLoading}
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-2 px-5 py-3 sm:py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-semibold rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50 min-h-[44px]"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>{pendingCommitResult ? 'Retry Saving Campaign' : 'Create Campaign'}</span>
