@@ -3661,6 +3661,17 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
         throw new Error('Model output could not be parsed as valid JSON.');
       }
 
+      // Never mark a campaign successful with incomplete AI output.
+      if (!Array.isArray(parsedData.assets) || parsedData.assets.length !== totalDeliverables) {
+        throw new Error(`AI returned ${Array.isArray(parsedData.assets) ? parsedData.assets.length : 0} deliverables; exactly ${totalDeliverables} were required.`);
+      }
+      const invalidAssetIndex = parsedData.assets.findIndex((item: any) =>
+        !item || !String(item.title || '').trim() || !String(item.hook || '').trim() || !String(item.caption || '').trim() || !String(item.CTA || '').trim()
+      );
+      if (invalidAssetIndex >= 0) {
+        throw new Error(`AI returned incomplete content for deliverable ${invalidAssetIndex + 1}. Please retry generation.`);
+      }
+
       return res.json({
         success: true,
         data: parsedData
