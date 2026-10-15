@@ -62,6 +62,7 @@ interface CampaignDetailViewProps {
   onArchiveCampaign?: (campaignId: string) => Promise<void> | void;
   onArchiveAsset?: (assetId: string) => Promise<void> | void;
   onRetrySync?: (campaign: Campaign, assets: SocialAsset[]) => Promise<void> | void;
+  onRetryGeneration?: (campaignId: string) => Promise<{ campaign: Campaign; assets: SocialAsset[] }> | void;
   onUpgradeCampaignWithAi?: (campaignId: string) => Promise<void> | void;
   companyName?: string;
   defaultWhatsAppRecipient?: string;
@@ -83,6 +84,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
   companyName,
   defaultWhatsAppRecipient,
   onRetrySync,
+  onRetryGeneration,
   onUpgradeCampaignWithAi,
   activeCompanyId = '',
 }) => {
@@ -92,6 +94,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
   const [assetToArchive, setAssetToArchive] = useState<SocialAsset | null>(null);
   const [isArchiving, setIsArchiving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isRetryingGeneration, setIsRetryingGeneration] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
 
   // Filter assets specifically belonging to this active campaign (excluding individually archived)
@@ -192,6 +195,38 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
               <span>Download Recovery File</span>
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Failed campaign recovery: shell remains durable and retryable */}
+      {campaign.generationStatus === 'GENERATION_FAILED' && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-rose-950">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <span className="font-semibold">Campaign generation did not complete.</span>
+              <p className="text-[11px] text-rose-800 mt-0.5 break-words">
+                {campaign.lastGenerationError || 'The campaign shell is saved safely. Retry generation to create the strategy and content deliverables.'}
+              </p>
+            </div>
+          </div>
+          {onRetryGeneration && (
+            <button
+              disabled={isRetryingGeneration}
+              onClick={async () => {
+                setIsRetryingGeneration(true);
+                try {
+                  await onRetryGeneration(campaign.id);
+                } finally {
+                  setIsRetryingGeneration(false);
+                }
+              }}
+              className="inline-flex w-full sm:w-auto items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#FF4500] hover:bg-[#EA3E00] text-white font-semibold shadow-sm transition active:scale-95 disabled:opacity-50 shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRetryingGeneration ? 'animate-spin' : ''}`} />
+              <span>{isRetryingGeneration ? 'Retrying…' : 'Retry Campaign Generation'}</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -382,7 +417,7 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
       </div>
 
       {/* Strategic Dossier Grid */}
-      {campaign.strategy && (
+      {campaign.strategy && campaign.generationStatus !== 'GENERATION_FAILED' && campaignAssets.length > 0 && (
         <div className="bg-white rounded-3xl border border-black/[0.06] p-6 sm:p-8 space-y-6 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-black/[0.05] pb-4">
             <div className="flex items-center space-x-2.5">
@@ -507,6 +542,16 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
             ))}
           </div>
         </div>
+
+        {campaign.generationStatus === 'GENERATION_FAILED' && campaignAssets.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-rose-200 bg-white p-6 text-center">
+            <AlertCircle className="w-6 h-6 text-rose-500 mx-auto mb-2" />
+            <h3 className="text-sm font-semibold text-[#1D1D1F]">No deliverables generated yet</h3>
+            <p className="text-xs text-[#6E6E73] mt-1 max-w-xl mx-auto">
+              This is a saved recovery shell, not a completed campaign. Retry generation above; Autonoma will reuse this campaign ID and will not create a duplicate.
+            </p>
+          </div>
+        )}
 
         {/* Assets Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
