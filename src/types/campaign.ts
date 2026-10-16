@@ -136,6 +136,17 @@ export interface SocialAsset {
   videoJobOperationName?: string;
   productionError?: string;
   productionApprovedAt?: string;
+
+  // Text-Safe & Deterministic Overlay Composition State
+  compositionMode?: 'AI_BACKGROUND_ONLY' | 'DETERMINISTIC_COMPOSITION';
+  generatedBackgroundUrl?: string;
+  composedAssetUrl?: string;
+  compositionTemplate?: string;
+  compositionSpec?: Record<string, any>;
+  finalRenderableReady?: boolean;
+  composedAt?: string;
+  carouselSlideBackgrounds?: Record<number, string>;
+  carouselSlideComposedUrls?: Record<number, string>;
   
   // Content details
   strategicPurpose?: string; // e.g. 'Problem Recognition' | 'Pain & Consequence' | 'Education' | 'Visual System' | 'Transformation' | 'Objection Handling' | 'Conversion'

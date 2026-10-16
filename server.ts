@@ -4299,6 +4299,26 @@ STRICT GUARDRAILS:
     }
   );
 
+  // Image proxy endpoint for client-side canvas rendering (CORS safe)
+  app.get('/api/media/proxy-image', async (req: Request, res: Response) => {
+    try {
+      const targetUrl = req.query.url as string;
+      if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
+        return res.status(400).send('Invalid url');
+      }
+      const response = await fetch(targetUrl);
+      if (!response.ok) return res.status(response.status).send('Failed to fetch image');
+      const contentType = response.headers.get('content-type') || 'image/png';
+      const arrayBuffer = await response.arrayBuffer();
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(Buffer.from(arrayBuffer));
+    } catch (err: any) {
+      return res.status(500).send(err?.message || 'Proxy error');
+    }
+  });
+
   // 1. REAL SERVER-SIDE IMAGE GENERATION ENDPOINT
   // Uses selected image provider (OpenAI DALL-E, NVIDIA NIM, or Gemini) and injects Company Brand System
   app.post('/api/media/generate-image', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
@@ -4315,6 +4335,7 @@ STRICT GUARDRAILS:
         providerId,
         modelName,
         platform,
+        format,
         language,
         objective,
         assetId,
@@ -4337,6 +4358,7 @@ STRICT GUARDRAILS:
         providerId,
         modelName,
         platform,
+        format,
         language,
         objective
       }, publicMediaDir);
@@ -4360,6 +4382,7 @@ STRICT GUARDRAILS:
             providerId: candidateId,
             modelName: cfg.selectedModel,
             platform,
+            format,
             language,
             objective
           }, publicMediaDir);

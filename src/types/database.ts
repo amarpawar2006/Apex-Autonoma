@@ -75,6 +75,15 @@ export interface DbAssetRow {
   aiScoreRationale: string;
   isArchived?: boolean;
   archivedAt?: string;
+  compositionMode?: string;
+  generatedBackgroundUrl?: string;
+  composedAssetUrl?: string;
+  compositionTemplate?: string;
+  compositionSpecJson?: string;
+  finalRenderableReady?: boolean;
+  composedAt?: string;
+  carouselSlideBackgroundsJson?: string;
+  carouselSlideComposedUrlsJson?: string;
   createdAt: string;
   updatedAt: string;
 }

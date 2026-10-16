@@ -1,5 +1,23 @@
 import { CarouselSlide, SocialAsset } from '../types/campaign';
 import { getAuthHeaders } from './autonomaDataService';
+import { 
+  renderComposedCanvas, 
+  exportCreative,
+  downloadAllComposedSlides,
+  isTextSafeFormat,
+  getRecommendedTemplate,
+  CompositionTemplateId,
+  CompositionOptions
+} from './deterministicCompositionService';
+
+export {
+  renderComposedCanvas,
+  exportCreative,
+  downloadAllComposedSlides,
+  isTextSafeFormat,
+  getRecommendedTemplate
+};
+export type { CompositionTemplateId, CompositionOptions };
 
 export interface ImageGenerationResult {
   success: boolean;
@@ -26,6 +44,7 @@ export interface MediaRequestContext {
   providerId?: string;
   modelName?: string;
   platform?: string;
+  format?: string;
   language?: string;
   objective?: string;
   assetId?: string;
@@ -42,6 +61,7 @@ export interface BrandRenderOptions {
   textColor?: string;
   headingFont?: string;
   bodyFont?: string;
+  logoUrl?: string;
 }
 
 /** Server-side image generation. Credentials remain on the server. */
@@ -277,6 +297,7 @@ function drawWrappedText(
 }
 
 /** Company-aware deterministic renderer for carousel slides. */
+/** Company-aware deterministic renderer for carousel slides. */
 export async function renderDeterministicSlideCanvas(
   slide: CarouselSlide,
   totalSlides: number,
@@ -286,190 +307,48 @@ export async function renderDeterministicSlideCanvas(
     supportingImageUrl?: string;
   }
 ): Promise<string> {
-  const brand = resolveBrand(options);
-  const canvas = document.createElement('canvas');
-  canvas.width = 1080;
-  canvas.height = 1350;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Could not get 2d context');
-
-  ctx.fillStyle = brand.background;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.strokeStyle = hexToRgba(brand.text, 0.07);
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= 1080; x += 72) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 1350); ctx.stroke();
-  }
-  for (let y = 0; y <= 1350; y += 72) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1080, y); ctx.stroke();
-  }
-
-  const glow = ctx.createRadialGradient(920, 100, 10, 920, 100, 560);
-  glow.addColorStop(0, hexToRgba(brand.accent, 0.16));
-  glow.addColorStop(1, hexToRgba(brand.accent, 0));
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, 1080, 1350);
-
-  const m = 80;
-  const right = 1000;
-  const width = right - m;
-
-  ctx.fillStyle = brand.primary;
-  ctx.fillRect(m, 80, 44, 44);
-  ctx.fillStyle = isDark(brand.primary) ? '#FFFFFF' : '#111111';
-  ctx.font = `800 22px ${brand.headingFont}, Arial, sans-serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('A', m + 22, 102);
-
-  ctx.fillStyle = brand.text;
-  ctx.font = `700 22px ${brand.headingFont}, Arial, sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.fillText(brand.companyName.toUpperCase().slice(0, 34), m + 62, 102);
-
-  ctx.fillStyle = brand.accent;
-  ctx.font = `700 18px ${brand.bodyFont}, Arial, sans-serif`;
-  ctx.textAlign = 'right';
-  ctx.fillText(`SLIDE ${slide.slideNumber} / ${totalSlides}`, right, 102);
-
-  ctx.strokeStyle = brand.border; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(m, 145); ctx.lineTo(right, 145); ctx.stroke();
-
-  let y = 205;
-  const badge = slide.badge || options.assetCode || 'BRAND CONTENT';
-  ctx.font = `700 15px ${brand.bodyFont}, Arial, sans-serif`;
-  const bw = Math.min(width, ctx.measureText(badge).width + 32);
-  ctx.fillStyle = brand.card; ctx.fillRect(m, y, bw, 38);
-  ctx.strokeStyle = brand.accent; ctx.strokeRect(m, y, bw, 38);
-  ctx.fillStyle = brand.accent; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText(badge.slice(0, 60), m + 16, y + 19);
-  y += 72;
-
-  if (options.supportingImageUrl) {
-    try {
-      const img = new Image(); img.crossOrigin = 'anonymous'; img.src = options.supportingImageUrl;
-      await new Promise((resolve) => { img.onload = resolve; img.onerror = resolve; });
-      if (img.complete && img.naturalWidth > 0) {
-        const h = 330;
-        ctx.strokeStyle = brand.border; ctx.strokeRect(m, y, width, h);
-        ctx.drawImage(img, m, y, width, h);
-        y += h + 38;
-      }
-    } catch {}
-  }
-
-  ctx.fillStyle = brand.text;
-  ctx.font = `800 46px ${brand.headingFont}, Arial, sans-serif`;
-  ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-  y = drawWrappedText(ctx, (slide.headline || options.assetTitle).toUpperCase(), m, y, width, 56, 4) + 18;
-
-  if (slide.subtext) {
-    ctx.fillStyle = brand.muted;
-    ctx.font = `400 21px ${brand.bodyFont}, Arial, sans-serif`;
-    y = drawWrappedText(ctx, slide.subtext, m, y, width, 30, 3) + 22;
-  }
-
-  ctx.strokeStyle = brand.border; ctx.beginPath(); ctx.moveTo(m, y); ctx.lineTo(right, y); ctx.stroke(); y += 28;
-
-  for (const item of slide.body || []) {
-    const cardH = 88;
-    ctx.fillStyle = brand.card; ctx.fillRect(m, y, width, cardH);
-    ctx.strokeStyle = brand.border; ctx.strokeRect(m, y, width, cardH);
-    ctx.fillStyle = brand.accent; ctx.fillRect(m, y, 5, cardH);
-    ctx.fillStyle = brand.text;
-    ctx.font = `600 18px ${brand.bodyFont}, Arial, sans-serif`;
-    ctx.textBaseline = 'top';
-    drawWrappedText(ctx, item, m + 24, y + 18, width - 48, 25, 2);
-    y += cardH + 16;
-    if (y > 1190) break;
-  }
-
-  const footY = 1240;
-  ctx.strokeStyle = brand.border; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(m, footY); ctx.lineTo(right, footY); ctx.stroke();
-  ctx.fillStyle = brand.muted; ctx.font = `16px ${brand.bodyFont}, Arial, sans-serif`; ctx.textAlign = 'left';
-  ctx.fillText((brand.website || brand.companyName).slice(0, 52), m, footY + 35);
-  ctx.fillStyle = brand.text; ctx.font = `700 16px ${brand.bodyFont}, Arial, sans-serif`; ctx.textAlign = 'right';
-  ctx.fillText('SWIPE NEXT →', right, footY + 35);
-
-  return canvas.toDataURL('image/png');
+  return renderComposedCanvas({
+    ...options,
+    template: 'carousel_slide',
+    format: 'carousel',
+    headline: slide.headline,
+    subheadline: slide.subtext,
+    slide,
+    slideIndex: (slide.slideNumber || 1) - 1,
+    totalSlides
+  });
 }
 
 export async function downloadAllCarouselSlides(
   asset: SocialAsset,
   slideVisuals?: Record<number, string>,
-  brandOptions: BrandRenderOptions = {}
+  brandOptions: BrandRenderOptions = {},
+  format: 'png' | 'jpeg' | 'pdf' = 'png'
 ) {
-  const slides = asset.slides || [];
-  for (const slide of slides) {
-    const dataUrl = await renderDeterministicSlideCanvas(slide, slides.length, {
-      ...brandOptions,
-      assetTitle: asset.title,
-      assetCode: asset.assetCode,
-      supportingImageUrl: slideVisuals?.[slide.slideNumber]
-    });
-    downloadDataUrl(`${asset.assetCode}-slide-${slide.slideNumber}.png`, dataUrl);
-    await new Promise((r) => setTimeout(r, 180));
-  }
+  return downloadAllComposedSlides(asset, slideVisuals || {}, brandOptions, format);
 }
 
 /** Company-aware deterministic renderer for posters/founder cards. */
 export async function renderDeterministicPosterCanvas(
   asset: SocialAsset,
   supportingImageUrl?: string,
-  brandOptions: BrandRenderOptions = {}
+  brandOptions: BrandRenderOptions = {},
+  template?: CompositionTemplateId
 ): Promise<string> {
-  const brand = resolveBrand(brandOptions);
-  const canvas = document.createElement('canvas');
-  canvas.width = 1080;
-  canvas.height = asset.format === 'founder_card' ? 1080 : 1350;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('No canvas context');
-
-  ctx.fillStyle = brand.background; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = hexToRgba(brand.text, 0.07); ctx.lineWidth = 1;
-  for (let x = 0; x <= canvas.width; x += 72) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
-  for (let y = 0; y <= canvas.height; y += 72) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
-
-  const grad = ctx.createRadialGradient(canvas.width, 0, 10, canvas.width, 0, 520);
-  grad.addColorStop(0, hexToRgba(brand.accent, 0.16)); grad.addColorStop(1, hexToRgba(brand.accent, 0));
-  ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const m = 80; const w = canvas.width - m * 2;
-  ctx.fillStyle = brand.primary; ctx.fillRect(m, 80, 44, 44);
-  ctx.fillStyle = isDark(brand.primary) ? '#FFFFFF' : '#111111'; ctx.font = `800 22px ${brand.headingFont}, Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('A', m + 22, 102);
-  ctx.fillStyle = brand.text; ctx.font = `700 22px ${brand.headingFont}, Arial, sans-serif`; ctx.textAlign = 'left'; ctx.fillText(brand.companyName.toUpperCase().slice(0, 34), m + 62, 102);
-  ctx.fillStyle = brand.accent; ctx.font = `700 17px ${brand.bodyFont}, Arial, sans-serif`; ctx.textAlign = 'right'; ctx.fillText(asset.assetCode, canvas.width - m, 102);
-
-  let y = 178;
-  const badge = `${asset.platform.toUpperCase()} · ${asset.format.toUpperCase().replace('_', ' ')}`;
-  ctx.font = `700 15px ${brand.bodyFont}, Arial, sans-serif`; const bw = Math.min(w, ctx.measureText(badge).width + 32);
-  ctx.fillStyle = brand.card; ctx.fillRect(m, y, bw, 38); ctx.strokeStyle = brand.accent; ctx.strokeRect(m, y, bw, 38);
-  ctx.fillStyle = brand.accent; ctx.textAlign = 'left'; ctx.fillText(badge, m + 16, y + 24); y += 72;
-
-  if (supportingImageUrl) {
-    try {
-      const img = new Image(); img.crossOrigin = 'anonymous'; img.src = supportingImageUrl;
-      await new Promise((resolve) => { img.onload = resolve; img.onerror = resolve; });
-      if (img.complete && img.naturalWidth > 0) {
-        const h = asset.format === 'founder_card' ? 330 : 410;
-        ctx.strokeStyle = brand.border; ctx.strokeRect(m, y, w, h); ctx.drawImage(img, m, y, w, h); y += h + 36;
-      }
-    } catch {}
-  }
-
-  ctx.fillStyle = brand.text; ctx.font = `800 43px ${brand.headingFont}, Arial, sans-serif`; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-  y = drawWrappedText(ctx, asset.title.toUpperCase(), m, y, w, 52, 4) + 24;
-
-  ctx.fillStyle = brand.card; ctx.fillRect(m, y, w, 120); ctx.strokeStyle = brand.border; ctx.strokeRect(m, y, w, 120); ctx.fillStyle = brand.accent; ctx.fillRect(m, y, 6, 120);
-  ctx.fillStyle = brand.text; ctx.font = `500 19px ${brand.bodyFont}, Arial, sans-serif`; ctx.textBaseline = 'top';
-  drawWrappedText(ctx, `“${asset.hook.slice(0, 220)}”`, m + 28, y + 24, w - 56, 27, 3);
-  y += 150;
-
-  const footY = canvas.height - 110;
-  ctx.strokeStyle = brand.border; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(m, footY); ctx.lineTo(canvas.width - m, footY); ctx.stroke();
-  ctx.fillStyle = brand.muted; ctx.font = `16px ${brand.bodyFont}, Arial, sans-serif`; ctx.textAlign = 'left'; ctx.fillText((brand.website || brand.companyName).slice(0, 52), m, footY + 40);
-  ctx.fillStyle = brand.accent; ctx.font = `700 16px ${brand.bodyFont}, Arial, sans-serif`; ctx.textAlign = 'right'; ctx.fillText(brand.companyName.slice(0, 34).toUpperCase(), canvas.width - m, footY + 40);
-
-  return canvas.toDataURL('image/png');
+  const chosenTemplate = template || getRecommendedTemplate(asset.format);
+  return renderComposedCanvas({
+    ...brandOptions,
+    template: chosenTemplate,
+    assetTitle: asset.title,
+    assetCode: asset.assetCode,
+    headline: asset.title,
+    subheadline: asset.strategicPurpose || asset.angle,
+    hook: asset.hook,
+    caption: asset.caption,
+    callToAction: asset.callToAction,
+    platform: asset.platform,
+    format: asset.format,
+    supportingImageUrl: supportingImageUrl || asset.generatedBackgroundUrl || asset.generatedImageUrl
+  });
 }
+

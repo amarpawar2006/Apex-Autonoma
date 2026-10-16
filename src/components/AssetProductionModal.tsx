@@ -23,7 +23,10 @@ import {
   Share2,
   FileText,
   Palette,
-  ArrowUpRight
+  ArrowUpRight,
+  Layout,
+  FileDown,
+  CheckCircle
 } from 'lucide-react';
 import { SocialAsset, ProductionStatus, CarouselSlide, VideoScene } from '../types/campaign';
 import { ApexLogo } from './ApexLogo';
@@ -37,6 +40,12 @@ import {
   renderDeterministicPosterCanvas,
   downloadDataUrl,
   downloadAllCarouselSlides,
+  renderComposedCanvas,
+  exportCreative,
+  downloadAllComposedSlides,
+  isTextSafeFormat,
+  getRecommendedTemplate,
+  CompositionTemplateId,
   BrandRenderOptions
 } from '../services/mediaProductionService';
 import { autonomaDataService } from '../services/autonomaDataService';
@@ -127,15 +136,54 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
   const [selectedImageProvider, setSelectedImageProvider] = useState<ImageProviderOptionId>('cloudflare');
   const [providersData, setProvidersData] = useState<Record<string, any>>({});
 
+  const isCarousel = asset?.format === 'carousel';
+  const isVideo = asset?.format === 'reel_short';
+  const isTextSafe = isTextSafeFormat(asset?.format);
+  const isImageOrPoster = !isCarousel && !isVideo;
+
+  // Deterministic Composition & Overlay State
+  const [compositionMode, setCompositionMode] = useState<'DETERMINISTIC_COMPOSITION' | 'AI_BACKGROUND_ONLY'>(
+    asset?.compositionMode || (isTextSafe ? 'DETERMINISTIC_COMPOSITION' : 'AI_BACKGROUND_ONLY')
+  );
+  const [generatedBackgroundUrl, setGeneratedBackgroundUrl] = useState<string | null>(
+    asset?.generatedBackgroundUrl || null
+  );
+  const [composedAssetUrl, setComposedAssetUrl] = useState<string | null>(
+    asset?.composedAssetUrl || null
+  );
+  const [compositionTemplate, setCompositionTemplate] = useState<CompositionTemplateId>(
+    (asset?.compositionTemplate as CompositionTemplateId) || getRecommendedTemplate(asset?.format)
+  );
+  const [finalRenderableReady, setFinalRenderableReady] = useState<boolean>(
+    Boolean(asset?.finalRenderableReady || asset?.composedAssetUrl)
+  );
+  const [previewViewMode, setPreviewViewMode] = useState<'composed' | 'background'>('composed');
+  const [exportFormat, setExportFormat] = useState<'png' | 'jpeg' | 'pdf'>('png');
+  const [isComposingLayout, setIsComposingLayout] = useState<boolean>(false);
+  const [showCopyEditor, setShowCopyEditor] = useState<boolean>(false);
+
+  // Editable copy state for layout customization
+  const [customHeadline, setCustomHeadline] = useState<string>(asset?.title || '');
+  const [customHook, setCustomHook] = useState<string>(asset?.hook || '');
+  const [customCta, setCustomCta] = useState<string>(asset?.callToAction || '');
+
   // Media previews
-  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(asset?.generatedImageUrl || null);
+  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(
+    asset?.composedAssetUrl || asset?.generatedImageUrl || null
+  );
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(asset?.generatedVideoUrl || null);
   const [deterministicCanvasUrl, setDeterministicCanvasUrl] = useState<string | null>(null);
 
   // Carousel slide state
   const [activeSlideIndex, setActiveSlideIndex] = useState<number>(0);
   const [slideVisuals, setSlideVisuals] = useState<Record<number, string>>(
-    asset?.carouselSlideVisuals || {}
+    asset?.carouselSlideVisuals || asset?.carouselSlideBackgrounds || {}
+  );
+  const [carouselSlideBackgrounds, setCarouselSlideBackgrounds] = useState<Record<number, string>>(
+    asset?.carouselSlideBackgrounds || asset?.carouselSlideVisuals || {}
+  );
+  const [carouselSlideComposedUrls, setCarouselSlideComposedUrls] = useState<Record<number, string>>(
+    asset?.carouselSlideComposedUrls || {}
   );
   const [generatingSlideIndex, setGeneratingSlideIndex] = useState<number | null>(null);
 
@@ -205,7 +253,8 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
         backgroundColor: brand.backgroundColor,
         textColor: brand.textColor,
         headingFont: brand.headingFont,
-        bodyFont: brand.bodyFont
+        bodyFont: brand.bodyFont,
+        logoUrl: brand.logoUrl
       });
     });
   }, [isOpen]);
@@ -224,25 +273,35 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     };
   }, [isOpen, isGenerating, isUploadingMedia, onClose]);
 
-  const isCarousel = asset?.format === 'carousel';
-  const isVideo = asset?.format === 'reel_short';
-  const isImageOrPoster = !isCarousel && !isVideo;
-
   // Sync state when asset prop changes
   useEffect(() => {
     if (!asset) return;
     setProductionStatus(asset.productionStatus || 'NOT_GENERATED');
-    setGeneratedImageUrl(asset.generatedImageUrl || null);
+    const bg = asset.generatedBackgroundUrl || (asset.composedAssetUrl ? asset.generatedBackgroundUrl : asset.generatedImageUrl) || null;
+    setGeneratedBackgroundUrl(bg);
+    setComposedAssetUrl(asset.composedAssetUrl || null);
+    setGeneratedImageUrl(asset.composedAssetUrl || asset.generatedImageUrl || null);
     setGeneratedVideoUrl(asset.generatedVideoUrl || null);
-    setSlideVisuals(asset.carouselSlideVisuals || {});
+    setSlideVisuals(asset.carouselSlideVisuals || asset.carouselSlideBackgrounds || {});
+    setCarouselSlideBackgrounds(asset.carouselSlideBackgrounds || asset.carouselSlideVisuals || {});
+    setCarouselSlideComposedUrls(asset.carouselSlideComposedUrls || {});
+    setCompositionMode(asset.compositionMode || (isTextSafe ? 'DETERMINISTIC_COMPOSITION' : 'AI_BACKGROUND_ONLY'));
+    setCompositionTemplate((asset.compositionTemplate as CompositionTemplateId) || getRecommendedTemplate(asset.format));
+    setFinalRenderableReady(Boolean(asset.finalRenderableReady || asset.composedAssetUrl));
     setGenerationError(asset.productionError || null);
+    setCustomHeadline(asset.title || '');
+    setCustomHook(asset.hook || '');
+    setCustomCta(asset.callToAction || '');
+
+    const defaultBgPrompt = `Clean supporting background visual for "${asset.title}". High-end commercial aesthetic, photographic composition, clean negative space for brand typography, lighting and mood aligned with brand palette. [NO text, NO letters, NO logos, NO watermarks].`;
+
     setActivePrompt(
       asset.generatedImagePrompt ||
         asset.posterVisualPrompt ||
         asset.videoGenerationPrompt ||
-        `Create a professional, brand-safe social visual for ${asset.title}. Follow the active company's saved Brand Design System, typography direction, palette, imagery style and creative rules. If no brand system exists, use a clean neutral editorial layout.`
+        defaultBgPrompt
     );
-  }, [asset]);
+  }, [asset, isTextSafe]);
 
   // Generate deterministic preview for carousel or poster
   useEffect(() => {
@@ -253,12 +312,21 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       if (isCarousel && asset.slides && asset.slides[activeSlideIndex]) {
         try {
           const currentSlide = asset.slides[activeSlideIndex];
-          const visual = slideVisuals[currentSlide.slideNumber];
-          const url = await renderDeterministicSlideCanvas(currentSlide, asset.slides.length, {
+          const visual = slideVisuals[currentSlide.slideNumber] || generatedBackgroundUrl || undefined;
+          const url = await renderComposedCanvas({
             ...brandRenderOptions,
-            assetTitle: asset.title,
+            template: 'carousel_slide',
+            assetTitle: customHeadline || asset.title,
             assetCode: asset.assetCode,
-            supportingImageUrl: visual
+            headline: currentSlide.headline,
+            subheadline: currentSlide.subtext,
+            callToAction: customCta || asset.callToAction,
+            format: 'carousel',
+            platform: asset.platform,
+            supportingImageUrl: visual,
+            slide: currentSlide,
+            slideIndex: activeSlideIndex,
+            totalSlides: asset.slides.length
           });
           if (isMounted) setDeterministicCanvasUrl(url);
         } catch (e) {
@@ -266,7 +334,20 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
         }
       } else if (isImageOrPoster) {
         try {
-          const url = await renderDeterministicPosterCanvas(asset, generatedImageUrl || undefined, brandRenderOptions);
+          const url = await renderComposedCanvas({
+            ...brandRenderOptions,
+            template: compositionTemplate,
+            assetTitle: customHeadline || asset.title,
+            assetCode: asset.assetCode,
+            headline: customHeadline || asset.title,
+            subheadline: asset.strategicPurpose || asset.angle,
+            hook: customHook || asset.hook,
+            caption: asset.caption,
+            callToAction: customCta || asset.callToAction,
+            platform: asset.platform,
+            format: asset.format,
+            supportingImageUrl: generatedBackgroundUrl || undefined
+          });
           if (isMounted) setDeterministicCanvasUrl(url);
         } catch (e) {
           console.error('Failed to render poster canvas:', e);
@@ -277,11 +358,23 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [asset, activeSlideIndex, slideVisuals, generatedImageUrl, isCarousel, isImageOrPoster, brandRenderOptions]);
+  }, [
+    asset,
+    activeSlideIndex,
+    slideVisuals,
+    generatedBackgroundUrl,
+    compositionTemplate,
+    customHeadline,
+    customHook,
+    customCta,
+    isCarousel,
+    isImageOrPoster,
+    brandRenderOptions
+  ]);
 
-  // Handler: Real Server-Side Image Generation
+  // Handler: Real Server-Side Image Generation (Visual/Background Only for Text-Safe Formats)
   const handleGenerateImage = async () => {
-    if (!asset || isGenerating) return; // Prevent double-click
+    if (!asset || isGenerating) return;
     setIsGenerating(true);
     setGenerationError(null);
     setIsBillingRequired(false);
@@ -299,6 +392,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       providerId: selectedImageProvider,
       modelName: currentModel,
       platform: asset.platform,
+      format: asset.format,
       language: asset.language,
       objective: asset.strategicPurpose,
       assetId: asset.id,
@@ -307,28 +401,133 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
 
     const generatedUrl = result.dataUrl || result.fileUrl;
     if (result.success && generatedUrl) {
-      setGeneratedImageUrl(generatedUrl);
+      setGeneratedBackgroundUrl(generatedUrl);
+
+      // Automatically compose the final creative with the new background
+      let composedUrl = generatedUrl;
+      try {
+        composedUrl = await renderComposedCanvas({
+          ...brandRenderOptions,
+          template: compositionTemplate,
+          assetTitle: customHeadline || asset.title,
+          assetCode: asset.assetCode,
+          headline: customHeadline || asset.title,
+          subheadline: asset.strategicPurpose || asset.angle,
+          hook: customHook || asset.hook,
+          caption: asset.caption,
+          callToAction: customCta || asset.callToAction,
+          platform: asset.platform,
+          format: asset.format,
+          supportingImageUrl: generatedUrl
+        });
+        setComposedAssetUrl(composedUrl);
+        setDeterministicCanvasUrl(composedUrl);
+        setFinalRenderableReady(true);
+      } catch (composeErr) {
+        console.warn('Auto-composition note:', composeErr);
+      }
+
+      setGeneratedImageUrl(composedUrl);
       setProductionStatus('READY');
+
       const updated: SocialAsset = {
         ...asset,
         productionStatus: 'READY',
-        generatedImageUrl: generatedUrl,
+        generatedBackgroundUrl: generatedUrl,
+        composedAssetUrl: composedUrl,
+        generatedImageUrl: composedUrl,
+        compositionMode: 'DETERMINISTIC_COMPOSITION',
+        compositionTemplate,
+        finalRenderableReady: true,
+        composedAt: new Date().toISOString(),
         generatedImagePrompt: activePrompt,
         productionError: undefined
       };
       onUpdateAsset(updated);
     } else {
       setProductionStatus('FAILED');
-      setGenerationError(result.error || 'Image generation failed');
+      setGenerationError(result.error || 'Image visual generation failed');
       setIsBillingRequired(Boolean(result.isBillingRequired));
       const updated: SocialAsset = {
         ...asset,
         productionStatus: 'FAILED',
-        productionError: result.error || 'Image generation failed'
+        productionError: result.error || 'Image visual generation failed'
       };
       onUpdateAsset(updated);
     }
     setIsGenerating(false);
+  };
+
+  // Handler: Apply Brand Layout / Recompose Deterministic Overlay
+  const handleApplyBrandLayout = async (targetTemplate?: CompositionTemplateId) => {
+    if (!asset || isComposingLayout) return;
+    setIsComposingLayout(true);
+    setGenerationError(null);
+    const tmpl = targetTemplate || compositionTemplate;
+
+    try {
+      let composedUrl = '';
+      if (isCarousel && asset.slides && asset.slides[activeSlideIndex]) {
+        const currentSlide = asset.slides[activeSlideIndex];
+        const visual = slideVisuals[currentSlide.slideNumber] || generatedBackgroundUrl || undefined;
+        composedUrl = await renderComposedCanvas({
+          ...brandRenderOptions,
+          template: 'carousel_slide',
+          assetTitle: customHeadline || asset.title,
+          assetCode: asset.assetCode,
+          headline: currentSlide.headline,
+          subheadline: currentSlide.subtext,
+          callToAction: customCta || asset.callToAction,
+          format: 'carousel',
+          platform: asset.platform,
+          supportingImageUrl: visual,
+          slide: currentSlide,
+          slideIndex: activeSlideIndex,
+          totalSlides: asset.slides.length
+        });
+        const nextSlideComposed = { ...carouselSlideComposedUrls, [currentSlide.slideNumber]: composedUrl };
+        setCarouselSlideComposedUrls(nextSlideComposed);
+      } else {
+        composedUrl = await renderComposedCanvas({
+          ...brandRenderOptions,
+          template: tmpl,
+          assetTitle: customHeadline || asset.title,
+          assetCode: asset.assetCode,
+          headline: customHeadline || asset.title,
+          subheadline: asset.strategicPurpose || asset.angle,
+          hook: customHook || asset.hook,
+          caption: asset.caption,
+          callToAction: customCta || asset.callToAction,
+          platform: asset.platform,
+          format: asset.format,
+          supportingImageUrl: generatedBackgroundUrl || undefined
+        });
+      }
+
+      setComposedAssetUrl(composedUrl);
+      setDeterministicCanvasUrl(composedUrl);
+      setGeneratedImageUrl(composedUrl);
+      setFinalRenderableReady(true);
+      setProductionStatus('READY');
+
+      const updated: SocialAsset = {
+        ...asset,
+        productionStatus: 'READY',
+        composedAssetUrl: composedUrl,
+        generatedImageUrl: composedUrl,
+        generatedBackgroundUrl: generatedBackgroundUrl || undefined,
+        compositionMode: 'DETERMINISTIC_COMPOSITION',
+        compositionTemplate: tmpl,
+        finalRenderableReady: true,
+        composedAt: new Date().toISOString(),
+        productionError: undefined
+      };
+      onUpdateAsset(updated);
+    } catch (err: any) {
+      setGenerationError(err?.message || 'Failed to apply brand layout');
+    } finally {
+      setIsComposingLayout(false);
+    }
   };
 
   // Handler: Generate visual for individual carousel slide
@@ -340,7 +539,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     const slide = asset.slides?.find((s) => s.slideNumber === slideNumber);
     const slidePrompt =
       slide?.visualPrompt ||
-      `Create a clean brand-aligned supporting visual for ${slide?.headline || asset.title}. Follow the active company's saved Brand Design System. Avoid unrelated brand colors or identities.`;
+      `Clean supporting background visual for "${slide?.headline || asset.title}". Commercial lighting, brand color palette, clean negative space. [NO text, NO letters, NO logos].`;
 
     const currentModel = providersData[selectedImageProvider]?.selectedModel || (
       selectedImageProvider === 'cloudflare'
@@ -354,6 +553,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       providerId: selectedImageProvider,
       modelName: currentModel,
       platform: asset.platform,
+      format: 'carousel',
       language: asset.language,
       objective: asset.strategicPurpose,
       assetId: asset.id,
@@ -364,9 +564,44 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     if (result.success && generatedUrl) {
       const nextVisuals = { ...slideVisuals, [slideNumber]: generatedUrl };
       setSlideVisuals(nextVisuals);
+      setCarouselSlideBackgrounds(nextVisuals);
+
+      // Auto-compose slide
+      let composedSlideUrl = generatedUrl;
+      try {
+        if (slide) {
+          composedSlideUrl = await renderComposedCanvas({
+            ...brandRenderOptions,
+            template: 'carousel_slide',
+            assetTitle: customHeadline || asset.title,
+            assetCode: asset.assetCode,
+            headline: slide.headline,
+            subheadline: slide.subtext,
+            callToAction: customCta || asset.callToAction,
+            format: 'carousel',
+            platform: asset.platform,
+            supportingImageUrl: generatedUrl,
+            slide,
+            slideIndex: (slide.slideNumber || 1) - 1,
+            totalSlides: asset.slides?.length || 1
+          });
+        }
+      } catch (e) {
+        console.warn('Slide auto-compose note:', e);
+      }
+
+      const nextComposed = { ...carouselSlideComposedUrls, [slideNumber]: composedSlideUrl };
+      setCarouselSlideComposedUrls(nextComposed);
+      setDeterministicCanvasUrl(composedSlideUrl);
+      setFinalRenderableReady(true);
+
       const updated: SocialAsset = {
         ...asset,
-        carouselSlideVisuals: nextVisuals
+        carouselSlideVisuals: nextVisuals,
+        carouselSlideBackgrounds: nextVisuals,
+        carouselSlideComposedUrls: nextComposed,
+        composedAssetUrl: composedSlideUrl,
+        finalRenderableReady: true
       };
       onUpdateAsset(updated);
     } else {
@@ -490,20 +725,34 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     onUpdateAsset(updated);
   };
 
-  // Handler: Single Download
-  const handleDownloadSingle = () => {
+  // Handler: Final Creative Download (PNG, JPG, PDF)
+  const handleDownloadFinal = async () => {
     if (!asset) return;
-    if (generatedImageUrl) {
-      downloadDataUrl(`${asset.assetCode.replace(/^APEX-/, 'AUTO-')}-production.png`, generatedImageUrl);
-    } else if (deterministicCanvasUrl) {
-      downloadDataUrl(`${asset.assetCode.replace(/^APEX-/, 'AUTO-')}-canvas.png`, deterministicCanvasUrl);
-    }
+    const targetUrl = composedAssetUrl || deterministicCanvasUrl || generatedImageUrl;
+    if (!targetUrl) return;
+    await exportCreative(
+      targetUrl,
+      `${asset.assetCode.replace(/^APEX-/, 'AUTO-')}-final`,
+      exportFormat
+    );
+  };
+
+  // Handler: Download Background Only
+  const handleDownloadBackgroundOnly = async () => {
+    if (!asset) return;
+    const targetUrl = generatedBackgroundUrl || (isCarousel ? slideVisuals[activeSlideIndex + 1] : null);
+    if (!targetUrl) return;
+    await exportCreative(
+      targetUrl,
+      `${asset.assetCode.replace(/^APEX-/, 'AUTO-')}-background`,
+      'png'
+    );
   };
 
   // Handler: Download All Slides
   const handleDownloadAllSlides = async () => {
     if (!asset) return;
-    await downloadAllCarouselSlides(asset, slideVisuals, brandRenderOptions);
+    await downloadAllCarouselSlides(asset, slideVisuals, brandRenderOptions, exportFormat);
   };
 
   const handleUploadFinishedMedia = async (file: File) => {
@@ -544,19 +793,9 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     }
   };
 
-  // Apply deterministic design directly
+  // Apply deterministic design directly (legacy alias to handleApplyBrandLayout)
   const handleApplyDeterministicDesign = () => {
-    if (!asset || !deterministicCanvasUrl) return;
-    setGeneratedImageUrl(deterministicCanvasUrl);
-    setProductionStatus('READY');
-    const updated: SocialAsset = {
-      ...asset,
-      productionStatus: 'READY',
-      generatedImageUrl: deterministicCanvasUrl,
-      productionError: undefined
-    };
-    onUpdateAsset(updated);
-    setGenerationError(null);
+    handleApplyBrandLayout();
   };
 
   // Copy helper
@@ -753,61 +992,136 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
           {/* TAB 1: PREVIEW */}
           {activeTab === 'preview' && (
             <div className="space-y-6">
+              {/* 3-Step Production Pipeline Status */}
+              {isTextSafe && (
+                <div className="bg-[#FBFBFD] border border-black/[0.06] rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-[#1D1D1F] uppercase tracking-wider text-[11px]">Production Pipeline:</span>
+                    <span className="text-[#86868B] text-[11px]">(Text-Safe Brand Overlay)</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Step 1 */}
+                    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium text-xs ${
+                      generatedBackgroundUrl ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-neutral-100 text-neutral-600'
+                    }`}>
+                      {generatedBackgroundUrl ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <div className="w-1.5 h-1.5 rounded-full bg-neutral-400" />}
+                      <span>1. Background Visual {generatedBackgroundUrl ? 'Ready' : 'Pending'}</span>
+                    </div>
+                    {/* Step 2 */}
+                    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium text-xs ${
+                      finalRenderableReady ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-neutral-100 text-neutral-600'
+                    }`}>
+                      {finalRenderableReady ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <div className="w-1.5 h-1.5 rounded-full bg-neutral-400" />}
+                      <span>2. Brand Layout {finalRenderableReady ? 'Applied' : 'Pending'}</span>
+                    </div>
+                    {/* Step 3 */}
+                    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium text-xs ${
+                      finalRenderableReady ? 'bg-blue-50 text-blue-700 border border-blue-200/60' : 'bg-neutral-100 text-neutral-500'
+                    }`}>
+                      {finalRenderableReady ? <CheckCircle className="w-3.5 h-3.5 text-blue-600" /> : <div className="w-1.5 h-1.5 rounded-full bg-neutral-400" />}
+                      <span>3. Final Asset {finalRenderableReady ? 'Ready for Export' : 'Incomplete'}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col lg:flex-row gap-6 items-start">
                 {/* Visual Viewport Box */}
-                <div className="flex-1 w-full bg-[#F5F5F7] rounded-3xl p-6 flex flex-col items-center justify-center min-h-[420px] border border-black/[0.04]">
-                  {/* Generated Image */}
-                  {generatedImageUrl ? (
-                    <div className="space-y-3 flex flex-col items-center max-w-sm">
-                      <div className="rounded-2xl overflow-hidden shadow-xl border border-black/[0.06] bg-black">
-                        <img
-                          src={generatedImageUrl}
-                          alt="Production Media"
-                          className="w-full h-auto object-cover max-h-[440px]"
-                        />
+                <div className="flex-1 w-full bg-[#F5F5F7] rounded-3xl p-6 flex flex-col items-center justify-center min-h-[440px] border border-black/[0.04]">
+                  {/* Viewport Top Mode Bar */}
+                  <div className="w-full flex items-center justify-between pb-3 border-b border-black/[0.06] mb-4">
+                    <span className="text-xs font-semibold text-[#86868B] uppercase tracking-wider flex items-center gap-1.5">
+                      <Eye className="w-3.5 h-3.5 text-[#FF4500]" />
+                      <span>{previewViewMode === 'composed' ? 'Final Composed Creative' : 'Raw AI Visual Background'}</span>
+                    </span>
+                    {isTextSafe && generatedBackgroundUrl && (
+                      <div className="p-0.5 bg-black/[0.04] rounded-lg flex items-center text-[11px] font-medium">
+                        <button
+                          onClick={() => setPreviewViewMode('composed')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            previewViewMode === 'composed' ? 'bg-white text-[#1D1D1F] shadow-xs' : 'text-[#6E6E73] hover:text-[#1D1D1F]'
+                          }`}
+                        >
+                          Final Composed
+                        </button>
+                        <button
+                          onClick={() => setPreviewViewMode('background')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            previewViewMode === 'background' ? 'bg-white text-[#1D1D1F] shadow-xs' : 'text-[#6E6E73] hover:text-[#1D1D1F]'
+                          }`}
+                        >
+                          Raw Visual
+                        </button>
                       </div>
-                      <span className="text-xs text-[#86868B] font-medium flex items-center space-x-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Production media ready</span>
-                      </span>
-                    </div>
-                  ) : isCarousel && deterministicCanvasUrl ? (
-                    /* Carousel Slide Preview */
-                    <div className="space-y-4 flex flex-col items-center w-full max-w-sm">
+                    )}
+                  </div>
+
+                  {/* Mode A: View Raw Visual Background Only */}
+                  {previewViewMode === 'background' && generatedBackgroundUrl ? (
+                    <div className="space-y-3 flex flex-col items-center max-w-sm">
                       <div className="rounded-2xl overflow-hidden shadow-xl border border-black/[0.06] bg-black aspect-[4/5] w-full">
                         <img
-                          src={deterministicCanvasUrl}
-                          alt={`Slide ${activeSlideIndex + 1}`}
-                          className="w-full h-full object-contain"
+                          src={generatedBackgroundUrl}
+                          alt="AI Background Visual"
+                          className="w-full h-full object-cover"
                         />
                       </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-[#86868B] font-medium">Text-Free AI Background</span>
+                        <button
+                          onClick={handleDownloadBackgroundOnly}
+                          className="text-[#FF4500] hover:underline font-semibold flex items-center gap-1"
+                        >
+                          <Download className="w-3 h-3" />
+                          <span>Download background</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : isCarousel ? (
+                    /* Mode B: Carousel Slide Composed View */
+                    <div className="space-y-4 flex flex-col items-center w-full max-w-sm">
+                      <div className="rounded-2xl overflow-hidden shadow-xl border border-black/[0.06] bg-black aspect-[4/5] w-full">
+                        {deterministicCanvasUrl ? (
+                          <img
+                            src={deterministicCanvasUrl}
+                            alt={`Slide ${activeSlideIndex + 1}`}
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-white/50 text-xs">
+                            Rendering slide composition…
+                          </div>
+                        )}
+                      </div>
 
-                      {/* Slide Stepper */}
-                      <div className="flex items-center space-x-3 text-xs">
-                        <button
-                          disabled={activeSlideIndex === 0}
-                          onClick={() => setActiveSlideIndex((prev) => Math.max(0, prev - 1))}
-                          aria-label="Previous carousel slide"
-                          className="p-1.5 bg-white rounded-lg border border-black/[0.08] shadow-sm disabled:opacity-30 hover:bg-neutral-50"
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                        </button>
-                        <span className="text-[#6E6E73] font-medium">
-                          Slide <strong className="text-[#1D1D1F]">{activeSlideIndex + 1}</strong> of{' '}
-                          {asset.slides?.length || 1}
-                        </span>
-                        <button
-                          disabled={activeSlideIndex >= (asset.slides?.length || 1) - 1}
-                          onClick={() =>
-                            setActiveSlideIndex((prev) =>
-                              Math.min((asset.slides?.length || 1) - 1, prev + 1)
-                            )
-                          }
-                          aria-label="Next carousel slide"
-                          className="p-1.5 bg-white rounded-lg border border-black/[0.08] shadow-sm disabled:opacity-30 hover:bg-neutral-50"
-                        >
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
+                      {/* Slide Stepper & Slide Visual Generator */}
+                      <div className="flex flex-wrap items-center justify-center gap-2 text-xs w-full">
+                        <div className="flex items-center space-x-2 bg-white px-2.5 py-1.5 rounded-xl border border-black/[0.08] shadow-xs">
+                          <button
+                            disabled={activeSlideIndex === 0}
+                            onClick={() => setActiveSlideIndex((prev) => Math.max(0, prev - 1))}
+                            aria-label="Previous carousel slide"
+                            className="p-1 rounded-md disabled:opacity-30 hover:bg-neutral-100 cursor-pointer"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+                          <span className="text-[#6E6E73] font-medium text-[11px]">
+                            Slide <strong className="text-[#1D1D1F]">{activeSlideIndex + 1}</strong> of{' '}
+                            {asset.slides?.length || 1}
+                          </span>
+                          <button
+                            disabled={activeSlideIndex >= (asset.slides?.length || 1) - 1}
+                            onClick={() =>
+                              setActiveSlideIndex((prev) =>
+                                Math.min((asset.slides?.length || 1) - 1, prev + 1)
+                              )
+                            }
+                            aria-label="Next carousel slide"
+                            className="p-1 rounded-md disabled:opacity-30 hover:bg-neutral-100 cursor-pointer"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
 
                         <button
                           disabled={generatingSlideIndex !== null}
@@ -816,30 +1130,31 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                               asset.slides?.[activeSlideIndex]?.slideNumber || activeSlideIndex + 1
                             )
                           }
-                          className="ml-2 px-3 py-1.5 bg-white hover:bg-neutral-50 border border-black/[0.08] text-xs font-medium rounded-xl shadow-sm text-[#FF4500] flex items-center space-x-1"
+                          className="px-3 py-1.5 bg-white hover:bg-neutral-50 border border-black/[0.08] text-xs font-medium rounded-xl shadow-xs text-[#FF4500] flex items-center space-x-1 cursor-pointer"
                         >
                           <Sparkles className="w-3.5 h-3.5" />
                           <span>
                             {generatingSlideIndex === (asset.slides?.[activeSlideIndex]?.slideNumber || activeSlideIndex + 1)
-                              ? 'Generating…'
-                              : 'Generate visual'}
+                              ? 'Generating visual…'
+                              : 'Generate slide visual'}
                           </span>
                         </button>
                       </div>
                     </div>
-                  ) : deterministicCanvasUrl ? (
-                    /* Deterministic Poster Preview */
-                    <div className="space-y-3 flex flex-col items-center max-w-sm">
+                  ) : deterministicCanvasUrl || composedAssetUrl ? (
+                    /* Mode C: Deterministic Composed Creative (Poster / Quote Card / Infographic) */
+                    <div className="space-y-3 flex flex-col items-center max-w-sm w-full">
                       <div className="rounded-2xl overflow-hidden shadow-xl border border-black/[0.06] bg-black aspect-[4/5] w-full">
                         <img
-                          src={deterministicCanvasUrl}
-                          alt="Brand-system poster"
+                          src={deterministicCanvasUrl || composedAssetUrl || ''}
+                          alt="Composed Creative"
                           className="w-full h-full object-contain"
                         />
                       </div>
-                      <span className="text-xs text-[#86868B] font-medium">
-                        Brand System Deterministic Design
-                      </span>
+                      <div className="flex items-center gap-2 text-xs text-[#86868B] font-medium">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Deterministic layout applied with Brand System</span>
+                      </div>
                     </div>
                   ) : isVideo && asset.generatedVideoUrl ? (
                     <div className="space-y-3 w-full max-w-sm">
@@ -854,7 +1169,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                       <span className="text-xs text-[#86868B] font-medium">Generated video ready for review</span>
                     </div>
                   ) : isVideo ? (
-                    /* Video Initial Preview Placeholder */
+                    /* Video Placeholder */
                     <div className="text-center p-8 space-y-3">
                       <div className="w-14 h-14 bg-purple-100 text-purple-600 rounded-3xl flex items-center justify-center mx-auto">
                         <Video className="w-7 h-7" />
@@ -866,20 +1181,23 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                         Hook, 3-scene camera direction, voiceover narration, and prompts are synthesized.
                       </p>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="text-center p-8 space-y-3">
+                      <div className="w-14 h-14 bg-orange-100 text-[#FF4500] rounded-3xl flex items-center justify-center mx-auto">
+                        <Palette className="w-7 h-7" />
+                      </div>
+                      <h4 className="font-semibold text-base text-[#1D1D1F]">
+                        Ready to Compose Creative
+                      </h4>
+                      <p className="text-xs text-[#6E6E73] max-w-xs mx-auto">
+                        Click "Generate Visual" for an AI background or "Apply Brand Layout" to preview the deterministic typography design.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
-                {/* Right Column: Production Methods Deck */}
-                <div className="w-full lg:w-80 space-y-4">
-                  <div className="space-y-1">
-                    <h3 className="text-xs font-semibold uppercase text-[#86868B] tracking-wider">
-                      Production Method
-                    </h3>
-                    <p className="text-xs text-[#6E6E73]">
-                      Choose how this asset is materialized.
-                    </p>
-                  </div>
-
+                {/* Right Column: Text-Safe Production Actions */}
+                <div className="w-full lg:w-84 space-y-4">
                   {isVideo ? (
                     /* Video Methods */
                     <div className="space-y-2.5">
@@ -918,133 +1236,235 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                       </div>
                     </div>
                   ) : (
-                    /* Image & Carousel Methods */
-                    <div className="space-y-2.5">
-                      {/* Method 1: Brand System Design */}
-                      <div className="bg-[#FBFBFD] p-4 rounded-2xl border border-black/[0.06] space-y-2">
+                    /* Text-Safe Deterministic Overlay Production Panel */
+                    <div className="space-y-3.5">
+                      {/* Section Title & Safe-Text Badge */}
+                      <div className="space-y-1">
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-xs text-[#1D1D1F]">Brand System Design</span>
-                          <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-medium">Free</span>
+                          <h3 className="text-xs font-bold uppercase text-[#1D1D1F] tracking-wider flex items-center gap-1.5">
+                            <Layers className="w-3.5 h-3.5 text-[#FF4500]" />
+                            <span>Deterministic Composition</span>
+                          </h3>
+                          <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-bold px-2 py-0.5 rounded-md">
+                            TEXT-SAFE
+                          </span>
                         </div>
-                        <p className="text-xs text-[#6E6E73]">
-                          Deterministic typography, colors, layout and safe areas. Zero hallucination.
+                        <p className="text-[11px] text-[#6E6E73] leading-relaxed">
+                          AI generates the visual only. Real campaign copy, logo, and brand fonts are overlaid deterministically.
                         </p>
-                        <button
-                          onClick={handleApplyDeterministicDesign}
-                          className="w-full py-2 bg-white hover:bg-neutral-50 border border-black/[0.08] text-[#1D1D1F] text-xs font-medium rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5"
-                        >
-                          <Palette className="w-3.5 h-3.5 text-[#FF4500]" />
-                          <span>Apply Brand System design</span>
-                        </button>
                       </div>
 
-                      {/* Method 2: AI Image with Provider Selector Dropdown */}
+                      {/* Deterministic Template Selector (for Posters & Cards) */}
+                      {!isCarousel && (
+                        <div className="bg-[#FBFBFD] p-3 rounded-2xl border border-black/[0.06] space-y-2">
+                          <label className="text-[11px] font-bold text-[#1D1D1F] block">
+                            Brand Layout Template
+                          </label>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {[
+                              { id: 'editorial_poster', label: 'Editorial' },
+                              { id: 'quote_card', label: 'Quote Card' },
+                              { id: 'infographic_flyer', label: 'Infographic' }
+                            ].map((tmpl) => (
+                              <button
+                                key={tmpl.id}
+                                onClick={() => {
+                                  setCompositionTemplate(tmpl.id as CompositionTemplateId);
+                                  handleApplyBrandLayout(tmpl.id as CompositionTemplateId);
+                                }}
+                                className={`px-2 py-1.5 rounded-xl text-[11px] font-semibold transition-all cursor-pointer text-center ${
+                                  compositionTemplate === tmpl.id
+                                    ? 'bg-[#1D1D1F] text-white shadow-xs'
+                                    : 'bg-white hover:bg-neutral-100 text-[#6E6E73] border border-black/[0.06]'
+                                }`}
+                              >
+                                {tmpl.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ACTION 1: Generate Visual (AI Background Only) */}
                       {(() => {
                         const currentOption = IMAGE_PROVIDER_OPTIONS.find((p) => p.id === selectedImageProvider) || IMAGE_PROVIDER_OPTIONS[0];
                         const currentCfg = providersData[selectedImageProvider];
                         const configuredOptions = IMAGE_PROVIDER_OPTIONS.filter((opt) => Boolean(providersData[opt.id]?.hasKey));
                         const isConfigured = Boolean(currentCfg?.hasKey);
-                        const isServerSecret = currentCfg?.source === 'server_secret';
-                        const statusLabel = isServerSecret ? 'Configured via server secret' : (isConfigured ? 'Configured' : 'Not configured');
 
                         return (
-                          <div className="bg-[#FBFBFD] p-4 rounded-2xl border border-black/[0.06] space-y-3">
+                          <div className="bg-[#FBFBFD] p-3.5 rounded-2xl border border-black/[0.06] space-y-2.5">
                             <div className="flex items-center justify-between">
-                              <span className="font-medium text-xs text-[#1D1D1F]">AI Image Generation</span>
-                              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
-                                isConfigured ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-600'
-                              }`}>
-                                {statusLabel}
+                              <span className="font-bold text-xs text-[#1D1D1F] flex items-center gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5 text-[#FF4500]" />
+                                <span>1. Generate Visual</span>
+                              </span>
+                              <span className="text-[10px] text-[#86868B] font-medium">
+                                Background only
                               </span>
                             </div>
 
-                            {/* Provider selector dropdown */}
-                            <div className="space-y-1">
-                              <label className="text-[11px] font-semibold text-[#6E6E73] block">
-                                Image Provider
-                              </label>
-                              <select
-                                value={selectedImageProvider}
-                                onChange={(e) => setSelectedImageProvider(e.target.value as ImageProviderOptionId)}
-                                className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs font-semibold text-[#1D1D1F] outline-none shadow-2xs focus:border-[#FF4500] cursor-pointer"
-                              >
-                                {configuredOptions.length > 0 ? configuredOptions.map((opt) => (
-                                  <option key={opt.id} value={opt.id}>
-                                    {opt.title} {opt.badge ? `(${opt.badge})` : ''}
-                                  </option>
-                                )) : (
-                                  <option value={selectedImageProvider}>No configured AI image provider</option>
-                                )}
-                              </select>
-                            </div>
-
-                            {/* Active Provider Info Card with required UI copy */}
-                            <div className="rounded-xl border border-black/[0.06] bg-white p-3 space-y-1.5 shadow-2xs">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-xs font-bold text-[#1D1D1F]">{currentOption.title}</span>
-                                  {currentOption.badge && (
-                                    <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded">
-                                      {currentOption.badge}
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-[10px] font-mono text-[#86868B]">
-                                  {selectedImageProvider === 'cloudflare' ? 'FLUX Schnell' : selectedImageProvider === 'openai' ? 'GPT Image 2' : 'Flash Image'}
-                                </span>
-                              </div>
-
-                              <p className="text-xs text-[#6E6E73] leading-relaxed">
-                                {currentOption.helperText}
-                              </p>
-
-                              {currentOption.exampleHint && (
-                                <p className="text-[11px] text-[#86868B] italic leading-normal border-t border-black/[0.04] pt-1.5">
-                                  {currentOption.exampleHint}
-                                </p>
+                            {/* Provider Dropdown */}
+                            <select
+                              value={selectedImageProvider}
+                              onChange={(e) => setSelectedImageProvider(e.target.value as ImageProviderOptionId)}
+                              className="w-full rounded-xl border border-black/[0.08] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#1D1D1F] outline-none shadow-2xs focus:border-[#FF4500] cursor-pointer"
+                            >
+                              {configuredOptions.length > 0 ? configuredOptions.map((opt) => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.title} {opt.badge ? `(${opt.badge})` : ''}
+                                </option>
+                              )) : (
+                                <option value={selectedImageProvider}>No configured AI image provider</option>
                               )}
-                            </div>
+                            </select>
 
                             <button
                               onClick={handleGenerateImage}
                               disabled={isGenerating || !isConfigured}
-                              className="w-full py-2.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-medium rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                              className="w-full py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white text-xs font-semibold rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                             >
                               <Sparkles className="w-3.5 h-3.5" />
-                              <span>{isGenerating ? 'Synthesizing…' : 'Generate Image'}</span>
+                              <span>
+                                {isGenerating
+                                  ? 'Generating visual…'
+                                  : generatedBackgroundUrl
+                                  ? 'Regenerate visual'
+                                  : 'Generate visual'}
+                              </span>
                             </button>
-
-                            {!isConfigured ? (
-                              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
-                                No working credential is available for this provider. Configure an image provider in AI & Media Settings before generating.
-                                {onOpenSettings && (
-                                  <button onClick={onOpenSettings} className="ml-1 font-semibold underline underline-offset-2">Open settings</button>
-                                )}
-                              </div>
-                            ) : (
-                              <p className="text-[11px] text-[#86868B] leading-relaxed text-center px-1">
-                                Only configured image providers are shown. Autonoma will keep brand typography out of the AI image and apply accurate text through the Brand System renderer.
-                              </p>
-                            )}
+                            <p className="text-[10px] text-[#86868B] leading-tight">
+                              Generates clean background imagery with negative space for typography.
+                            </p>
                           </div>
                         );
                       })()}
 
-                      {/* Method 3: External AI */}
-                      <div className="bg-[#FBFBFD] p-4 rounded-2xl border border-black/[0.06] space-y-2">
+                      {/* ACTION 2: Apply Brand Layout & Typography */}
+                      <div className="bg-[#FBFBFD] p-3.5 rounded-2xl border border-black/[0.06] space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-xs text-[#1D1D1F]">External AI</span>
-                          <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">BYOK</span>
+                          <span className="font-bold text-xs text-[#1D1D1F] flex items-center gap-1.5">
+                            <Layout className="w-3.5 h-3.5 text-[#FF4500]" />
+                            <span>2. Apply Brand Layout</span>
+                          </span>
+                          <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-medium">
+                            Deterministic
+                          </span>
                         </div>
-                        <p className="text-xs text-[#6E6E73]">
-                          Copy the optimized prompt to generate in Midjourney or AI Studio Web.
+
+                        <p className="text-[11px] text-[#6E6E73] leading-relaxed">
+                          Overlays real campaign copy, brand logo, colors, and CTA onto the visual.
                         </p>
+
                         <button
-                          onClick={() => copyToClipboard(activePrompt, setCopiedPrompt)}
-                          className="w-full py-2 bg-white hover:bg-neutral-50 border border-black/[0.08] text-[#1D1D1F] text-xs font-medium rounded-xl transition-all shadow-sm"
+                          onClick={() => handleApplyBrandLayout()}
+                          disabled={isComposingLayout}
+                          className="w-full py-2 bg-white hover:bg-neutral-50 border border-black/[0.08] text-[#1D1D1F] text-xs font-semibold rounded-xl transition-all shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer"
                         >
-                          {copiedPrompt ? 'Prompt copied' : 'Copy prompt'}
+                          <RefreshCw className={`w-3.5 h-3.5 text-[#FF4500] ${isComposingLayout ? 'animate-spin' : ''}`} />
+                          <span>{finalRenderableReady ? 'Recompose brand layout' : 'Apply brand layout'}</span>
                         </button>
+
+                        {/* Optional Inline Copy Editor Toggle */}
+                        <div className="pt-1 border-t border-black/[0.04]">
+                          <button
+                            onClick={() => setShowCopyEditor(!showCopyEditor)}
+                            className="text-[11px] text-[#FF4500] hover:underline font-medium flex items-center gap-1 cursor-pointer"
+                          >
+                            <FileText className="w-3 h-3" />
+                            <span>{showCopyEditor ? 'Hide layout copy editor' : 'Edit layout copy…'}</span>
+                          </button>
+
+                          {showCopyEditor && (
+                            <div className="mt-2 space-y-2 bg-white p-3 rounded-xl border border-black/[0.06] animate-in fade-in duration-150">
+                              <div>
+                                <label className="text-[10px] font-bold text-[#6E6E73] block mb-1">Headline</label>
+                                <input
+                                  type="text"
+                                  value={customHeadline}
+                                  onChange={(e) => setCustomHeadline(e.target.value)}
+                                  className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-black/[0.08] focus:border-[#FF4500] outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-[#6E6E73] block mb-1">Hook / Subheadline</label>
+                                <textarea
+                                  rows={2}
+                                  value={customHook}
+                                  onChange={(e) => setCustomHook(e.target.value)}
+                                  className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-black/[0.08] focus:border-[#FF4500] outline-none resize-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-[#6E6E73] block mb-1">Call to Action</label>
+                                <input
+                                  type="text"
+                                  value={customCta}
+                                  onChange={(e) => setCustomCta(e.target.value)}
+                                  className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-black/[0.08] focus:border-[#FF4500] outline-none"
+                                />
+                              </div>
+                              <button
+                                onClick={() => handleApplyBrandLayout()}
+                                className="w-full py-1.5 bg-[#FF4500] text-white text-[11px] font-semibold rounded-lg hover:bg-[#EA3E00] transition-colors cursor-pointer"
+                              >
+                                Update & Recompose
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* ACTION 3: Export Final Creative */}
+                      <div className="bg-[#FBFBFD] p-3.5 rounded-2xl border border-black/[0.06] space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-[#1D1D1F] flex items-center gap-1.5">
+                            <FileDown className="w-3.5 h-3.5 text-[#FF4500]" />
+                            <span>3. Download Final Creative</span>
+                          </span>
+                          {/* Export Format Selector */}
+                          <div className="flex items-center gap-1 text-[10px] font-bold">
+                            {(['png', 'jpeg', 'pdf'] as const).map((fmt) => (
+                              <button
+                                key={fmt}
+                                onClick={() => setExportFormat(fmt)}
+                                className={`px-2 py-0.5 rounded uppercase cursor-pointer ${
+                                  exportFormat === fmt
+                                    ? 'bg-[#1D1D1F] text-white shadow-2xs'
+                                    : 'bg-black/[0.04] text-[#6E6E73] hover:text-[#1D1D1F]'
+                                }`}
+                              >
+                                {fmt === 'jpeg' ? 'JPG' : fmt.toUpperCase()}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {finalRenderableReady || deterministicCanvasUrl ? (
+                          <div className="space-y-1.5">
+                            <button
+                              onClick={handleDownloadFinal}
+                              className="w-full py-2.5 bg-[#1D1D1F] hover:bg-black text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download Final Creative ({exportFormat === 'jpeg' ? 'JPG' : exportFormat.toUpperCase()})</span>
+                            </button>
+
+                            {isCarousel && (
+                              <button
+                                onClick={handleDownloadAllSlides}
+                                className="w-full py-2 bg-white hover:bg-neutral-50 border border-black/[0.08] text-[#1D1D1F] text-xs font-semibold rounded-xl transition-all shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer"
+                              >
+                                <Download className="w-3.5 h-3.5 text-[#FF4500]" />
+                                <span>Download All Slides ({exportFormat === 'jpeg' ? 'JPG' : exportFormat.toUpperCase()})</span>
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200/60 text-[11px] text-amber-900 leading-snug">
+                            Click <strong>Apply brand layout</strong> above to compose your deliverable before downloading.
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1288,7 +1708,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
                 </button>
 
                 <button
-                  onClick={handleDownloadSingle}
+                  onClick={handleDownloadFinal}
                   className="p-4 bg-[#FBFBFD] hover:bg-neutral-100 rounded-2xl border border-black/[0.06] text-left transition-colors flex items-center justify-between"
                 >
                   <div>
@@ -1346,7 +1766,7 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
               </button>
             ) : (
               <button
-                onClick={handleDownloadSingle}
+                onClick={handleDownloadFinal}
                 className="flex-1 sm:flex-none justify-center px-3.5 py-2.5 bg-white hover:bg-neutral-50 text-[#1D1D1F] border border-black/[0.08] text-xs font-medium rounded-xl shadow-xs transition-all flex items-center space-x-1.5 min-h-[40px]"
               >
                 <Download className="w-3.5 h-3.5 shrink-0" />

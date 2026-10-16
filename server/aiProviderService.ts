@@ -16,6 +16,7 @@ export interface ImageGenerationRequest {
   providerId?: string;
   modelName?: string;
   platform?: string;
+  format?: string;
   language?: string;
   objective?: string;
 }
@@ -518,17 +519,17 @@ export class AiProviderService {
       }
     }
 
-    // AI image models are used for imagery/backgrounds only. Brand typography and
-    // exact copy are rendered deterministically by the client so campaign text is never
-    // misspelled or hallucinated inside generated pixels.
+    // Deterministic Overlay Pipeline: AI models generate visual/background imagery only.
+    // Real campaign text, exact headlines, CTA, labels, and company logo are rendered
+    // deterministically by Autonoma using the Brand Design System.
     enriched = `${enriched}
 
-STRICT OUTPUT RULES:
-- Generate the visual/background/composition only.
-- Do NOT render readable words, headlines, captions, labels, UI text, watermarks, or fake logos.
-- Do NOT imitate or invent a company logo.
-- Leave clean negative space for deterministic brand typography and logo placement.
-- Prioritize photorealistic or illustration quality, composition, lighting, subject accuracy, and brand palette.`;
+CRITICAL PRODUCTION DIRECTIVE — TEXT-SAFE BACKGROUND ONLY:
+- Generate the background / supporting visual ONLY.
+- Absolutely DO NOT render any readable text, letters, words, headlines, captions, labels, or numbers.
+- Absolutely DO NOT render any fake logos, company crests, watermarks, UI mockups, or signatures.
+- Leave clean, uncluttered negative space in the composition (e.g. upper or lower third) for deterministic brand typography and real logo overlay.
+- Follow the brand tone, palette, and visual style. Focus strictly on photographic realism or illustrative mood, lighting, depth, composition, and subject accuracy.`;
 
     return enriched;
   }

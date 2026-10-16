@@ -74,6 +74,7 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
   const [companyName, setCompanyName] = useState('Your Brand');
   const [brand, setBrand] = useState<BrandDesignSystem>(DEFAULT_BRAND);
   const [brandLoaded, setBrandLoaded] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'composed' | 'mockup' | 'background'>('composed');
 
   useEffect(() => {
     let mounted = true;
@@ -239,67 +240,135 @@ export const CreativeStudioView: React.FC<CreativeStudioViewProps> = ({
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
         <div className="lg:col-span-7 rounded-3xl border border-black/[0.07] bg-white p-4 sm:p-8 shadow-sm">
-          <div className="mx-auto mb-4 flex w-full max-w-md items-center justify-between text-xs text-[#6E6E73]">
-            <span className="flex items-center gap-1.5 font-medium text-[#1D1D1F]"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: palette.accent }} />{activeAsset.format.replace(/_/g, ' ')}</span>
-            <span>{isVideo ? '1080 × 1920 (9:16)' : '1080 × 1350 (4:5)'}</span>
-          </div>
+          {(() => {
+            const composedSlideUrl = slides.length ? activeAsset.carouselSlideComposedUrls?.[currentSlideIndex + 1] : null;
+            const effectiveComposedUrl = composedSlideUrl || activeAsset.composedAssetUrl;
+            const rawBgUrl = (slides.length ? (activeAsset.carouselSlideBackgrounds?.[currentSlideIndex + 1] || activeAsset.carouselSlideVisuals?.[currentSlideIndex + 1]) : null) || activeAsset.generatedBackgroundUrl;
+            const hasComposed = Boolean(effectiveComposedUrl);
+            const hasRawBg = Boolean(rawBgUrl);
 
-          {isVideo ? (
-            <div
-              className="relative mx-auto flex aspect-[9/16] w-full max-w-[330px] flex-col justify-between overflow-hidden rounded-[28px] border shadow-2xl"
-              style={{ backgroundColor: palette.background, color: previewTextColor, borderColor: palette.border, fontFamily: `${palette.bodyFont}, Arial, sans-serif` }}
-            >
-              {activeAsset.generatedImageUrl && <img src={activeAsset.generatedImageUrl} alt="Generated creative" className="absolute inset-0 h-full w-full object-cover opacity-25" />}
-              <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 90% 5%, ${hexToRgba(palette.accent, 0.18)}, transparent 45%)` }} />
-              <div className="relative z-10 flex items-center justify-between p-5 text-[10px] font-medium">
-                <span className="rounded-full px-2.5 py-1" style={{ backgroundColor: palette.primary, color: inverseText }}>{companyName.toUpperCase()}</span>
-                <span style={{ color: palette.muted }}>{playbackTime.toFixed(1)}s / 30.0s</span>
-              </div>
-              <div className="relative z-10 px-6 text-center">
-                <span className="inline-flex rounded-full px-3 py-1 text-[10px] font-semibold" style={{ backgroundColor: palette.soft, color: palette.primary }}>SCENE {currentSceneIndex + 1}</span>
-                <h2 className="mt-4 text-2xl font-bold leading-tight" style={{ color: palette.text, fontFamily: `${palette.headingFont}, Arial, sans-serif` }}>{currentScene?.hookText || activeAsset.hook}</h2>
-                <p className="mt-3 text-sm leading-relaxed" style={{ color: palette.muted }}>{currentScene?.onScreenCaption || activeAsset.caption.slice(0, 150)}</p>
-              </div>
-              <div className="relative z-10 p-5">
-                <div className="rounded-2xl border p-4 text-xs leading-relaxed" style={{ backgroundColor: hexToRgba(palette.text, isDark(palette.background) ? 0.08 : 0.035), borderColor: palette.border, color: palette.text }}>
-                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide" style={{ color: palette.accent }}>Visual direction</span>
-                  {currentScene?.visualFocus || brand.visualStyleNotes || activeAsset.posterVisualPrompt || 'Follow the saved brand system.'}
+            return (
+              <>
+                <div className="mx-auto mb-4 flex w-full max-w-md items-center justify-between text-xs text-[#6E6E73]">
+                  <span className="flex items-center gap-1.5 font-medium text-[#1D1D1F]">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: palette.accent }} />
+                    {activeAsset.format.replace(/_/g, ' ')}
+                  </span>
+                  {!isVideo && (hasComposed || hasRawBg) ? (
+                    <div className="flex items-center gap-1 bg-[#F5F5F7] p-1 rounded-xl text-[11px]">
+                      {hasComposed && (
+                        <button
+                          onClick={() => setPreviewMode('composed')}
+                          className={`px-2 py-0.5 rounded-lg cursor-pointer transition-all ${
+                            previewMode === 'composed'
+                              ? 'bg-white text-[#1D1D1F] shadow-xs font-semibold'
+                              : 'text-[#6E6E73] hover:text-[#1D1D1F]'
+                          }`}
+                        >
+                          Composed
+                        </button>
+                      )}
+                      {hasRawBg && (
+                        <button
+                          onClick={() => setPreviewMode('background')}
+                          className={`px-2 py-0.5 rounded-lg cursor-pointer transition-all ${
+                            previewMode === 'background'
+                              ? 'bg-white text-[#1D1D1F] shadow-xs font-semibold'
+                              : 'text-[#6E6E73] hover:text-[#1D1D1F]'
+                          }`}
+                        >
+                          Raw Visual
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setPreviewMode('mockup')}
+                        className={`px-2 py-0.5 rounded-lg cursor-pointer transition-all ${
+                          previewMode === 'mockup' || (!hasComposed && !hasRawBg)
+                            ? 'bg-white text-[#1D1D1F] shadow-xs font-semibold'
+                            : 'text-[#6E6E73] hover:text-[#1D1D1F]'
+                        }`}
+                      >
+                        Layout
+                      </button>
+                    </div>
+                  ) : (
+                    <span>{isVideo ? '1080 × 1920 (9:16)' : '1080 × 1350 (4:5)'}</span>
+                  )}
                 </div>
-                <div className="mt-4 h-1 overflow-hidden rounded-full" style={{ backgroundColor: palette.border }}><div className="h-full transition-all" style={{ width: `${(playbackTime / 30) * 100}%`, backgroundColor: palette.accent }} /></div>
-              </div>
-            </div>
-          ) : (
-            <div
-              className="relative mx-auto flex aspect-[4/5] w-full max-w-[420px] flex-col overflow-hidden rounded-[28px] border p-7 shadow-2xl"
-              style={{ backgroundColor: palette.background, color: previewTextColor, borderColor: palette.border, fontFamily: `${palette.bodyFont}, Arial, sans-serif` }}
-            >
-              {activeAsset.generatedImageUrl && <img src={activeAsset.generatedImageUrl} alt="Generated creative" className="absolute inset-0 h-full w-full object-cover opacity-20" />}
-              <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 88% 8%, ${hexToRgba(palette.accent, 0.16)}, transparent 42%)` }} />
-              <div className="relative z-10 flex items-center justify-between border-b pb-4" style={{ borderColor: palette.border }}>
-                <div className="flex items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-black" style={{ backgroundColor: palette.primary, color: inverseText }}>{companyName.slice(0, 1).toUpperCase()}</span>
-                  <span className="text-xs font-semibold tracking-wide" style={{ color: palette.text }}>{companyName.toUpperCase()}</span>
-                </div>
-                <span className="text-xs font-semibold" style={{ color: palette.accent }}>{slides.length ? `${currentSlideIndex + 1}/${slides.length}` : activeAsset.platform.toUpperCase()}</span>
-              </div>
 
-              <div className="relative z-10 my-auto py-6">
-                <span className="inline-flex rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wide" style={{ backgroundColor: palette.soft, color: palette.primary }}>{currentSlide?.badge || activeAsset.strategicPurpose || 'CAMPAIGN CREATIVE'}</span>
-                <h2 className="mt-5 text-3xl font-bold leading-[1.05]" style={{ color: palette.text, fontFamily: `${palette.headingFont}, Arial, sans-serif` }}>{currentSlide?.headline || activeAsset.title}</h2>
-                {(currentSlide?.subtext || activeAsset.hook) && <p className="mt-4 text-sm leading-relaxed" style={{ color: palette.muted }}>{currentSlide?.subtext || activeAsset.hook}</p>}
-                {Array.isArray(currentSlide?.body) && currentSlide.body.length > 0 && (
-                  <div className="mt-5 space-y-2">
-                    {currentSlide.body.slice(0, 3).map((item, idx) => <div key={idx} className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: palette.border, backgroundColor: hexToRgba(palette.text, isDark(palette.background) ? 0.07 : 0.025), color: palette.text }}>{String(item)}</div>)}
+                {isVideo ? (
+                  <div
+                    className="relative mx-auto flex aspect-[9/16] w-full max-w-[330px] flex-col justify-between overflow-hidden rounded-[28px] border shadow-2xl"
+                    style={{ backgroundColor: palette.background, color: previewTextColor, borderColor: palette.border, fontFamily: `${palette.bodyFont}, Arial, sans-serif` }}
+                  >
+                    {activeAsset.generatedImageUrl && <img src={activeAsset.generatedImageUrl} alt="Generated creative" className="absolute inset-0 h-full w-full object-cover opacity-25" />}
+                    <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 90% 5%, ${hexToRgba(palette.accent, 0.18)}, transparent 45%)` }} />
+                    <div className="relative z-10 flex items-center justify-between p-5 text-[10px] font-medium">
+                      <span className="rounded-full px-2.5 py-1" style={{ backgroundColor: palette.primary, color: inverseText }}>{companyName.toUpperCase()}</span>
+                      <span style={{ color: palette.muted }}>{playbackTime.toFixed(1)}s / 30.0s</span>
+                    </div>
+                    <div className="relative z-10 px-6 text-center">
+                      <span className="inline-flex rounded-full px-3 py-1 text-[10px] font-semibold" style={{ backgroundColor: palette.soft, color: palette.primary }}>SCENE {currentSceneIndex + 1}</span>
+                      <h2 className="mt-4 text-2xl font-bold leading-tight" style={{ color: palette.text, fontFamily: `${palette.headingFont}, Arial, sans-serif` }}>{currentScene?.hookText || activeAsset.hook}</h2>
+                      <p className="mt-3 text-sm leading-relaxed" style={{ color: palette.muted }}>{currentScene?.onScreenCaption || activeAsset.caption.slice(0, 150)}</p>
+                    </div>
+                    <div className="relative z-10 p-5">
+                      <div className="rounded-2xl border p-4 text-xs leading-relaxed" style={{ backgroundColor: hexToRgba(palette.text, isDark(palette.background) ? 0.08 : 0.035), borderColor: palette.border, color: palette.text }}>
+                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide" style={{ color: palette.accent }}>Visual direction</span>
+                        {currentScene?.visualFocus || brand.visualStyleNotes || activeAsset.posterVisualPrompt || 'Follow the saved brand system.'}
+                      </div>
+                      <div className="mt-4 h-1 overflow-hidden rounded-full" style={{ backgroundColor: palette.border }}><div className="h-full transition-all" style={{ width: `${(playbackTime / 30) * 100}%`, backgroundColor: palette.accent }} /></div>
+                    </div>
+                  </div>
+                ) : (!isVideo && hasComposed && previewMode === 'composed') ? (
+                  <div
+                    className="relative mx-auto flex aspect-[4/5] w-full max-w-[420px] flex-col overflow-hidden rounded-[28px] border shadow-2xl bg-black"
+                    style={{ borderColor: palette.border }}
+                  >
+                    <img src={effectiveComposedUrl} alt="Composed Brand Deliverable" className="w-full h-full object-contain" />
+                  </div>
+                ) : (!isVideo && hasRawBg && previewMode === 'background') ? (
+                  <div
+                    className="relative mx-auto flex aspect-[4/5] w-full max-w-[420px] flex-col overflow-hidden rounded-[28px] border shadow-2xl bg-black"
+                    style={{ borderColor: palette.border }}
+                  >
+                    <img src={rawBgUrl} alt="Raw Background Visual" className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div
+                    className="relative mx-auto flex aspect-[4/5] w-full max-w-[420px] flex-col overflow-hidden rounded-[28px] border p-7 shadow-2xl"
+                    style={{ backgroundColor: palette.background, color: previewTextColor, borderColor: palette.border, fontFamily: `${palette.bodyFont}, Arial, sans-serif` }}
+                  >
+                    {activeAsset.generatedImageUrl && <img src={activeAsset.generatedImageUrl} alt="Generated creative" className="absolute inset-0 h-full w-full object-cover opacity-20" />}
+                    <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 88% 8%, ${hexToRgba(palette.accent, 0.16)}, transparent 42%)` }} />
+                    <div className="relative z-10 flex items-center justify-between border-b pb-4" style={{ borderColor: palette.border }}>
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-black" style={{ backgroundColor: palette.primary, color: inverseText }}>{companyName.slice(0, 1).toUpperCase()}</span>
+                        <span className="text-xs font-semibold tracking-wide" style={{ color: palette.text }}>{companyName.toUpperCase()}</span>
+                      </div>
+                      <span className="text-xs font-semibold" style={{ color: palette.accent }}>{slides.length ? `${currentSlideIndex + 1}/${slides.length}` : activeAsset.platform.toUpperCase()}</span>
+                    </div>
+
+                    <div className="relative z-10 my-auto py-6">
+                      <span className="inline-flex rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wide" style={{ backgroundColor: palette.soft, color: palette.primary }}>{currentSlide?.badge || activeAsset.strategicPurpose || 'CAMPAIGN CREATIVE'}</span>
+                      <h2 className="mt-5 text-3xl font-bold leading-[1.05]" style={{ color: palette.text, fontFamily: `${palette.headingFont}, Arial, sans-serif` }}>{currentSlide?.headline || activeAsset.title}</h2>
+                      {(currentSlide?.subtext || activeAsset.hook) && <p className="mt-4 text-sm leading-relaxed" style={{ color: palette.muted }}>{currentSlide?.subtext || activeAsset.hook}</p>}
+                      {Array.isArray(currentSlide?.body) && currentSlide.body.length > 0 && (
+                        <div className="mt-5 space-y-2">
+                          {currentSlide.body.slice(0, 3).map((item, idx) => <div key={idx} className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: palette.border, backgroundColor: hexToRgba(palette.text, isDark(palette.background) ? 0.07 : 0.025), color: palette.text }}>{String(item)}</div>)}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="relative z-10 flex items-center justify-between border-t pt-4 text-[11px]" style={{ borderColor: palette.border, color: palette.muted }}>
+                      <span>{brand.visualStyleNotes || 'Brand-aligned creative'}</span>
+                      <span className="font-semibold" style={{ color: palette.accent }}>{activeAsset.platform.toUpperCase()}</span>
+                    </div>
                   </div>
                 )}
-              </div>
-
-              <div className="relative z-10 flex items-center justify-between border-t pt-4 text-[11px]" style={{ borderColor: palette.border, color: palette.muted }}>
-                <span>{brand.visualStyleNotes || 'Brand-aligned creative'}</span>
-                <span className="font-semibold" style={{ color: palette.accent }}>{activeAsset.platform.toUpperCase()}</span>
-              </div>
-            </div>
-          )}
+              </>
+            );
+          })()}
 
           <div className="mx-auto mt-6 flex w-full max-w-md items-center justify-between text-xs">
             {isVideo ? (
