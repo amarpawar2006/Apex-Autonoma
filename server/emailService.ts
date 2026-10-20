@@ -142,7 +142,7 @@ export class TransactionalEmailService {
     </div>
 
     <div class="cta-container">
-      <a href="${inviteLink}" class="cta-btn">Accept Invitation & Join Workspace</a>
+      <a href="${inviteLink}" class="cta-btn">Set Password & Join Workspace</a>
     </div>
 
     <p style="font-size: 12px; color: #6B7280;">If the button above does not work, copy and paste this link into your browser:</p>
@@ -160,7 +160,7 @@ export class TransactionalEmailService {
       to: toEmail,
       subject,
       html,
-      text: `Hello ${toName},\n\nYou have been invited to join ${companyName} as a ${roleLabel} on Autonoma.\n\nAccept your invitation: ${inviteLink}\n`
+      text: `Hello ${toName},\n\nYou have been invited to join ${companyName} as a ${roleLabel} on Autonoma.\n\nSet your password and join the workspace: ${inviteLink}\n`
     });
   }
 
