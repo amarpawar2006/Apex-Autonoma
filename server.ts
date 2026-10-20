@@ -565,11 +565,14 @@ async function startServer() {
       return { error: 'ACCOUNT_SUSPENDED', message: 'Your account has been suspended by an administrator.' };
     }
 
+    if (normalizeAuthEmail(user.email) === INITIAL_SUPER_ADMIN_EMAIL) {
+      user.isSuperAdmin = true;
+      user.status = 'ACTIVE';
+    }
     user.lastLoginAt = new Date().toISOString();
     await autonomaDb.saveUser(user);
 
-    if (user.isSuperAdmin || normalizeAuthEmail(user.email) === INITIAL_SUPER_ADMIN_EMAIL) {
-      user.isSuperAdmin = true;
+    if (user.isSuperAdmin) {
       if (!autonomaDb.getMemberships(user.userId).some(m => m.companyId === DEFAULT_ORG_ID)) {
         await autonomaDb.createMembership(user.userId, DEFAULT_ORG_ID, 'COMPANY_ADMIN', 'SYSTEM');
       }
