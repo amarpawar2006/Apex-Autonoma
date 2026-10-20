@@ -90,6 +90,7 @@ export const InviteLandingPage: React.FC<InviteLandingPageProps> = ({ onLoginSuc
 
       if (data.token) localStorage.setItem('autonoma_session_token', data.token);
       window.history.replaceState({}, '', '/');
+      window.dispatchEvent(new PopStateEvent('popstate'));
       onLoginSuccess(data);
     } catch (err: any) {
       setError(err?.message || 'Failed to activate account.');
