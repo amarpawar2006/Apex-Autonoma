@@ -32,6 +32,7 @@ import { ArchiveView } from './components/ArchiveView';
 // Auth & Admin Views
 import { LoginPage } from './components/auth/LoginPage';
 import { AwaitingApprovalView } from './components/auth/AwaitingApprovalView';
+import { ResetPasswordPage } from './components/auth/ResetPasswordPage';
 import { SuperAdminWorkspace } from './components/admin/SuperAdminWorkspace';
 import { CompanyManagementModal } from './components/admin/CompanyManagementModal';
 import { GuidedHelpCard } from './components/GuidedHelpCard';
@@ -473,6 +474,9 @@ export default function App() {
   }
   if (currentPath === '/invite') {
     return <InviteLandingPage onLoginSuccess={handleLoginSuccess} />;
+  }
+  if (currentPath === '/reset-password') {
+    return <ResetPasswordPage onLoginSuccess={handleLoginSuccess} />;
   }
 
   // 1. Loading screen during session restoration
