@@ -1358,9 +1358,10 @@ async function startServer() {
     return 'https://autonoma.apex-engineering.co.in';
   }
 
-  function buildProductionInviteLink(req: Request, membershipId: string, companyId: string): string {
+  function buildProductionInviteLink(req: Request, membershipId: string, companyId: string, setupToken?: string): string {
     const base = getProductionAppBaseUrl(req);
-    return `${base}/invite?membership=${encodeURIComponent(membershipId)}&company=${encodeURIComponent(companyId)}`;
+    const tokenPart = setupToken ? `&token=${encodeURIComponent(setupToken)}` : '';
+    return `${base}/invite?membership=${encodeURIComponent(membershipId)}&company=${encodeURIComponent(companyId)}${tokenPart}`;
   }
 
   // Public unauthenticated invite endpoints
@@ -1368,9 +1369,10 @@ async function startServer() {
     try {
       const membershipId = (req.query.membership || req.query.membershipId || req.query.invite || '') as string;
       const companyId = (req.query.company || req.query.companyId || '') as string;
+      const token = String(req.query.token || '');
 
-      if (!membershipId || !companyId) {
-        return res.status(400).json({ success: false, valid: false, error: 'Missing membership or company parameter' });
+      if (!membershipId || !companyId || !token) {
+        return res.status(400).json({ success: false, valid: false, error: 'This invitation link is incomplete or expired. Ask your administrator to resend it.' });
       }
 
       const membership = autonomaDb.getMembership(membershipId);
@@ -1390,6 +1392,18 @@ async function startServer() {
       const user = autonomaDb.getUser(membership.userId);
       if (!user) {
         return res.status(404).json({ success: false, valid: false, error: 'User record not found' });
+      }
+
+      const credential = await supabaseStorage.getAuthCredentialByResetTokenHash(hashResetToken(token));
+      const tokenValid = Boolean(
+        credential &&
+        credential.user_id === user.userId &&
+        !credential.reset_used_at &&
+        credential.reset_expires_at &&
+        new Date(credential.reset_expires_at).getTime() > Date.now()
+      );
+      if (!tokenValid) {
+        return res.status(400).json({ success: false, valid: false, error: 'This invitation link is invalid or expired. Ask your administrator to resend it.' });
       }
 
       // Mask email for privacy (e.g. j***e@example.com)
@@ -1418,82 +1432,77 @@ async function startServer() {
 
   app.post('/api/invite/accept', async (req: Request, res: Response) => {
     try {
-      const { credential, membershipId, companyId } = req.body || {};
-      if (!credential || !membershipId || !companyId) {
-        return res.status(400).json({ success: false, error: 'MISSING_PARAMS', message: 'Credential, membershipId, and companyId are required' });
+      const { token, password, membershipId, companyId } = req.body || {};
+      const policyError = validatePasswordPolicy(password);
+      if (!token || !membershipId || !companyId || policyError) {
+        return res.status(400).json({
+          success: false,
+          error: 'MISSING_PARAMS',
+          message: policyError || 'Invitation token, membership, company, and password are required.'
+        });
       }
 
       const membership = autonomaDb.getMembership(membershipId);
       if (!membership || membership.companyId !== companyId) {
-        return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Invitation record not found or company mismatch' });
+        return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Invitation record not found or company mismatch.' });
       }
-
       if (membership.status === 'SUSPENDED') {
-        return res.status(403).json({ success: false, error: 'SUSPENDED', message: 'This membership invitation has been suspended' });
+        return res.status(403).json({ success: false, error: 'SUSPENDED', message: 'This membership invitation has been suspended.' });
       }
 
       const invitedUser = autonomaDb.getUser(membership.userId);
       if (!invitedUser) {
-        return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Invited user account not found' });
+        return res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Invited user account not found.' });
       }
 
-      const googleIdentity = await verifyGoogleCredential(credential);
-      const googleEmailNorm = googleIdentity.email.toLowerCase().trim();
-      const invitedEmailNorm = invitedUser.email.toLowerCase().trim();
-
-      if (googleEmailNorm !== invitedEmailNorm) {
-        return res.status(403).json({
-          success: false,
-          error: 'EMAIL_MISMATCH',
-          message: `Signed in with ${googleIdentity.email}, but this invite was sent to ${invitedUser.email}. Please sign in with the invited email address.`
-        });
+      const credential = await supabaseStorage.getAuthCredentialByResetTokenHash(hashResetToken(String(token)));
+      if (
+        !credential ||
+        credential.user_id !== invitedUser.userId ||
+        credential.reset_used_at ||
+        !credential.reset_expires_at ||
+        new Date(credential.reset_expires_at).getTime() <= Date.now()
+      ) {
+        return res.status(400).json({ success: false, error: 'INVALID_OR_EXPIRED_TOKEN', message: 'This invitation link is invalid or expired. Ask your administrator to resend it.' });
       }
 
-      // Update existing user with Google details without creating duplicate
-      invitedUser.name = googleIdentity.name || invitedUser.name;
-      if (googleIdentity.avatarUrl) {
-        invitedUser.avatarUrl = googleIdentity.avatarUrl;
-      }
+      const hashed = hashPassword(password);
+      await supabaseStorage.upsertAuthCredential(invitedUser.userId, {
+        password_hash: hashed.hash,
+        password_salt: hashed.salt,
+        password_algo: 'scrypt-v1',
+        password_updated_at: new Date().toISOString(),
+        reset_token_hash: null,
+        reset_expires_at: null,
+        reset_used_at: new Date().toISOString(),
+        must_change_password: false,
+        failed_attempts: 0,
+        locked_until: null
+      });
+
       invitedUser.status = 'ACTIVE';
       invitedUser.lastLoginAt = new Date().toISOString();
       await autonomaDb.saveUser(invitedUser);
 
-      // Activate membership and mark accepted
-      const updatedMem = await autonomaDb.updateMembership(membership.membershipId, {
+      await autonomaDb.updateMembership(membership.membershipId, {
         status: 'ACTIVE',
-        inviteStatus: 'SENT'
+        inviteStatus: 'SENT',
+        inviteError: undefined
       });
 
-      // Clear any pending approval request for this user since they were explicitly invited
-      const pendingReq = autonomaDb.getApprovalRequestByEmail(invitedEmailNorm);
+      const pendingReq = autonomaDb.getApprovalRequestByEmail(invitedUser.email);
       if (pendingReq && pendingReq.status === 'PENDING') {
         await autonomaDb.approveRequest(pendingReq.requestId, companyId, membership.role, 'INVITE_ACCEPT');
       }
 
-      // Create session for invited user with target company set as active
-      const session = await autonomaDb.createSession(invitedUser.userId, companyId);
-      const company = autonomaDb.getCompany(companyId);
-      const normCompany = company ? { ...company, id: company.companyId, companyId: company.companyId } : undefined;
-
-      const userMemberships = autonomaDb.getMemberships(invitedUser.userId).map(m => {
-        const c = autonomaDb.getCompany(m.companyId);
-        return {
-          ...m,
-          companyName: c?.name || m.companyId
-        };
-      });
-
-      return res.json({
-        success: true,
-        token: session.sessionToken,
-        user: invitedUser,
-        role: membership.role,
-        activeCompany: normCompany,
-        memberships: userMemberships
-      });
+      const auth = await createPasswordSessionResponse(invitedUser);
+      if (!(auth as any).success) {
+        return res.status(403).json({ success: false, ...auth });
+      }
+      return res.json(auth);
     } catch (err: any) {
-      console.error('[Invite Accept Error]', err);
-      return res.status(500).json({ success: false, error: err?.message || 'Failed to accept invitation' });
+      console.error('[Invite Password Setup Error]', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to activate account.' });
     }
   });
 
@@ -1543,9 +1552,9 @@ async function startServer() {
       }
       const membership = await autonomaDb.createMembership(user.userId, activeCompany.companyId, role, caller.userId);
 
-      // Generate direct onboarding invitation link using production precedence:
-      // PUBLIC_APP_URL -> APP_BASE_URL -> request origin -> https://autonoma.apex-engineering.co.in
-      const inviteLink = buildProductionInviteLink(req, membership.membershipId, activeCompany.companyId);
+      // Issue one-time password setup token (24 hours) and generate the onboarding link.
+      const setupToken = await issuePasswordToken(user.userId, 24 * 60);
+      const inviteLink = buildProductionInviteLink(req, membership.membershipId, activeCompany.companyId, setupToken);
 
       // Dispatch real transactional invite email (Resend / SMTP / System Preview)
       const delivery = await emailService.sendWorkspaceInvite({
@@ -1601,7 +1610,8 @@ async function startServer() {
         return res.status(404).json({ success: false, error: 'User record not found' });
       }
 
-      const inviteLink = buildProductionInviteLink(req, mem.membershipId, activeCompany.companyId);
+      const setupToken = await issuePasswordToken(user.userId, 24 * 60);
+      const inviteLink = buildProductionInviteLink(req, mem.membershipId, activeCompany.companyId, setupToken);
 
       const delivery = await emailService.sendWorkspaceInvite({
         toEmail: user.email,
