@@ -513,6 +513,285 @@ async function startServer() {
   // AUTHENTICATION ENDPOINTS
   // ==========================================
 
+  const normalizeAuthEmail = (value: unknown): string =>
+    String(value || '').toLowerCase().trim();
+
+  const hashResetToken = (token: string): string =>
+    crypto.createHash('sha256').update(token).digest('hex');
+
+  const hashPassword = (password: string, saltHex?: string): { hash: string; salt: string } => {
+    const salt = saltHex ? Buffer.from(saltHex, 'hex') : crypto.randomBytes(16);
+    const derived = crypto.scryptSync(password, salt, 64);
+    return { hash: derived.toString('hex'), salt: salt.toString('hex') };
+  };
+
+  const verifyPassword = (password: string, hashHex: string, saltHex: string): boolean => {
+    try {
+      const expected = Buffer.from(hashHex, 'hex');
+      const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length);
+      return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+    } catch {
+      return false;
+    }
+  };
+
+  const validatePasswordPolicy = (password: unknown): string | null => {
+    if (typeof password !== 'string' || password.length < 10) {
+      return 'Password must be at least 10 characters.';
+    }
+    if (password.length > 200) return 'Password is too long.';
+    return null;
+  };
+
+  const issuePasswordToken = async (userId: string, ttlMinutes: number = 60): Promise<string> => {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    await supabaseStorage.upsertAuthCredential(userId, {
+      reset_token_hash: hashResetToken(rawToken),
+      reset_expires_at: new Date(Date.now() + ttlMinutes * 60_000).toISOString(),
+      reset_used_at: null
+    });
+    return rawToken;
+  };
+
+  const buildPasswordResetLink = (req: Request, rawToken: string, email: string): string => {
+    const base =
+      (process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL || '').trim().replace(/\/$/, '') ||
+      `${req.protocol}://${req.get('host')}`;
+    return `${base}/reset-password?token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(email)}`;
+  };
+
+  const createPasswordSessionResponse = async (user: any) => {
+    if (user.status === 'SUSPENDED') {
+      return { error: 'ACCOUNT_SUSPENDED', message: 'Your account has been suspended by an administrator.' };
+    }
+
+    user.lastLoginAt = new Date().toISOString();
+    await autonomaDb.saveUser(user);
+
+    if (user.isSuperAdmin || normalizeAuthEmail(user.email) === INITIAL_SUPER_ADMIN_EMAIL) {
+      user.isSuperAdmin = true;
+      if (!autonomaDb.getMemberships(user.userId).some(m => m.companyId === DEFAULT_ORG_ID)) {
+        await autonomaDb.createMembership(user.userId, DEFAULT_ORG_ID, 'COMPANY_ADMIN', 'SYSTEM');
+      }
+      const activeCompany = autonomaDb.getCompany(DEFAULT_ORG_ID);
+      const session = await autonomaDb.createSession(user.userId, DEFAULT_ORG_ID);
+      const allActive = autonomaDb.getCompanies().filter(c => c.status === 'ACTIVE');
+      return {
+        success: true,
+        token: session.sessionToken,
+        user,
+        role: 'SUPER_ADMIN',
+        activeCompany: activeCompany ? { ...activeCompany, id: activeCompany.companyId, companyId: activeCompany.companyId } : undefined,
+        memberships: allActive.map(c => ({
+          membershipId: `mem_super_${c.companyId}`,
+          userId: user.userId,
+          companyId: c.companyId,
+          companyName: c.name,
+          role: 'COMPANY_ADMIN' as const,
+          status: 'ACTIVE' as const,
+          assignedAt: user.createdAt,
+          assignedBy: 'SYSTEM'
+        }))
+      };
+    }
+
+    const mems = autonomaDb.getMemberships(user.userId).filter(m => m.status === 'ACTIVE');
+    if (mems.length === 0) {
+      return {
+        error: 'NO_WORKSPACE_ACCESS',
+        message: 'Your account exists but has not been assigned to an active company workspace.'
+      };
+    }
+
+    const activeMem = mems[0];
+    const activeCompany = autonomaDb.getCompany(activeMem.companyId);
+    if (!activeCompany || activeCompany.status === 'SUSPENDED') {
+      return { error: 'COMPANY_SUSPENDED', message: 'Your company workspace has been suspended.' };
+    }
+
+    const session = await autonomaDb.createSession(user.userId, activeCompany.companyId);
+    return {
+      success: true,
+      token: session.sessionToken,
+      user,
+      role: activeMem.role,
+      activeCompany: { ...activeCompany, id: activeCompany.companyId, companyId: activeCompany.companyId },
+      memberships: mems.map(m => ({
+        ...m,
+        companyName: autonomaDb.getCompany(m.companyId)?.name || m.companyId
+      }))
+    };
+  };
+
+  app.post('/api/auth/password-login', async (req: Request, res: Response) => {
+    try {
+      const email = normalizeAuthEmail(req.body?.email);
+      const password = req.body?.password;
+      if (!email || typeof password !== 'string') {
+        return res.status(400).json({ success: false, error: 'INVALID_INPUT', message: 'Email and password are required.' });
+      }
+
+      const user = autonomaDb.getUserByEmail(email);
+      if (!user) {
+        return res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS', message: 'Email or password is incorrect.' });
+      }
+
+      const cred = await supabaseStorage.getAuthCredential(user.userId);
+      if (!cred?.password_hash || !cred?.password_salt) {
+        return res.status(403).json({
+          success: false,
+          error: 'PASSWORD_NOT_SET',
+          message: 'Password login has not been activated for this account yet. Use Forgot password to create one.'
+        });
+      }
+
+      if (cred.locked_until && new Date(cred.locked_until).getTime() > Date.now()) {
+        return res.status(429).json({
+          success: false,
+          error: 'ACCOUNT_TEMPORARILY_LOCKED',
+          message: 'Too many failed attempts. Try again later or reset your password.'
+        });
+      }
+
+      if (!verifyPassword(password, cred.password_hash, cred.password_salt)) {
+        const failedAttempts = Number(cred.failed_attempts || 0) + 1;
+        const lockedUntil = failedAttempts >= 8 ? new Date(Date.now() + 15 * 60_000).toISOString() : null;
+        await supabaseStorage.upsertAuthCredential(user.userId, {
+          failed_attempts: lockedUntil ? 0 : failedAttempts,
+          locked_until: lockedUntil
+        });
+        return res.status(401).json({ success: false, error: 'INVALID_CREDENTIALS', message: 'Email or password is incorrect.' });
+      }
+
+      await supabaseStorage.upsertAuthCredential(user.userId, {
+        failed_attempts: 0,
+        locked_until: null
+      });
+
+      const auth = await createPasswordSessionResponse(user);
+      if (!(auth as any).success) {
+        return res.status((auth as any).error === 'ACCOUNT_SUSPENDED' ? 403 : 403).json({ success: false, ...auth });
+      }
+      return res.json(auth);
+    } catch (err: any) {
+      console.error('[Password Login]', err);
+      return res.status(500).json({ success: false, error: 'AUTH_FAILED', message: err?.message || 'Password sign-in failed.' });
+    }
+  });
+
+  app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
+    const email = normalizeAuthEmail(req.body?.email);
+    const generic = {
+      success: true,
+      message: 'If this email belongs to an Autonoma account, a password reset link has been sent.'
+    };
+
+    try {
+      if (!email) return res.json(generic);
+      const user = autonomaDb.getUserByEmail(email);
+      if (!user || user.status !== 'ACTIVE') return res.json(generic);
+
+      const token = await issuePasswordToken(user.userId, 60);
+      const resetLink = buildPasswordResetLink(req, token, user.email);
+      const delivery = await emailService.dispatchEmail({
+        to: user.email,
+        subject: 'Reset your Autonoma password',
+        html: `
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:auto;padding:32px;color:#1D1D1F">
+            <h2 style="margin:0 0 12px">Reset your Autonoma password</h2>
+            <p style="color:#6E6E73;line-height:1.6">Use the secure one-time link below to create a new password. This link expires in 60 minutes.</p>
+            <p style="margin:28px 0"><a href="${resetLink}" style="background:#FF4500;color:white;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:700">Reset Password</a></p>
+            <p style="font-size:12px;color:#86868B;word-break:break-all">${resetLink}</p>
+            <p style="font-size:12px;color:#86868B">If you did not request this, you can ignore this email.</p>
+          </div>`,
+        text: `Reset your Autonoma password: ${resetLink}\nThis link expires in 60 minutes.`
+      });
+
+      if (!delivery.success) {
+        console.warn('[Forgot Password] Reset email was not delivered:', delivery.error);
+      }
+      return res.json(generic);
+    } catch (err: any) {
+      console.error('[Forgot Password]', err);
+      return res.json(generic);
+    }
+  });
+
+  app.get('/api/auth/reset-token/validate', async (req: Request, res: Response) => {
+    try {
+      const token = String(req.query.token || '');
+      const email = normalizeAuthEmail(req.query.email);
+      if (!token || !email) return res.status(400).json({ success: false, valid: false });
+
+      const user = autonomaDb.getUserByEmail(email);
+      if (!user) return res.status(400).json({ success: false, valid: false });
+      const cred = await supabaseStorage.getAuthCredentialByResetTokenHash(hashResetToken(token));
+      const valid = Boolean(
+        cred &&
+        cred.user_id === user.userId &&
+        !cred.reset_used_at &&
+        cred.reset_expires_at &&
+        new Date(cred.reset_expires_at).getTime() > Date.now()
+      );
+      return res.status(valid ? 200 : 400).json({ success: valid, valid });
+    } catch {
+      return res.status(400).json({ success: false, valid: false });
+    }
+  });
+
+  app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
+    try {
+      const email = normalizeAuthEmail(req.body?.email);
+      const token = String(req.body?.token || '');
+      const password = req.body?.password;
+      const policyError = validatePasswordPolicy(password);
+      if (!email || !token || policyError) {
+        return res.status(400).json({ success: false, error: 'INVALID_INPUT', message: policyError || 'Invalid reset request.' });
+      }
+
+      const user = autonomaDb.getUserByEmail(email);
+      if (!user) return res.status(400).json({ success: false, error: 'INVALID_OR_EXPIRED_TOKEN', message: 'This reset link is invalid or expired.' });
+
+      const tokenHash = hashResetToken(token);
+      const cred = await supabaseStorage.getAuthCredentialByResetTokenHash(tokenHash);
+      if (
+        !cred ||
+        cred.user_id !== user.userId ||
+        cred.reset_used_at ||
+        !cred.reset_expires_at ||
+        new Date(cred.reset_expires_at).getTime() <= Date.now()
+      ) {
+        return res.status(400).json({ success: false, error: 'INVALID_OR_EXPIRED_TOKEN', message: 'This reset link is invalid or expired.' });
+      }
+
+      const hashed = hashPassword(password);
+      await supabaseStorage.upsertAuthCredential(user.userId, {
+        password_hash: hashed.hash,
+        password_salt: hashed.salt,
+        password_algo: 'scrypt-v1',
+        password_updated_at: new Date().toISOString(),
+        reset_token_hash: null,
+        reset_expires_at: null,
+        reset_used_at: new Date().toISOString(),
+        must_change_password: false,
+        failed_attempts: 0,
+        locked_until: null
+      });
+
+      const auth = await createPasswordSessionResponse(user);
+      if (!(auth as any).success) {
+        return res.status(403).json({ success: false, ...auth });
+      }
+      return res.json(auth);
+    } catch (err: any) {
+      console.error('[Reset Password]', err);
+      return res.status(500).json({ success: false, error: 'RESET_FAILED', message: err?.message || 'Password reset failed.' });
+    }
+  });
+
+  // TEMPORARY MIGRATION SAFETY: backend Google login is retained as an emergency
+  // fallback while password credentials are being established. It is no longer exposed
+  // in the normal login UI and should be removed after password login is verified.
   app.post('/api/auth/google', async (req: Request, res: Response) => {
     try {
       const { credential, proposedCompanyName } = req.body || {};
