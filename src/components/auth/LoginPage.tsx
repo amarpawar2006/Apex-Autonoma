@@ -1,12 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Building2, 
-  Key, 
-  AlertCircle, 
-  CheckCircle2, 
-  Info,
-  ShieldCheck
-} from 'lucide-react';
+import React, { useState } from 'react';
+import { AlertCircle, CheckCircle2, KeyRound, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
 import { ApexLogo } from '../ApexLogo';
 import { autonomaDataService } from '../../services/autonomaDataService';
 import { AuthSessionResponse } from '../../types/auth';
@@ -16,390 +9,187 @@ interface LoginPageProps {
   onAwaitingApproval: (session: AuthSessionResponse) => void;
 }
 
-declare global {
-  interface Window {
-    google?: any;
-  }
-}
-
-export const LoginPage: React.FC<LoginPageProps> = ({
-  onLoginSuccess,
-  onAwaitingApproval
-}) => {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
-  const [proposedCompanyName, setProposedCompanyName] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [emailInput, setEmailInput] = useState('');
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState<'login' | 'forgot'>('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [infoMessage, setInfoMessage] = useState<string | null>(null);
-  // Single source of truth: OAuth client ID is fetched strictly from server GET /api/auth/config
-  const [googleClientId, setGoogleClientId] = useState<string>('');
-  const [isOauthConfigured, setIsOauthConfigured] = useState<boolean>(false);
-  const [authConfigLoading, setAuthConfigLoading] = useState<boolean>(true);
+  const [message, setMessage] = useState<string | null>(null);
 
-  const googleBtnRef = useRef<HTMLDivElement>(null);
-
-  // Fetch OAuth configuration from server on mount with zero client-side caching
-  useEffect(() => {
-    let isMounted = true;
-    setAuthConfigLoading(true);
-
-    fetch(`/api/auth/config?t=${Date.now()}`, {
-      cache: 'no-store',
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Pragma': 'no-cache'
-      }
-    })
-      .then(res => res.json())
-      .then((data: { clientId: string | null; configured: boolean }) => {
-        if (!isMounted) return;
-        const validId = (data.clientId || '').trim();
-        if (data.configured && validId) {
-          setGoogleClientId(validId);
-          setIsOauthConfigured(true);
-        } else {
-          setGoogleClientId('');
-          setIsOauthConfigured(false);
-        }
-      })
-      .catch((err) => {
-        if (!isMounted) return;
-        console.warn('[Auth Config] Failed to fetch server OAuth configuration:', err);
-        setGoogleClientId('');
-        setIsOauthConfigured(false);
-      })
-      .finally(() => {
-        if (isMounted) setAuthConfigLoading(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  // Initialize Google Identity Services (GIS) strictly using server-provided client ID
-  useEffect(() => {
-    if (!googleClientId || !isOauthConfigured || !window.google?.accounts?.id || !googleBtnRef.current) {
-      return;
-    }
-
-    try {
-      window.google.accounts.id.initialize({
-        client_id: googleClientId,
-        callback: handleGoogleCredentialResponse,
-        auto_select: false,
-        cancel_on_tap_outside: true,
-      });
-
-      // Clear any previous rendered button to avoid stale DOM bindings
-      googleBtnRef.current.innerHTML = '';
-
-      window.google.accounts.id.renderButton(googleBtnRef.current, {
-        theme: 'outline',
-        size: 'large',
-        shape: 'rectangular',
-        width: 320,
-        text: mode === 'signup' ? 'signup_with' : 'signin_with',
-      });
-    } catch (err) {
-      console.warn('[GIS Init] Error rendering Google button:', err);
-    }
-  }, [googleClientId, isOauthConfigured, mode]);
-
-  const handleGoogleCredentialResponse = async (response: any) => {
-    if (!response.credential) {
-      setError('No credential received from Google.');
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) {
+      setError('Enter your email and password.');
       return;
     }
 
     setLoading(true);
     setError(null);
+    setMessage(null);
     try {
-      const res = await autonomaDataService.loginWithGoogle(
-        response.credential,
-        mode === 'signup' ? proposedCompanyName : undefined
-      );
-
+      const res = await autonomaDataService.loginWithPassword(email.trim(), password);
       if (!res.success) {
-        setError(res.error || 'Authentication failed. Please check your credentials.');
-        setLoading(false);
+        setError(res.message || res.error || 'Sign-in failed.');
         return;
       }
-
-      if (res.status === 'PENDING' || res.status === 'REJECTED' || !res.activeCompany) {
-        onAwaitingApproval(res);
-      } else {
-        onLoginSuccess(res);
-      }
+      onLoginSuccess(res);
     } catch (err: any) {
-      setError(err?.message || 'Failed to authenticate with server.');
+      setError(err?.message || 'Unable to sign in.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDevLogin = async () => {
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) {
+      setError('Enter the email address for your Autonoma account.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
+    setMessage(null);
     try {
-      const res = await autonomaDataService.fixtureLogin({
-        email: 'amarpawar2007@gmail.com',
-        name: 'Amar Pawar',
-        isSuperAdmin: true,
-        role: 'SUPER_ADMIN'
-      });
-
-      if (!res.success) {
-        setError(res.error || 'Development sign-in failed.');
-        setLoading(false);
-        return;
-      }
-
-      if (res.status === 'PENDING' || res.status === 'REJECTED' || !res.activeCompany) {
-        onAwaitingApproval(res);
-      } else {
-        onLoginSuccess(res);
-      }
+      const res = await autonomaDataService.requestPasswordReset(email.trim());
+      setMessage(res.message || 'If this account exists, a reset link has been sent.');
     } catch (err: any) {
-      setError(err?.message || 'Failed to authenticate with server via development login.');
+      setError(err?.message || 'Unable to request a password reset.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F5F7] text-[#1D1D1F] flex flex-col justify-between selection:bg-[#FF4500] selection:text-white">
-      {/* Subtle background architectural blueprint grid */}
-      <div 
-        className="fixed inset-0 pointer-events-none opacity-20"
+    <div className="min-h-screen bg-[#F5F5F7] text-[#1D1D1F] flex flex-col selection:bg-[#FF4500] selection:text-white">
+      <div
+        className="fixed inset-0 pointer-events-none opacity-25"
         style={{
-          backgroundImage: `linear-gradient(rgba(29,29,31,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(29,29,31,0.045) 1px, transparent 1px)`,
+          backgroundImage:
+            'linear-gradient(rgba(29,29,31,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(29,29,31,0.045) 1px, transparent 1px)',
           backgroundSize: '40px 40px'
         }}
       />
 
-      {/* Top Header */}
-      <header className="relative z-10 border-b border-black/[0.07] bg-white/90 backdrop-blur-md px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <ApexLogo variant="lockup" size="md" />
-          <span className="hidden sm:inline-block px-2 py-0.5 rounded text-[11px] font-mono uppercase tracking-wider bg-[#FF4500]/10 text-[#FF4500] border border-[#FF4500]/20">
-            Phase 2 Access
-          </span>
-        </div>
-
-        <div className="flex items-center space-x-3 text-xs text-[#86868B]">
-          <span className="flex items-center space-x-1.5 font-mono">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Server Auth Active</span>
-          </span>
+      <header className="relative z-10 border-b border-black/[0.07] bg-white/90 backdrop-blur-md px-4 sm:px-6 py-4 flex items-center justify-between">
+        <ApexLogo variant="lockup" size="md" />
+        <div className="flex items-center gap-2 text-[11px] text-[#6E6E73] font-medium">
+          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          <span>Private workspace access</span>
         </div>
       </header>
 
-      {/* Center Auth Card Container */}
-      <main className="relative z-10 flex-1 flex items-center justify-center p-4 sm:p-6 my-8">
-        <div className="w-full max-w-md bg-white border border-black/[0.08] rounded-2xl p-6 sm:p-8 shadow-xl space-y-6">
-          {/* Card Header */}
-          <div className="text-center space-y-2">
-            <div className="inline-flex p-3 rounded-xl bg-gradient-to-br from-[#FF4500]/20 to-transparent border border-[#FF4500]/30 text-[#FF4500] mb-1">
-              <ShieldCheck className="w-7 h-7" />
+      <main className="relative z-10 flex-1 flex items-center justify-center px-4 py-8 sm:py-12">
+        <div className="w-full max-w-md rounded-3xl border border-black/[0.08] bg-white p-6 sm:p-8 shadow-xl">
+          <div className="text-center space-y-2 mb-6">
+            <div className="mx-auto w-12 h-12 rounded-2xl bg-orange-50 border border-orange-100 text-[#FF4500] flex items-center justify-center">
+              {mode === 'login' ? <LockKeyhole className="w-6 h-6" /> : <KeyRound className="w-6 h-6" />}
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#1D1D1F]">
-              {mode === 'signin' ? 'Sign in to Autonoma' : 'Request Company Access'}
+            <h1 className="text-2xl font-bold tracking-tight">
+              {mode === 'login' ? 'Sign in to Autonoma' : 'Reset your password'}
             </h1>
-            <p className="text-xs sm:text-sm text-[#86868B] max-w-sm mx-auto">
-              {mode === 'signin'
-                ? 'Enter your verified account to access your permitted company workspace.'
-                : 'Create a pending access request with your verified identity and company name.'}
+            <p className="text-sm text-[#6E6E73]">
+              {mode === 'login'
+                ? 'Use the account created for you by your Autonoma administrator.'
+                : 'We will email a secure one-time password reset link.'}
             </p>
           </div>
 
-          {/* Mode Switcher Tabs */}
-          <div className="grid grid-cols-2 p-1 bg-[#F2F2F7] rounded-xl border border-black/[0.06] text-xs font-medium">
-            <button
-              onClick={() => { setMode('signin'); setError(null); }}
-              className={`py-2 rounded-lg transition-all ${
-                mode === 'signin'
-                  ? 'bg-white text-[#1D1D1F] shadow-sm font-semibold'
-                  : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              onClick={() => { setMode('signup'); setError(null); }}
-              className={`py-2 rounded-lg transition-all ${
-                mode === 'signup'
-                  ? 'bg-white text-[#1D1D1F] shadow-sm font-semibold'
-                  : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-              }`}
-            >
-              Request Access
-            </button>
-          </div>
-
-          {/* Error Banner */}
           {error && (
-            <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-start space-x-2.5 animate-in fade-in duration-150">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
-              <div className="flex-1 leading-relaxed">{error}</div>
+            <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-3.5 text-xs text-red-900 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+              <span>{error}</span>
             </div>
           )}
 
-          {/* Info Banner */}
-          {infoMessage && (
-            <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-start space-x-2.5">
-              <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-400" />
-              <div className="flex-1 leading-relaxed">{infoMessage}</div>
+          {message && (
+            <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3.5 text-xs text-emerald-900 flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
+              <span>{message}</span>
             </div>
           )}
 
-          {/* Signup Specific Inputs */}
-          {mode === 'signup' && (
-            <div className="space-y-3 pt-1">
-              <div>
-                <label className="block text-[11px] font-mono text-[#86868B] mb-1.5 uppercase tracking-wider">
-                  Proposed Company / Organization Name *
-                </label>
-                <div className="relative">
-                  <Building2 className="w-4 h-4 absolute left-3 top-3 text-[#6E6E73]" />
-                  <input
-                    type="text"
-                    required
-                    value={proposedCompanyName}
-                    onChange={(e) => setProposedCompanyName(e.target.value)}
-                    placeholder="e.g. Flightpath Aviation or Apex Pune"
-                    className="w-full bg-white border border-black/[0.1] rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-[#1D1D1F] placeholder-[#A1A1A6] focus:outline-none focus:border-[#FF4500] focus:ring-1 focus:ring-[#FF4500]"
-                  />
-                </div>
-                <p className="text-[10px] text-[#6E6E73] mt-1">
-                  Super Admin will review and provision your company workspace upon approval.
-                </p>
+          <form onSubmit={mode === 'login' ? handleLogin : handleForgot} className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#6E6E73] mb-1.5">
+                Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-3 w-4 h-4 text-[#86868B]" />
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(null); }}
+                  placeholder="you@company.com"
+                  className="w-full rounded-xl border border-black/[0.10] bg-white pl-9 pr-3.5 py-2.5 text-sm outline-none focus:border-[#FF4500] focus:ring-2 focus:ring-[#FF4500]/10"
+                />
               </div>
             </div>
-          )}
 
-          {/* Verified Google Sign-In Container */}
-          <div className="space-y-4 pt-2">
-            <div className="flex flex-col items-center justify-center">
-              {authConfigLoading ? (
-                <div className="flex items-center space-x-2 text-xs text-[#86868B] py-3 font-mono">
-                  <div className="w-3.5 h-3.5 border-2 border-[#FF4500] border-t-transparent rounded-full animate-spin" />
-                  <span>Loading OAuth configuration...</span>
-                </div>
-              ) : isOauthConfigured && googleClientId ? (
-                <div ref={googleBtnRef} className="min-h-[44px] flex items-center justify-center" />
-              ) : (
-                <div className="w-full p-4 rounded-xl bg-amber-50 border border-amber-200 space-y-3 text-center">
-                  <div className="flex items-center justify-center space-x-2 text-amber-800 text-xs font-semibold">
-                    <AlertCircle className="w-4 h-4 text-amber-400" />
-                    <span>Google OAuth Client ID Not Configured</span>
-                  </div>
-                  <p className="text-[11px] text-[#6E6E73] leading-relaxed">
-                    Set <code className="text-[#1D1D1F] bg-black/[0.05] px-1 py-0.5 rounded font-mono">GOOGLE_CLIENT_ID</code> in AI Studio's environment configuration panel.
-                  </p>
+            {mode === 'login' && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-[#6E6E73]">
+                    Password
+                  </label>
                   <button
                     type="button"
-                    disabled
-                    className="w-full py-2.5 px-4 bg-[#F5F5F7] border border-black/[0.08] rounded-xl text-xs text-[#86868B] font-medium cursor-not-allowed flex items-center justify-center space-x-2"
+                    onClick={() => { setMode('forgot'); setError(null); setMessage(null); }}
+                    className="text-[11px] font-semibold text-[#FF4500] hover:underline"
                   >
-                    <Key className="w-3.5 h-3.5 opacity-40" />
-                    <span>Sign in with Google (Disabled)</span>
+                    Forgot password?
                   </button>
                 </div>
-              )}
-            </div>
-
-            {loading && (
-              <div className="flex items-center justify-center space-x-2 text-xs text-[#FF4500] py-2">
-                <div className="w-4 h-4 border-2 border-[#FF4500] border-t-transparent rounded-full animate-spin" />
-                <span>Verifying credentials on server...</span>
+                <div className="relative">
+                  <LockKeyhole className="absolute left-3 top-3 w-4 h-4 text-[#86868B]" />
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value); setError(null); }}
+                    placeholder="Enter your password"
+                    className="w-full rounded-xl border border-black/[0.10] bg-white pl-9 pr-3.5 py-2.5 text-sm outline-none focus:border-[#FF4500] focus:ring-2 focus:ring-[#FF4500]/10"
+                  />
+                </div>
               </div>
             )}
 
-            {/* Development / Preview Environment Sign-In Option */}
-            <div className="pt-3 border-t border-black/[0.08] space-y-2">
-              <div className="flex items-center justify-between text-[10px] text-[#86868B] font-mono uppercase tracking-wider">
-                <span>Preview Environment</span>
-                <span className="text-emerald-400 font-semibold">Dev Access</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleDevLogin}
-                disabled={loading}
-                className="w-full py-2.5 px-4 bg-[#FBFBFD] hover:bg-black/[0.03] active:bg-black/[0.05] border border-black/[0.10] hover:border-[#FF4500]/60 rounded-xl text-xs text-[#1D1D1F] font-medium transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shadow-sm"
-              >
-                <ShieldCheck className="w-4 h-4 text-[#FF4500]" />
-                <span>Development Sign-In</span>
-              </button>
-              <p className="text-[10px] text-[#6E6E73] text-center">
-                Signs in as verified Super Admin (<code className="text-[#86868B] font-mono">amarpawar2007@gmail.com</code>).
-              </p>
-            </div>
-          </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full min-h-[46px] rounded-xl bg-[#FF4500] hover:bg-[#EA3E00] text-white text-sm font-semibold shadow-sm transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading && <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />}
+              <span>{mode === 'login' ? 'Sign In' : 'Send Reset Link'}</span>
+            </button>
+          </form>
 
-          {/* Security & Access Notice */}
-          <div className="pt-2 border-t border-black/[0.06] text-[11px] text-[#86868B] space-y-1.5">
-            <div className="flex items-center space-x-1.5 text-emerald-400/90 font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-              <span>Server-Enforced Access Control</span>
+          {mode === 'forgot' && (
+            <button
+              type="button"
+              onClick={() => { setMode('login'); setError(null); setMessage(null); }}
+              className="mt-3 w-full py-2 text-xs font-semibold text-[#6E6E73] hover:text-[#1D1D1F]"
+            >
+              Back to sign in
+            </button>
+          )}
+
+          <div className="mt-6 pt-5 border-t border-black/[0.06] space-y-2">
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#1D1D1F]">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <span>No public signup</span>
             </div>
-            <p className="text-[10px] leading-relaxed text-[#6E6E73]">
-              Membership, company isolation, and role restrictions are enforced server-side for protected reads, writes, exports, and AI actions.
+            <p className="text-[11px] leading-relaxed text-[#86868B]">
+              Companies and user accounts are provisioned by the Autonoma Super Admin or an authorized Company Administrator.
             </p>
           </div>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="relative z-10 border-t border-black/[0.07] px-6 py-4 text-center text-xs text-[#86868B] space-y-2">
-        <div className="flex flex-wrap items-center justify-center gap-4 text-xs font-medium text-[#6E6E73]">
-          <button
-            type="button"
-            onClick={() => {
-              window.history.pushState({}, '', '/about');
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }}
-            className="hover:text-[#1D1D1F] transition-colors cursor-pointer"
-          >
-            About
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              window.history.pushState({}, '', '/privacy');
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }}
-            className="hover:text-[#1D1D1F] transition-colors cursor-pointer"
-          >
-            Privacy Policy
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              window.history.pushState({}, '', '/terms');
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }}
-            className="hover:text-[#1D1D1F] transition-colors cursor-pointer"
-          >
-            Terms of Service
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              window.history.pushState({}, '', '/support');
-              window.dispatchEvent(new PopStateEvent('popstate'));
-            }}
-            className="hover:text-[#1D1D1F] transition-colors cursor-pointer"
-          >
-            Support & Help
-          </button>
-        </div>
-        <p>Apex Autonoma • Social Intelligence & Enterprise Production Architecture</p>
-        <p className="text-[10px] text-[#6E6E73]">
-          Apex Engineering · Pune, India · Working Globally
-        </p>
+      <footer className="relative z-10 border-t border-black/[0.07] px-4 py-4 text-center text-[11px] text-[#86868B]">
+        Apex Autonoma · Controlled multi-company access
       </footer>
     </div>
   );
