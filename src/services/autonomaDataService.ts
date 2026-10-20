@@ -889,6 +889,46 @@ class AutonomaDataService {
   // AUTHENTICATION & MULTI-COMPANY API
   // ==========================================
 
+  async loginWithPassword(email: string, password: string): Promise<AuthSessionResponse> {
+    const res = await fetch('/api/auth/password-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const json = await res.json();
+    if (json.success && json.token) {
+      this.setSessionToken(json.token);
+    }
+    return json;
+  }
+
+  async requestPasswordReset(email: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    const res = await fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    return await res.json();
+  }
+
+  async validatePasswordResetToken(email: string, token: string): Promise<{ success: boolean; valid: boolean }> {
+    const res = await fetch(`/api/auth/reset-token/validate?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`);
+    return await res.json().catch(() => ({ success: false, valid: false }));
+  }
+
+  async resetPassword(email: string, token: string, password: string): Promise<AuthSessionResponse> {
+    const res = await fetch('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, token, password })
+    });
+    const json = await res.json();
+    if (json.success && json.token) {
+      this.setSessionToken(json.token);
+    }
+    return json;
+  }
+
   async loginWithGoogle(credential: string, proposedCompanyName?: string): Promise<AuthSessionResponse> {
     const res = await fetch('/api/auth/google', {
       method: 'POST',
