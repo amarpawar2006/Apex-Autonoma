@@ -791,6 +791,64 @@ export class SupabaseStorageAdapter {
     }
   }
 
+  // ==========================================
+  // APPLICATION PASSWORD CREDENTIALS
+  // Password hashes/reset tokens are intentionally kept OUT of the normal user model.
+  // ==========================================
+
+  public async getAuthCredential(userId: string): Promise<any | null> {
+    if (!this.ready || !this.client) return null;
+    const { data, error } = await this.client
+      .from('auth_credentials')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) {
+      console.error('[Supabase Adapter] Auth credential lookup error:', error.message);
+      throw new Error(`Credential store lookup failed: ${error.message}`);
+    }
+    return data || null;
+  }
+
+  public async getAuthCredentialByResetTokenHash(tokenHash: string): Promise<any | null> {
+    if (!this.ready || !this.client) return null;
+    const { data, error } = await this.client
+      .from('auth_credentials')
+      .select('*')
+      .eq('reset_token_hash', tokenHash)
+      .maybeSingle();
+    if (error) {
+      console.error('[Supabase Adapter] Reset token lookup error:', error.message);
+      throw new Error(`Reset token lookup failed: ${error.message}`);
+    }
+    return data || null;
+  }
+
+  public async upsertAuthCredential(userId: string, updates: Record<string, any>): Promise<void> {
+    if (!this.ready || !this.client) {
+      throw new Error('Credential store is unavailable. Supabase server credentials are required.');
+    }
+    const row: Record<string, any> = {
+      user_id: userId,
+      updated_at: new Date().toISOString()
+    };
+    const allowed = [
+      'password_hash', 'password_salt', 'password_algo', 'password_updated_at',
+      'reset_token_hash', 'reset_expires_at', 'reset_used_at',
+      'must_change_password', 'failed_attempts', 'locked_until'
+    ];
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(updates, key)) row[key] = updates[key];
+    }
+    const { error } = await this.client
+      .from('auth_credentials')
+      .upsert(row, { onConflict: 'user_id' });
+    if (error) {
+      console.error('[Supabase Adapter] Auth credential upsert error:', error);
+      throw new Error(`Credential persistence failed: ${error.message}`);
+    }
+  }
+
   /**
    * Authoritatively upserts a user into Supabase
    */
