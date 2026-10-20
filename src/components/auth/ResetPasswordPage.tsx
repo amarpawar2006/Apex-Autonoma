@@ -52,6 +52,7 @@ export const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ onLoginSuc
         return;
       }
       window.history.replaceState({}, '', '/');
+      window.dispatchEvent(new PopStateEvent('popstate'));
       onLoginSuccess(res);
     } catch (err: any) {
       setError(err?.message || 'Password reset failed.');
