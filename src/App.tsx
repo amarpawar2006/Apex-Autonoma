@@ -167,6 +167,7 @@ export default function App() {
         setSession(res);
         setCurrentUser(res.user);
         setActiveCompany(res.activeCompany || null);
+        autonomaDataService.setActiveCompanyContext(res.activeCompany?.companyId || res.activeCompany?.id || null);
         setUserRole(res.role || (res.user.isSuperAdmin ? 'SUPER_ADMIN' : 'MEMBER'));
 
         if (res.user.isSuperAdmin && !res.activeCompany) {
@@ -178,6 +179,7 @@ export default function App() {
         setSession(null);
         setCurrentUser(null);
         setActiveCompany(null);
+        autonomaDataService.setActiveCompanyContext(null);
         setUserRole(null);
       }
     } catch {
@@ -221,6 +223,7 @@ export default function App() {
     setSession(authRes);
     setCurrentUser(authRes.user || null);
     setActiveCompany(authRes.activeCompany || null);
+    autonomaDataService.setActiveCompanyContext(authRes.activeCompany?.companyId || authRes.activeCompany?.id || null);
     setUserRole(authRes.role || (authRes.user?.isSuperAdmin ? 'SUPER_ADMIN' : 'MEMBER'));
 
     if (authRes.user?.isSuperAdmin) {
@@ -247,6 +250,7 @@ export default function App() {
     setSession(null);
     setCurrentUser(null);
     setActiveCompany(null);
+    autonomaDataService.setActiveCompanyContext(null);
     setUserRole(null);
     setIsSuperAdminWorkspaceOpen(false);
     setIsCompanyManagementOpen(false);
@@ -276,6 +280,10 @@ export default function App() {
       };
 
       setActiveCompany(normalizedCompany);
+      autonomaDataService.setActiveCompanyContext(normalizedCompany.companyId || normalizedCompany.id || null);
+      // Never leave the prior tenant's visible data on-screen while the new workspace loads.
+      setCampaigns([]);
+      setAssets([]);
       if (res.role) setUserRole(res.role);
       setSession(prev => prev ? {
         ...prev,
