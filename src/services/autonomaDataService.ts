@@ -20,6 +20,14 @@ function scopedStorageKey(baseKey: string): string {
   }
 }
 
+function hasActiveCompanyContext(): boolean {
+  try {
+    return Boolean(localStorage.getItem(STORAGE_KEY_ACTIVE_COMPANY_CONTEXT));
+  } catch {
+    return false;
+  }
+}
+
 export function getAuthHeaders(additionalHeaders: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = { ...additionalHeaders };
   try {
@@ -102,7 +110,7 @@ class AutonomaDataService {
       }
     } catch {}
 
-    return INITIAL_CAMPAIGNS;
+    return hasActiveCompanyContext() ? [] : INITIAL_CAMPAIGNS;
   }
 
   /**
@@ -359,7 +367,7 @@ class AutonomaDataService {
     if (campaignId && campaignId !== 'all') {
       return SEED_ASSETS.filter(a => a.campaignId === campaignId);
     }
-    return SEED_ASSETS;
+    return hasActiveCompanyContext() ? [] : SEED_ASSETS;
   }
 
   /**
