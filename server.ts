@@ -24,6 +24,7 @@ import { supabaseStorage } from './server/supabaseStorage.js';
 import { analyzeBrandGuidelinesPdf } from './server/brandPdfService.js';
 import { generateDynamicSchedule } from './server/schedulingEngine.js';
 import { dataImportService } from './server/dataImportService.js';
+import { generateAutonomaBrochurePdf } from './server/autonomaBrochure.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -358,6 +359,21 @@ async function startServer() {
         error: 'REQUEST_ACCESS_FAILED',
         message: 'Your request could not be submitted right now.'
       });
+    }
+  });
+
+  let brochurePdfCache: Uint8Array | null = null;
+
+  app.get(['/Apex-Autonoma-Brochure.pdf', '/brochure'], async (_req: Request, res: Response) => {
+    try {
+      if (!brochurePdfCache) brochurePdfCache = await generateAutonomaBrochurePdf();
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="Apex-Autonoma-Brochure.pdf"');
+      res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400');
+      return res.send(Buffer.from(brochurePdfCache));
+    } catch (err: any) {
+      console.error('[Public Brochure]', err);
+      return res.status(500).json({ success: false, error: 'Brochure is temporarily unavailable.' });
     }
   });
 
