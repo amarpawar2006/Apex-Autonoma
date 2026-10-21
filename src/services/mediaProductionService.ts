@@ -64,6 +64,36 @@ export interface BrandRenderOptions {
   logoUrl?: string;
 }
 
+export async function persistComposedCreative(
+  dataUrl: string,
+  context: { assetId: string; campaignId?: string; assetCode?: string; filename?: string }
+): Promise<string> {
+  if (!dataUrl.startsWith('data:image/')) {
+    return dataUrl;
+  }
+
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  const mime = blob.type === 'image/jpeg' ? 'image/jpeg' : blob.type === 'image/webp' ? 'image/webp' : 'image/png';
+  const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+  const filename = context.filename || `${context.assetCode || context.assetId}-composed.${ext}`;
+
+  const upload = await fetch(
+    `/api/media/upload?assetId=${encodeURIComponent(context.assetId)}&campaignId=${encodeURIComponent(context.campaignId || '')}&assetCode=${encodeURIComponent(context.assetCode || context.assetId)}&mediaType=IMAGE&filename=${encodeURIComponent(filename)}`,
+    {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': mime }),
+      body: blob
+    }
+  );
+
+  const json = await upload.json().catch(() => null);
+  if (!upload.ok || !json?.success || !json?.fileUrl) {
+    throw new Error(json?.error || 'Final creative could not be saved to durable media storage.');
+  }
+  return json.fileUrl as string;
+}
+
 /** Server-side image generation. Credentials remain on the server. */
 export async function generateAssetImage(
   prompt: string,
