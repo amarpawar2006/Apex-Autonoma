@@ -110,18 +110,18 @@ export const AboutPage: React.FC = () => {
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <button
-                  onClick={() => navigate('/')}
+                  onClick={() => navigate('/login')}
                   className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-[#FF4500] px-5 text-sm font-bold text-white shadow-[0_12px_36px_rgba(255,69,0,.25)] transition hover:bg-[#EA3E00] active:scale-[.98]"
                 >
                   Sign in to Autonoma
                   <ArrowRight className="h-4 w-4" />
                 </button>
                 <button
-                  onClick={() => navigate('/support')}
+                  onClick={() => navigate('/request-access')}
                   className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/12 bg-white/[0.05] px-5 text-sm font-semibold text-white/80 transition hover:bg-white/[0.09]"
                 >
                   <MessageSquare className="h-4 w-4" />
-                  Talk to Apex Engineering
+                  Request Access
                 </button>
               </div>
 
@@ -412,17 +412,17 @@ export const AboutPage: React.FC = () => {
               </div>
               <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
                 <button
-                  onClick={() => navigate('/')}
+                  onClick={() => navigate('/login')}
                   className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-white px-5 text-sm font-bold text-[#1D1D1F] transition hover:bg-white/90"
                 >
                   Sign in
                   <ArrowRight className="h-4 w-4" />
                 </button>
                 <button
-                  onClick={() => navigate('/support')}
+                  onClick={() => navigate('/request-access')}
                   className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-white/20 bg-black/10 px-5 text-sm font-semibold text-white transition hover:bg-black/20"
                 >
-                  Contact / Support
+                  Request Access
                 </button>
               </div>
             </div>
