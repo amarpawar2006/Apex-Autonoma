@@ -1,0 +1,35 @@
+name: Autonoma Pilot Release Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript gate
+        run: npm run lint
+
+      - name: Pilot static audit
+        run: npm run audit:pilot
+
+      - name: Regression audit
+        run: npm run audit:release
+
+      - name: Production build
+        run: npm run build
