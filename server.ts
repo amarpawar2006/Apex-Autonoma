@@ -3291,14 +3291,6 @@ Generate a JSON object strictly adhering to the schema.`;
   // Real Server-Side Gemini Campaign Generator Endpoint
   app.post('/api/campaign/generate', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({
-          error: 'MISSING_API_KEY',
-          message: 'Server-side GEMINI_API_KEY is not configured in the runtime environment.'
-        });
-      }
-
       const {
         topic,
         targetPlatform = 'instagram',
@@ -3507,6 +3499,154 @@ Instructions:
     }
   });
 
+  type AiGenerationAttempt = {
+    provider: 'gemini' | 'openai';
+    model: string;
+    ok: boolean;
+    durationMs: number;
+    error?: string;
+  };
+
+  function isTransientAiError(err: any): boolean {
+    const msg = String(err?.message || err || '').toLowerCase();
+    return Boolean(
+      err?.name === 'AbortError' ||
+      err?.name === 'TimeoutError' ||
+      msg.includes('timeout') ||
+      msg.includes('429') ||
+      msg.includes('quota') ||
+      msg.includes('resource_exhausted') ||
+      msg.includes('rate limit') ||
+      msg.includes('500') ||
+      msg.includes('502') ||
+      msg.includes('503') ||
+      msg.includes('504') ||
+      msg.includes('unavailable') ||
+      msg.includes('overloaded') ||
+      msg.includes('high demand') ||
+      msg.includes('fetch failed') ||
+      msg.includes('econnreset') ||
+      msg.includes('etimedout') ||
+      msg.includes('network')
+    );
+  }
+
+  async function withAiTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            const err: any = new Error(`${label} timed out after ${timeoutMs}ms`);
+            err.name = 'TimeoutError';
+            reject(err);
+          }, timeoutMs);
+          if (typeof timer.unref === 'function') timer.unref();
+        })
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  async function generateCampaignJsonWithFallback(
+    prompt: string,
+    responseSchema?: any,
+    traceLabel: string = 'campaign'
+  ): Promise<{ data: any; provider: string; model: string; attempts: AiGenerationAttempt[] }> {
+    const attempts: AiGenerationAttempt[] = [];
+    const geminiKey = aiProviderService.getRawProviderKey('gemini');
+    const openAiKey = aiProviderService.getRawProviderKey('openai');
+
+    if (geminiKey) {
+      for (const model of ['gemini-3.8-flash', 'gemini-2.5-flash']) {
+        const started = Date.now();
+        try {
+          const ai = new GoogleGenAI({
+            apiKey: geminiKey,
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+          });
+          const response: any = await withAiTimeout(
+            ai.models.generateContent({
+              model,
+              contents: prompt,
+              config: {
+                responseMimeType: 'application/json',
+                ...(responseSchema ? { responseSchema } : {})
+              }
+            }),
+            30000,
+            `${traceLabel} ${model}`
+          );
+          const text = String(response?.text || '').trim();
+          if (!text) throw new Error(`${model} returned an empty response`);
+          const parsed = JSON.parse(text);
+          attempts.push({ provider: 'gemini', model, ok: true, durationMs: Date.now() - started });
+          return { data: parsed, provider: 'gemini', model, attempts };
+        } catch (err: any) {
+          attempts.push({
+            provider: 'gemini',
+            model,
+            ok: false,
+            durationMs: Date.now() - started,
+            error: String(err?.message || err || 'Unknown Gemini error').slice(0, 500)
+          });
+          console.warn(`[${traceLabel}] ${model} failed:`, err?.message || err);
+          if (!isTransientAiError(err) && !(err instanceof SyntaxError)) break;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+    }
+
+    if (openAiKey) {
+      const started = Date.now();
+      const openAiResult = await aiProviderService.generateStructuredTextWithOpenAI(prompt, {
+        timeoutMs: 40000,
+        model: process.env.OPENAI_TEXT_MODEL || 'gpt-6-luna',
+        maxOutputTokens: 30000
+      });
+      if (openAiResult.success && openAiResult.text) {
+        try {
+          const parsed = JSON.parse(openAiResult.text);
+          attempts.push({
+            provider: 'openai',
+            model: openAiResult.model,
+            ok: true,
+            durationMs: Date.now() - started
+          });
+          return { data: parsed, provider: 'openai', model: openAiResult.model, attempts };
+        } catch {
+          attempts.push({
+            provider: 'openai',
+            model: openAiResult.model,
+            ok: false,
+            durationMs: Date.now() - started,
+            error: 'OpenAI returned JSON that could not be parsed.'
+          });
+        }
+      } else {
+        attempts.push({
+          provider: 'openai',
+          model: openAiResult.model,
+          ok: false,
+          durationMs: Date.now() - started,
+          error: openAiResult.error || 'OpenAI fallback failed.'
+        });
+      }
+    }
+
+    const finalError: any = new Error(
+      !geminiKey && !openAiKey
+        ? 'No text-generation provider is configured. Configure Gemini or OpenAI in AI & Media Providers.'
+        : 'All configured AI text providers were unavailable or returned invalid output. Your campaign draft is safe; retry generation when provider capacity is available.'
+    );
+    finalError.code = !geminiKey && !openAiKey ? 'AI_PROVIDERS_UNCONFIGURED' : 'AI_PROVIDERS_EXHAUSTED';
+    finalError.retryable = Boolean(geminiKey || openAiKey);
+    finalError.attempts = attempts;
+    throw finalError;
+  }
+
   // Comprehensive Multi-Asset Campaign Director Endpoint
   // Generates a full narrative arc across platforms with zero generic "Part 2" titles,
   // platform-native executions, audience-grounded language, and calibrated realistic reach.
@@ -3674,15 +3814,6 @@ STRICT CONTEXT AND PROMOTION DIRECTIVES:
 4. BRC should receive riding-club content; a flour mill should receive relevant product/customer content. Do not inject Apex or WhatsApp-commerce sample copy unless the company being promoted is actually Apex Engineering.
 5. If the campaign brief specifies a particular product, event, activity, or page, that specific objective takes precedence.
 `;
-
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build'
-          }
-        }
-      });
 
       const prompt = `You are the Executive Creative Director and Lead Growth Strategist at Autonoma.
 Your task is to generate a comprehensive, strategic social media campaign driven EXCLUSIVELY by the user's submitted campaign brief and explicit goals, aligned with the company brand context.
@@ -3918,40 +4049,8 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
             ]
           };
 
-      let response;
-      try {
-        response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema
-          }
-        });
-      } catch (firstErr: any) {
-        console.warn('synthesize-campaign gemini-3.8-flash busy, falling back to gemini-2.5-flash:', firstErr?.message);
-        response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema
-          }
-        });
-      }
-
-      const responseText = response.text || '';
-      if (!responseText) {
-        throw new Error('Gemini API returned an empty response.');
-      }
-
-      let parsedData;
-      try {
-        parsedData = JSON.parse(responseText);
-      } catch (parseErr) {
-        console.error('Failed to parse Gemini JSON output:', responseText);
-        throw new Error('Model output could not be parsed as valid JSON.');
-      }
+      const generation = await generateCampaignJsonWithFallback(prompt, responseSchema, 'synthesize-campaign');
+      const parsedData = generation.data;
 
       // Never mark a campaign successful with incomplete AI output.
       if (!Array.isArray(parsedData.assets) || parsedData.assets.length !== totalDeliverables) {
@@ -3966,13 +4065,23 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
 
       return res.json({
         success: true,
-        data: parsedData
+        data: parsedData,
+        generationMeta: {
+          provider: generation.provider,
+          model: generation.model,
+          attempts: generation.attempts
+        }
       });
     } catch (error: any) {
-      console.error('Server-side Gemini multi-asset campaign synthesis error:', error);
-      return res.status(500).json({
-        error: 'SYNTHESIS_FAILED',
-        message: error?.message || 'An unexpected error occurred during Gemini campaign synthesis.'
+      console.error('Server-side multi-provider campaign synthesis error:', error);
+      const code = error?.code || 'SYNTHESIS_FAILED';
+      const status = code === 'AI_PROVIDERS_UNCONFIGURED' || code === 'AI_PROVIDERS_EXHAUSTED' ? 503 : 500;
+      return res.status(status).json({
+        success: false,
+        error: code,
+        retryable: error?.retryable !== false,
+        attempts: Array.isArray(error?.attempts) ? error.attempts : undefined,
+        message: error?.message || 'Campaign generation could not complete. Your draft is safe and can be retried.'
       });
     }
   });
