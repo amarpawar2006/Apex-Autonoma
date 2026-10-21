@@ -45,6 +45,7 @@ import {
   downloadAllComposedSlides,
   isTextSafeFormat,
   getRecommendedTemplate,
+  persistComposedCreative,
   CompositionTemplateId,
   BrandRenderOptions
 } from '../services/mediaProductionService';
@@ -399,14 +400,16 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
       campaignId: asset.campaignId
     });
 
-    const generatedUrl = result.dataUrl || result.fileUrl;
+    const generatedUrl = result.fileUrl || result.dataUrl;
     if (result.success && generatedUrl) {
       setGeneratedBackgroundUrl(generatedUrl);
 
-      // Automatically compose the final creative with the new background
-      let composedUrl = generatedUrl;
+      // Automatically compose the final creative, but persist only a durable media URL.
+      // Canvas data URLs stay browser-local and are never stored in the asset/database row.
+      let composedPreviewUrl = '';
+      let composedDurableUrl = '';
       try {
-        composedUrl = await renderComposedCanvas({
+        composedPreviewUrl = await renderComposedCanvas({
           ...brandRenderOptions,
           template: compositionTemplate,
           assetTitle: customHeadline || asset.title,
@@ -420,28 +423,39 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
           format: asset.format,
           supportingImageUrl: generatedUrl
         });
-        setComposedAssetUrl(composedUrl);
-        setDeterministicCanvasUrl(composedUrl);
+        composedDurableUrl = await persistComposedCreative(composedPreviewUrl, {
+          assetId: asset.id,
+          campaignId: asset.campaignId,
+          assetCode: asset.assetCode
+        });
+        setComposedAssetUrl(composedDurableUrl);
+        setDeterministicCanvasUrl(composedPreviewUrl);
         setFinalRenderableReady(true);
-      } catch (composeErr) {
+      } catch (composeErr: any) {
         console.warn('Auto-composition note:', composeErr);
+        setFinalRenderableReady(false);
+        setGenerationError(
+          composeErr?.message ||
+          'The visual was generated, but the final branded creative could not be saved. Use Apply Brand Layout to retry.'
+        );
       }
 
-      setGeneratedImageUrl(composedUrl);
-      setProductionStatus('READY');
+      const finalUrl = composedDurableUrl || generatedUrl;
+      setGeneratedImageUrl(finalUrl);
+      setProductionStatus(composedDurableUrl ? 'READY' : 'NOT_GENERATED');
 
       const updated: SocialAsset = {
         ...asset,
-        productionStatus: 'READY',
+        productionStatus: composedDurableUrl ? 'READY' : 'NOT_GENERATED',
         generatedBackgroundUrl: generatedUrl,
-        composedAssetUrl: composedUrl,
-        generatedImageUrl: composedUrl,
+        composedAssetUrl: composedDurableUrl || undefined,
+        generatedImageUrl: finalUrl,
         compositionMode: 'DETERMINISTIC_COMPOSITION',
         compositionTemplate,
-        finalRenderableReady: true,
-        composedAt: new Date().toISOString(),
+        finalRenderableReady: Boolean(composedDurableUrl),
+        composedAt: composedDurableUrl ? new Date().toISOString() : undefined,
         generatedImagePrompt: activePrompt,
-        productionError: undefined
+        productionError: composedDurableUrl ? undefined : 'Final brand composition is not durably saved yet.'
       };
       onUpdateAsset(updated);
     } else {
@@ -466,11 +480,13 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
     const tmpl = targetTemplate || compositionTemplate;
 
     try {
-      let composedUrl = '';
+      let composedPreviewUrl = '';
+      let nextSlideComposed = { ...carouselSlideComposedUrls };
+
       if (isCarousel && asset.slides && asset.slides[activeSlideIndex]) {
         const currentSlide = asset.slides[activeSlideIndex];
         const visual = slideVisuals[currentSlide.slideNumber] || generatedBackgroundUrl || undefined;
-        composedUrl = await renderComposedCanvas({
+        composedPreviewUrl = await renderComposedCanvas({
           ...brandRenderOptions,
           template: 'carousel_slide',
           assetTitle: customHeadline || asset.title,
@@ -485,10 +501,8 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
           slideIndex: activeSlideIndex,
           totalSlides: asset.slides.length
         });
-        const nextSlideComposed = { ...carouselSlideComposedUrls, [currentSlide.slideNumber]: composedUrl };
-        setCarouselSlideComposedUrls(nextSlideComposed);
       } else {
-        composedUrl = await renderComposedCanvas({
+        composedPreviewUrl = await renderComposedCanvas({
           ...brandRenderOptions,
           template: tmpl,
           assetTitle: customHeadline || asset.title,
@@ -504,18 +518,34 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
         });
       }
 
-      setComposedAssetUrl(composedUrl);
-      setDeterministicCanvasUrl(composedUrl);
-      setGeneratedImageUrl(composedUrl);
+      const composedDurableUrl = await persistComposedCreative(composedPreviewUrl, {
+        assetId: asset.id,
+        campaignId: asset.campaignId,
+        assetCode: asset.assetCode,
+        filename: isCarousel && asset.slides?.[activeSlideIndex]
+          ? `${asset.assetCode}-slide-${asset.slides[activeSlideIndex].slideNumber}.png`
+          : `${asset.assetCode}-final.png`
+      });
+
+      if (isCarousel && asset.slides && asset.slides[activeSlideIndex]) {
+        const currentSlide = asset.slides[activeSlideIndex];
+        nextSlideComposed = { ...nextSlideComposed, [currentSlide.slideNumber]: composedDurableUrl };
+        setCarouselSlideComposedUrls(nextSlideComposed);
+      }
+
+      setComposedAssetUrl(composedDurableUrl);
+      setDeterministicCanvasUrl(composedPreviewUrl);
+      setGeneratedImageUrl(composedDurableUrl);
       setFinalRenderableReady(true);
       setProductionStatus('READY');
 
       const updated: SocialAsset = {
         ...asset,
         productionStatus: 'READY',
-        composedAssetUrl: composedUrl,
-        generatedImageUrl: composedUrl,
+        composedAssetUrl: composedDurableUrl,
+        generatedImageUrl: composedDurableUrl,
         generatedBackgroundUrl: generatedBackgroundUrl || undefined,
+        carouselSlideComposedUrls: isCarousel ? nextSlideComposed : asset.carouselSlideComposedUrls,
         compositionMode: 'DETERMINISTIC_COMPOSITION',
         compositionTemplate: tmpl,
         finalRenderableReady: true,
