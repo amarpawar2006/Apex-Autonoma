@@ -423,8 +423,15 @@ public async initializeProductionPersistence(): Promise<{
   assets: number;
   migrated?: boolean;
 }> {
+  const strictProductionPersistence =
+    process.env.NODE_ENV === 'production' &&
+    process.env.ALLOW_LOCAL_DB_FALLBACK !== 'true';
+
   if (!supabaseStorage.ready) {
-    console.warn('[Autonoma DB] Supabase not configured; serving local cache.');
+    if (strictProductionPersistence) {
+      throw new Error('Supabase production persistence is not configured. Refusing to serve tenant data from local fallback storage.');
+    }
+    console.warn('[Autonoma DB] Supabase not configured; serving local development cache.');
 
     return {
       source: 'local',
@@ -439,15 +446,19 @@ public async initializeProductionPersistence(): Promise<{
   try {
     const timeoutPromise = new Promise<null>((resolve) =>
       setTimeout(() => {
-        console.warn('[Autonoma DB] Supabase fetch timed out after 3500ms; proceeding with local disk cache.');
+        console.warn('[Autonoma DB] Supabase fetch timed out after 10000ms.');
         resolve(null);
-      }, 3500)
+      }, 10000)
     );
 
     const remote = await Promise.race([
       supabaseStorage.loadStoreFromSupabase(),
       timeoutPromise
     ]);
+
+    if (!remote && strictProductionPersistence) {
+      throw new Error('Supabase production bootstrap timed out. Refusing to serve stale local tenant data.');
+    }
 
     const hasRemoteData = Boolean(
       (remote?.companies && remote.companies.length > 0) ||
@@ -528,7 +539,11 @@ public async initializeProductionPersistence(): Promise<{
       migrated: migration.migrated
     };
   } catch (err: any) {
-    console.warn('[Autonoma DB] Supabase bootstrap encountered an issue, serving local cache:', err?.message || err);
+    if (strictProductionPersistence) {
+      console.error('[Autonoma DB] Production persistence bootstrap failed:', err?.message || err);
+      throw err;
+    }
+    console.warn('[Autonoma DB] Supabase bootstrap encountered an issue, serving local development cache:', err?.message || err);
     return {
       source: 'local',
       companies: this.store.companies?.length || 0,
