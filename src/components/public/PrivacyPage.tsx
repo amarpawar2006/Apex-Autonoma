@@ -11,7 +11,7 @@ export const PrivacyPage: React.FC = () => {
         {/* Header */}
         <div className="space-y-3">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/60 text-blue-700 text-xs font-semibold">
-            <span>Last Updated: October 5, 2026</span>
+            <span>Last Updated: October 21, 2026</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[#1D1D1F]">
             Privacy Policy
