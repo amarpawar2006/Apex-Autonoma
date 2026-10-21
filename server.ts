@@ -4841,7 +4841,7 @@ STRICT GUARDRAILS:
 
         for (const candidateId of candidates) {
           const cfg = aiProviderService.getSettings(false).providers[candidateId];
-          if (!cfg?.hasKey) continue;
+          if (!cfg?.hasKey || !cfg.capabilities?.includes('image')) continue;
 
           console.log(`[Media Gen] Primary image provider (${failedProvider}) failed. Routing fallback to ${candidateId}...`);
           const fallbackResult = await aiProviderService.generateImage({
