@@ -2282,7 +2282,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.post('/api/import/inspect', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const actorUserId = (req as any).user?.userId || 'SYSTEM';
       const { files, sessionId: inputSessionId, organizationId: reqOrgId, companyId: reqCompId } = req.body || {};
 
@@ -2360,7 +2360,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.post('/api/import/confirm', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const actorUserId = (req as any).user?.userId || 'SYSTEM';
       const { sessionId, sourceIds, choices = {}, campaignId, organizationId: reqOrgId, companyId: reqCompId } = req.body || {};
 
@@ -2418,7 +2418,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.get(['/api/knowledge-sources', '/api/import-sources'], authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const rawOrg = req.query.organizationId || req.query.companyId;
       const queryOrgId = rawOrg ? String(rawOrg).trim() : undefined;
 
@@ -2442,7 +2442,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.delete(['/api/knowledge-sources/:sourceId', '/api/import-sources/:sourceId'], authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const actorUserId = (req as any).user?.userId || 'SYSTEM';
       const { sourceId } = req.params;
 
@@ -2468,7 +2468,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.get(['/api/company-knowledge', '/api/knowledge'], authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const rawOrg = req.query.organizationId || req.query.companyId;
       const queryOrgId = rawOrg ? String(rawOrg).trim() : undefined;
       const category = req.query.category ? String(req.query.category).trim() : undefined;
@@ -2493,7 +2493,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.post(['/api/company-knowledge', '/api/knowledge'], authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const actorUserId = (req as any).user?.userId || 'SYSTEM';
       const { category, title, content, structuredJson, sourceId, organizationId: reqOrgId, companyId: reqCompId } = req.body || {};
 
@@ -2533,7 +2533,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.delete(['/api/company-knowledge/:knowledgeId', '/api/knowledge/:knowledgeId'], authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const { knowledgeId } = req.params;
 
       const deleted = await autonomaDb.deleteCompanyKnowledge(knowledgeId, isSuperAdmin ? undefined : activeCompanyId);
@@ -2552,7 +2552,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.get('/api/contacts', authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const rawOrg = req.query.organizationId || req.query.companyId;
       const queryOrgId = rawOrg ? String(rawOrg).trim() : undefined;
 
@@ -2593,7 +2593,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.post('/api/contacts', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const actorUserId = (req as any).user?.userId || 'SYSTEM';
       const { name, company, email, phone, linkedinUrl, instagramHandle, otherHandles, location, segment, notes, organizationId: reqOrgId, companyId: reqCompId } = req.body || {};
 
@@ -2638,7 +2638,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.delete('/api/contacts/:contactId', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const { contactId } = req.params;
 
       const deleted = await autonomaDb.deleteContact(contactId, isSuperAdmin ? undefined : activeCompanyId);
@@ -2657,7 +2657,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.get('/api/audience-lists', authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const rawOrg = req.query.organizationId || req.query.companyId;
       const queryOrgId = rawOrg ? String(rawOrg).trim() : undefined;
 
@@ -2681,7 +2681,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.post('/api/audience-lists', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
     try {
       const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const actorUserId = (req as any).user?.userId || 'SYSTEM';
       const { name, description, listType, memberContactIds = [], organizationId: reqOrgId, companyId: reqCompId } = req.body || {};
 
@@ -2720,14 +2720,25 @@ Generate a JSON object strictly adhering to the schema.`;
 
   app.get('/api/audience-lists/:listId/members', authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
     try {
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const { listId } = req.params;
+      const isSuperAdmin = Boolean((req as any).user?.isSuperAdmin);
+
+      const ownedList = autonomaDb.getAudienceLists(isSuperAdmin ? undefined : activeCompanyId)
+        .find(list => list.listId === listId);
+      if (!ownedList) {
+        return res.status(404).json({ success: false, error: 'Audience list not found in the active workspace.' });
+      }
+      if (!isSuperAdmin && ownedList.organizationId !== activeCompanyId) {
+        return res.status(403).json({ success: false, error: 'Unauthorized: audience list belongs to another workspace.' });
+      }
 
       const contactIds = autonomaDb.getAudienceListMembers(listId);
-      const allContacts = autonomaDb.getContacts(activeCompanyId);
-      const members = allContacts.filter(c => contactIds.includes(c.contactId));
+      const allContacts = autonomaDb.getContacts(ownedList.organizationId);
+      const members = allContacts.filter(contact => contactIds.includes(contact.contactId));
+      const safeContactIds = members.map(contact => contact.contactId);
 
-      res.json({ success: true, contactIds, contacts: members });
+      res.json({ success: true, contactIds: safeContactIds, contacts: members });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'Failed to fetch audience list members' });
     }
@@ -2736,7 +2747,7 @@ Generate a JSON object strictly adhering to the schema.`;
   app.delete('/api/audience-lists/:listId', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
     try {
       const isSuperAdmin = (req as any).user?.isSuperAdmin;
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const { listId } = req.params;
 
       const deleted = await autonomaDb.deleteAudienceList(listId, isSuperAdmin ? undefined : activeCompanyId);
@@ -2754,7 +2765,7 @@ Generate a JSON object strictly adhering to the schema.`;
   // ==========================================
   app.get('/api/campaigns/:campaignId/context-sources', authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
     try {
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const { campaignId } = req.params;
 
       const sources = autonomaDb.getCampaignContextSources(campaignId, activeCompanyId);
@@ -2766,13 +2777,16 @@ Generate a JSON object strictly adhering to the schema.`;
 
   app.post('/api/campaigns/:campaignId/context-sources', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
     try {
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const actorUserId = (req as any).user?.userId || 'SYSTEM';
       const { campaignId } = req.params;
       const { sourceId, useMode, summary, contextJson } = req.body || {};
 
       if (!sourceId) {
         return res.status(400).json({ success: false, error: 'sourceId is required' });
+      }
+      if (!autonomaDb.getCampaign(campaignId, activeCompanyId)) {
+        return res.status(404).json({ success: false, error: 'Campaign not found in the active workspace.' });
       }
 
       const source = await autonomaDb.saveCampaignContextSource({
@@ -2794,7 +2808,7 @@ Generate a JSON object strictly adhering to the schema.`;
 
   app.delete('/api/campaigns/:campaignId/context-sources/:id', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
     try {
-      const activeCompanyId = (req as any).userActiveCompanyId || (req as any).user?.activeCompanyId || DEFAULT_ORG_ID;
+      const activeCompanyId = (req as any).activeCompany?.companyId || DEFAULT_ORG_ID;
       const { id } = req.params;
 
       const deleted = await autonomaDb.deleteCampaignContextSource(id, activeCompanyId);
