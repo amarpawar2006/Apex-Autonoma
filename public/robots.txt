@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /invite
+Disallow: /reset-password
+
+Sitemap: https://autonoma.apex-engineering.co.in/sitemap.xml
