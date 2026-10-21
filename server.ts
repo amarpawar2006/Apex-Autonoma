@@ -3294,7 +3294,7 @@ Generate a JSON object strictly adhering to the schema.`;
   });
 
   // 8. Activity Log
-  app.get('/api/autonoma/activity', (_req: Request, res: Response) => {
+  app.get('/api/autonoma/activity', authenticateUser, requireSuperAdmin, (_req: Request, res: Response) => {
     try {
       const logs = autonomaDb.getActivityLog();
       res.json({ success: true, count: logs.length, data: logs });
@@ -3306,6 +3306,15 @@ Generate a JSON object strictly adhering to the schema.`;
   // Real Server-Side Gemini Campaign Generator Endpoint
   app.post('/api/campaign/generate', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
     try {
+      const apiKey = aiProviderService.getRawProviderKey('gemini');
+      if (!apiKey) {
+        return res.status(503).json({
+          success: false,
+          error: 'AI_PROVIDER_UNAVAILABLE',
+          message: 'Gemini text generation is not configured for this single-asset generator.'
+        });
+      }
+
       const {
         topic,
         targetPlatform = 'instagram',
