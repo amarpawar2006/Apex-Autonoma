@@ -4101,14 +4101,6 @@ GENERATE A COMPLETE STRUCTURED JSON OBJECT WITH:
       return res.status(404).json({ success: false, error: 'Campaign not found for active company.' });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({
-        error: 'MISSING_API_KEY',
-        message: 'Server-side GEMINI_API_KEY is not configured in the runtime environment.'
-      });
-    }
-
     try {
       // Mark status as GENERATING immediately
       existingRow.generationStatus = 'GENERATING';
@@ -4227,25 +4219,8 @@ ALL GENERATED CAMPAIGN HOOKS, ASSET TITLES, CAPTIONS, HASHTAGS, AND CTAs MUST MA
 Produce exactly ${deliveryCount} high-converting deliverables without generic "Part X" titles. For every delivery matrix row, keep the strategic concept consistent across variants but rewrite it natively for the platform and naturally in the target language. Reddit must not look like an Instagram caption; LinkedIn must be professional and insight-led. Include conceptIndex, platform, language, format, title, hook, caption, hashtags, CTA, carouselSlides/reelScript when relevant, posterVisualPrompt and virality metadata for every asset.
 Generate a JSON object strictly matching the schema with campaignName, coreInsight, valueProposition, targetAudience, buyerPersonas, contentPillars, postingSequence, and assets array.`;
 
-      const ai = new GoogleGenAI({ apiKey });
-      let response;
-      try {
-        response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: { responseMimeType: 'application/json' }
-        });
-      } catch (firstErr: any) {
-        console.warn('[retry-synthesis] gemini-3.8-flash unavailable, falling back to gemini-2.5-flash:', firstErr?.message);
-        response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-          config: { responseMimeType: 'application/json' }
-        });
-      }
-
-      const responseText = response.text || '';
-      const parsedData = JSON.parse(responseText);
+      const generation = await generateCampaignJsonWithFallback(prompt, undefined, 'retry-synthesis');
+      const parsedData = generation.data;
       if (!Array.isArray(parsedData.assets) || parsedData.assets.length !== deliveryCount) {
         throw new Error(`AI returned ${Array.isArray(parsedData.assets) ? parsedData.assets.length : 0} deliverables; ${deliveryCount} were required. Retry will keep the same campaign shell.`);
       }
@@ -4365,7 +4340,12 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
       return res.json({
         success: true,
         campaign: updatedCampaign,
-        assets: generatedAssets
+        assets: generatedAssets,
+        generationMeta: {
+          provider: generation.provider,
+          model: generation.model,
+          attempts: generation.attempts
+        }
       });
     } catch (err: any) {
       console.error('[API /campaign/retry-synthesis] Failed:', err);
@@ -4378,9 +4358,14 @@ Generate a JSON object strictly matching the schema with campaignName, coreInsig
         console.error('Failed to update failure status on campaign row:', saveErr);
       }
 
-      return res.status(500).json({
+      const code = err?.code || 'RETRY_SYNTHESIS_FAILED';
+      const status = code === 'AI_PROVIDERS_UNCONFIGURED' || code === 'AI_PROVIDERS_EXHAUSTED' ? 503 : 500;
+      return res.status(status).json({
         success: false,
-        error: err?.message || 'Campaign synthesis retry failed'
+        error: code,
+        retryable: err?.retryable !== false,
+        attempts: Array.isArray(err?.attempts) ? err.attempts : undefined,
+        message: err?.message || 'Campaign synthesis retry failed. Your saved campaign shell remains available.'
       });
     }
   });
