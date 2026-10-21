@@ -3,7 +3,7 @@ import { ApexLogo } from '../ApexLogo';
 import { ArrowLeft, ExternalLink, Shield, FileText, HelpCircle, LogIn } from 'lucide-react';
 
 interface PublicNavProps {
-  currentPage: 'about' | 'privacy' | 'terms' | 'support';
+  currentPage: 'about' | 'privacy' | 'terms' | 'support' | 'request-access';
 }
 
 export const PublicNav: React.FC<PublicNavProps> = ({ currentPage }) => {
@@ -57,8 +57,14 @@ export const PublicNav: React.FC<PublicNavProps> = ({ currentPage }) => {
             Support
           </button>
           <button
-            onClick={() => navigate('/')}
-            className="ml-1 sm:ml-2 px-3.5 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white rounded-xl transition-all shadow-xs flex items-center space-x-1.5 font-semibold"
+            onClick={() => navigate('/request-access')}
+            className="hidden sm:inline-flex px-3.5 py-2 border border-black/[0.08] bg-white hover:bg-black/[0.03] text-[#1D1D1F] rounded-xl transition-all font-semibold"
+          >
+            Request Access
+          </button>
+          <button
+            onClick={() => navigate('/login')}
+            className="ml-1 px-3.5 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white rounded-xl transition-all shadow-xs flex items-center space-x-1.5 font-semibold"
           >
             <LogIn className="w-3.5 h-3.5" />
             <span>Sign In</span>
@@ -93,7 +99,8 @@ export const PublicFooter: React.FC = () => {
             <button onClick={() => navigate('/privacy')} className="hover:text-[#1D1D1F] transition-colors">Privacy Policy</button>
             <button onClick={() => navigate('/terms')} className="hover:text-[#1D1D1F] transition-colors">Terms of Service</button>
             <button onClick={() => navigate('/support')} className="hover:text-[#1D1D1F] transition-colors">Support & Help</button>
-            <button onClick={() => navigate('/')} className="hover:text-[#1D1D1F] transition-colors">Sign In</button>
+            <button onClick={() => navigate('/request-access')} className="hover:text-[#1D1D1F] transition-colors">Request Access</button>
+            <button onClick={() => navigate('/login')} className="hover:text-[#1D1D1F] transition-colors">Sign In</button>
           </div>
         </div>
         <div className="border-t border-black/[0.04] pt-6 flex flex-col sm:flex-row justify-between text-[11px] text-[#86868B] gap-2">
