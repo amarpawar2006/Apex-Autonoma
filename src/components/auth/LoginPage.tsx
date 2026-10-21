@@ -73,7 +73,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       />
 
       <header className="relative z-10 border-b border-black/[0.07] bg-white/90 backdrop-blur-md px-4 sm:px-6 py-4 flex items-center justify-between">
-        <ApexLogo variant="lockup" size="md" />
+        <button
+          type="button"
+          onClick={() => { window.history.pushState({}, '', '/'); window.dispatchEvent(new PopStateEvent('popstate')); }}
+          className="text-left"
+          aria-label="Back to Autonoma home"
+        >
+          <ApexLogo variant="lockup" size="md" />
+        </button>
         <div className="flex items-center gap-2 text-[11px] text-[#6E6E73] font-medium">
           <ShieldCheck className="w-4 h-4 text-emerald-600" />
           <span>Private workspace access</span>
