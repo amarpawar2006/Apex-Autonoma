@@ -47,6 +47,16 @@ export interface MediaGenerationResult {
   operationName?: string;
 }
 
+export interface StructuredTextGenerationResult {
+  success: boolean;
+  provider: 'openai';
+  model: string;
+  text?: string;
+  error?: string;
+  status?: number;
+  retryable?: boolean;
+}
+
 export class AiProviderService {
   private settings: AiProvidersSettings = {
     defaults: {
@@ -473,6 +483,109 @@ export class AiProviderService {
         provider: providerId,
         message: err?.message || 'Connection test failed'
       };
+    }
+  }
+
+  /**
+   * Cross-vendor structured-text fallback for campaign generation.
+   * Uses OpenAI Responses API in JSON mode when OPENAI_API_KEY is configured.
+   * This method is intentionally stateless (store=false) and is only invoked
+   * after primary Gemini attempts fail or exhaust quota.
+   */
+  public async generateStructuredTextWithOpenAI(
+    prompt: string,
+    options?: { timeoutMs?: number; model?: string; maxOutputTokens?: number }
+  ): Promise<StructuredTextGenerationResult> {
+    const apiKey = this.getRawProviderKey('openai');
+    const model = options?.model || process.env.OPENAI_TEXT_MODEL || 'gpt-6-luna';
+    const timeoutMs = Math.max(5000, options?.timeoutMs || 40000);
+    const maxOutputTokens = Math.max(1000, options?.maxOutputTokens || 30000);
+
+    if (!apiKey) {
+      return {
+        success: false,
+        provider: 'openai',
+        model,
+        error: 'OpenAI API key is not configured.',
+        retryable: false
+      };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
+
+    try {
+      const res = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          input: prompt,
+          store: false,
+          max_output_tokens: maxOutputTokens,
+          text: {
+            format: { type: 'json_object' }
+          }
+        })
+      });
+
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = data?.error?.message || `OpenAI Responses API failed with HTTP ${res.status}`;
+        return {
+          success: false,
+          provider: 'openai',
+          model,
+          error: message,
+          status: res.status,
+          retryable: res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500
+        };
+      }
+
+      let outputText = typeof data?.output_text === 'string' ? data.output_text : '';
+      if (!outputText && Array.isArray(data?.output)) {
+        outputText = data.output
+          .filter((item: any) => item?.type === 'message' && Array.isArray(item?.content))
+          .flatMap((item: any) => item.content)
+          .filter((part: any) => part?.type === 'output_text' && typeof part?.text === 'string')
+          .map((part: any) => part.text)
+          .join('');
+      }
+
+      if (!outputText.trim()) {
+        return {
+          success: false,
+          provider: 'openai',
+          model,
+          error: 'OpenAI returned an empty structured response.',
+          retryable: true
+        };
+      }
+
+      return {
+        success: true,
+        provider: 'openai',
+        model,
+        text: outputText
+      };
+    } catch (err: any) {
+      const timedOut = err?.name === 'AbortError' || err?.name === 'TimeoutError';
+      return {
+        success: false,
+        provider: 'openai',
+        model,
+        error: timedOut
+          ? `OpenAI generation timed out after ${timeoutMs}ms.`
+          : (err?.message || 'OpenAI structured generation failed.'),
+        retryable: true
+      };
+    } finally {
+      clearTimeout(timer);
     }
   }
 
