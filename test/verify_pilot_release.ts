@@ -44,7 +44,7 @@ const checks: Array<[string, boolean]> = [
   ['Root route serves public landing page', read('src/App.tsx').includes("currentPath === '/' || currentPath === '/about'")],
   ['Dedicated login route exists', read('src/App.tsx').includes("currentPath === '/login'")],
   ['Request access route exists', read('src/App.tsx').includes("currentPath === '/request-access'") && fs.existsSync('src/components/public/RequestAccessPage.tsx')],
-  ['Request access endpoint exists', server.includes("app.post('/api/request-access'"))],
+  ['Request access endpoint exists', server.includes("app.post('/api/request-access'")],
   ['Production fixture auth is disabled', server.includes("process.env.NODE_ENV !== 'test'") && server.includes("error: 'NOT_FOUND'")],
   ['Legacy Google auth cannot onboard tenant users', server.includes("error: 'LEGACY_LOGIN_DISABLED'")],
   ['Tenant APIs use authenticated active company scope', !server.includes('userActiveCompanyId') && server.includes('(req as any).activeCompany?.companyId')],
