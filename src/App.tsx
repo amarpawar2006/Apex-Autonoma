@@ -184,6 +184,10 @@ export default function App() {
       }
     } catch {
       setSession(null);
+      setCurrentUser(null);
+      setActiveCompany(null);
+      autonomaDataService.setActiveCompanyContext(null);
+      setUserRole(null);
     } finally {
       setAuthChecking(false);
     }
@@ -241,6 +245,7 @@ export default function App() {
     setSession(pendingRes);
     setCurrentUser(pendingRes.user || null);
     setActiveCompany(null);
+    autonomaDataService.setActiveCompanyContext(null);
     setUserRole(null);
     setIsSuperAdminWorkspaceOpen(false);
   };
