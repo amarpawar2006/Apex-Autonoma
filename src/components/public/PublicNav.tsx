@@ -23,10 +23,10 @@ export const PublicNav: React.FC<PublicNavProps> = ({ currentPage }) => {
           </div>
         </div>
 
-        <nav className="flex items-center space-x-1 sm:space-x-2 text-xs font-medium">
+        <nav className="flex items-center gap-1 sm:gap-2 text-xs font-medium">
           <button
             onClick={() => navigate('/about')}
-            className={`px-3 py-1.5 rounded-lg transition-colors ${
+            className={`hidden md:inline-flex px-3 py-1.5 rounded-lg transition-colors ${
               currentPage === 'about' ? 'bg-black/[0.06] text-[#1D1D1F] font-semibold' : 'text-[#6E6E73] hover:text-[#1D1D1F]'
             }`}
           >
@@ -34,7 +34,7 @@ export const PublicNav: React.FC<PublicNavProps> = ({ currentPage }) => {
           </button>
           <button
             onClick={() => navigate('/privacy')}
-            className={`px-3 py-1.5 rounded-lg transition-colors ${
+            className={`hidden md:inline-flex px-3 py-1.5 rounded-lg transition-colors ${
               currentPage === 'privacy' ? 'bg-black/[0.06] text-[#1D1D1F] font-semibold' : 'text-[#6E6E73] hover:text-[#1D1D1F]'
             }`}
           >
@@ -42,7 +42,7 @@ export const PublicNav: React.FC<PublicNavProps> = ({ currentPage }) => {
           </button>
           <button
             onClick={() => navigate('/terms')}
-            className={`px-3 py-1.5 rounded-lg transition-colors ${
+            className={`hidden md:inline-flex px-3 py-1.5 rounded-lg transition-colors ${
               currentPage === 'terms' ? 'bg-black/[0.06] text-[#1D1D1F] font-semibold' : 'text-[#6E6E73] hover:text-[#1D1D1F]'
             }`}
           >
@@ -50,7 +50,7 @@ export const PublicNav: React.FC<PublicNavProps> = ({ currentPage }) => {
           </button>
           <button
             onClick={() => navigate('/support')}
-            className={`px-3 py-1.5 rounded-lg transition-colors ${
+            className={`hidden md:inline-flex px-3 py-1.5 rounded-lg transition-colors ${
               currentPage === 'support' ? 'bg-black/[0.06] text-[#1D1D1F] font-semibold' : 'text-[#6E6E73] hover:text-[#1D1D1F]'
             }`}
           >
@@ -58,7 +58,7 @@ export const PublicNav: React.FC<PublicNavProps> = ({ currentPage }) => {
           </button>
           <button
             onClick={() => navigate('/')}
-            className="ml-2 px-3.5 py-1.5 bg-[#FF4500] hover:bg-[#EA3E00] text-white rounded-lg transition-all shadow-xs flex items-center space-x-1 font-semibold"
+            className="ml-1 sm:ml-2 px-3.5 py-2 bg-[#FF4500] hover:bg-[#EA3E00] text-white rounded-xl transition-all shadow-xs flex items-center space-x-1.5 font-semibold"
           >
             <LogIn className="w-3.5 h-3.5" />
             <span>Sign In</span>
