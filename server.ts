@@ -4664,6 +4664,14 @@ STRICT GUARDRAILS:
         const body = req.body as Buffer;
 
         if (!assetId) return res.status(400).json({ success: false, error: 'assetId is required' });
+        const companyId = activeCompany?.companyId || '';
+        const ownedAsset = autonomaDb.getAsset(assetId, companyId);
+        if (!ownedAsset) {
+          return res.status(404).json({ success: false, error: 'Asset not found in the active workspace.' });
+        }
+        if (campaignId && ownedAsset.campaignId !== campaignId) {
+          return res.status(400).json({ success: false, error: 'Campaign does not match the selected asset.' });
+        }
         if (!Buffer.isBuffer(body) || body.length === 0) return res.status(400).json({ success: false, error: 'Media file is empty' });
 
         const allowed = new Set(['image/png', 'image/jpeg', 'image/webp', 'video/mp4']);
@@ -4672,8 +4680,6 @@ STRICT GUARDRAILS:
         const extension = contentType === 'video/mp4' ? 'mp4' : contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/webp' ? 'webp' : 'png';
         const safeCode = assetCode.replace(/[^a-zA-Z0-9_-]/g, '_');
         const filename = `${safeCode}-${Date.now()}.${extension}`;
-        const companyId = activeCompany?.companyId || 'unscoped';
-
         const durableUrl = await supabaseStorage.uploadGeneratedMedia(filename, body, contentType, companyId);
         if (!durableUrl) {
           return res.status(500).json({ success: false, error: 'Durable media storage is unavailable' });
@@ -4702,23 +4708,69 @@ STRICT GUARDRAILS:
     }
   );
 
-  // Image proxy endpoint for client-side canvas rendering (CORS safe)
-  app.get('/api/media/proxy-image', async (req: Request, res: Response) => {
+  // Authenticated image proxy for client-side canvas rendering.
+  // Every destination is DNS-resolved and rejected if it reaches private/link-local networks.
+  app.get('/api/media/proxy-image', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
     try {
-      const targetUrl = req.query.url as string;
-      if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
-        return res.status(400).send('Invalid url');
+      const targetUrl = String(req.query.url || '');
+      const validation = await validateSafePublicUrl(targetUrl);
+      if (!validation.valid) {
+        return res.status(400).json({ success: false, error: validation.error || 'Unsafe image URL.' });
       }
-      const response = await fetch(targetUrl);
-      if (!response.ok) return res.status(response.status).send('Failed to fetch image');
-      const contentType = response.headers.get('content-type') || 'image/png';
-      const arrayBuffer = await response.arrayBuffer();
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.send(Buffer.from(arrayBuffer));
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      if (typeof timer.unref === 'function') timer.unref();
+
+      try {
+        const response = await fetch(targetUrl, {
+          method: 'GET',
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Apex-Autonoma-MediaProxy/1.0' }
+        });
+
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          const location = response.headers.get('location');
+          if (!location) return res.status(502).json({ success: false, error: 'Image redirect is missing a destination.' });
+          const redirectUrl = new URL(location, targetUrl).toString();
+          const redirectValidation = await validateSafePublicUrl(redirectUrl);
+          if (!redirectValidation.valid) {
+            return res.status(400).json({ success: false, error: 'Unsafe image redirect destination.' });
+          }
+          return res.redirect(307, `/api/media/proxy-image?url=${encodeURIComponent(redirectUrl)}`);
+        }
+
+        if (!response.ok) return res.status(502).json({ success: false, error: `Image source returned HTTP ${response.status}.` });
+
+        const contentType = String(response.headers.get('content-type') || '').split(';')[0];
+        const allowed = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+        if (!allowed.has(contentType)) {
+          return res.status(415).json({ success: false, error: 'Remote URL is not a supported image.' });
+        }
+
+        const declaredLength = Number(response.headers.get('content-length') || 0);
+        if (declaredLength > 15 * 1024 * 1024) {
+          return res.status(413).json({ success: false, error: 'Remote image exceeds the 15 MB proxy limit.' });
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength > 15 * 1024 * 1024) {
+          return res.status(413).json({ success: false, error: 'Remote image exceeds the 15 MB proxy limit.' });
+        }
+
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        return res.send(Buffer.from(arrayBuffer));
+      } finally {
+        clearTimeout(timer);
+      }
     } catch (err: any) {
-      return res.status(500).send(err?.message || 'Proxy error');
+      const timeout = err?.name === 'AbortError' || err?.name === 'TimeoutError';
+      return res.status(timeout ? 504 : 500).json({
+        success: false,
+        error: timeout ? 'Remote image request timed out.' : (err?.message || 'Image proxy failed.')
+      });
     }
   });
 
