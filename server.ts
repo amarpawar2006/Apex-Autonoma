@@ -262,18 +262,16 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // Synchronize remote Supabase persistence in the background; local disk persistence is already ready.
-  autonomaDb.initializeProductionPersistence().then((persistence) => {
-    console.log(
-      `[Server Startup] Persistence ready via ${persistence.source}: ` +
-      `${persistence.companies} companies, ` +
-      `${persistence.campaigns} campaigns, ` +
-      `${persistence.assets} assets.`
-    );
-  }).catch((err: any) => {
-    console.warn('[Server Startup] Persistence background sync note:', err?.message || err);
-  });
-  // Hydrate AI Provider and Email Services from persisted settings
+  // Production tenant state must be authoritative before any authenticated route can serve data.
+  const persistence = await autonomaDb.initializeProductionPersistence();
+  console.log(
+    `[Server Startup] Persistence ready via ${persistence.source}: ` +
+    `${persistence.companies} companies, ` +
+    `${persistence.campaigns} campaigns, ` +
+    `${persistence.assets} assets.`
+  );
+
+  // Hydrate AI Provider and Email Services only after authoritative persistence is loaded.
   try {
     const currentSettings = autonomaDb.getSettings()?.settings;
     if (currentSettings?.aiProvidersJson) {
