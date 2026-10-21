@@ -1,3 +1,4 @@
+import { getAuthHeaders } from './autonomaDataService';
 import { CarouselSlide, SocialAsset } from '../types/campaign';
 
 export type CompositionTemplateId =
@@ -113,26 +114,40 @@ async function loadSafeImage(url: string | undefined): Promise<HTMLImageElement 
   const trimmed = url.trim();
 
   let targetUrl = trimmed;
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    // Check if same origin or data url
-    if (typeof window !== 'undefined' && !trimmed.startsWith(window.location.origin)) {
-      targetUrl = `/api/media/proxy-image?url=${encodeURIComponent(trimmed)}`;
+  let objectUrl: string | null = null;
+
+  try {
+    if (
+      (trimmed.startsWith('http://') || trimmed.startsWith('https://')) &&
+      typeof window !== 'undefined' &&
+      !trimmed.startsWith(window.location.origin)
+    ) {
+      const response = await fetch(
+        `/api/media/proxy-image?url=${encodeURIComponent(trimmed)}`,
+        { headers: getAuthHeaders() }
+      );
+      if (!response.ok) return null;
+      objectUrl = URL.createObjectURL(await response.blob());
+      targetUrl = objectUrl;
+    }
+
+    return await new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        resolve(img.naturalWidth > 0 && img.naturalHeight > 0 ? img : null);
+      };
+      img.onerror = () => resolve(null);
+      img.src = targetUrl;
+    });
+  } catch {
+    return null;
+  } finally {
+    if (objectUrl) {
+      // Delay revocation until the image element has decoded the blob.
+      setTimeout(() => URL.revokeObjectURL(objectUrl as string), 1000);
     }
   }
-
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-        resolve(img);
-      } else {
-        resolve(null);
-      }
-    };
-    img.onerror = () => resolve(null);
-    img.src = targetUrl;
-  });
 }
 
 function drawRoundedRect(
