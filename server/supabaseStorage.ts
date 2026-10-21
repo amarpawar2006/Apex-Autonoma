@@ -635,14 +635,55 @@ export class SupabaseStorageAdapter {
    */
   public async deleteCompany(companyId: string): Promise<void> {
     if (!this.ready || !this.client) return;
+
     try {
-      await this.client.from('companies').delete().eq('company_id', companyId);
-      await this.client.from('campaigns').delete().eq('organization_id', companyId);
+      const { data: campaigns, error: campaignReadError } = await this.client
+        .from('campaigns')
+        .select('campaign_id')
+        .eq('organization_id', companyId);
+      if (campaignReadError) throw campaignReadError;
+
+      const { data: assets, error: assetReadError } = await this.client
+        .from('assets')
+        .select('asset_id')
+        .eq('organization_id', companyId);
+      if (assetReadError) throw assetReadError;
+
+      const campaignIds = (campaigns || []).map((row: any) => row.campaign_id).filter(Boolean);
+      const assetIds = (assets || []).map((row: any) => row.asset_id).filter(Boolean);
+
+      // Delete deepest dependants first so FK constraints cannot resurrect a removed tenant.
+      if (assetIds.length > 0) {
+        await this.client.from('daily_snapshots').delete().in('asset_id', assetIds);
+        await this.client.from('performance').delete().in('asset_id', assetIds);
+        await this.client.from('media').delete().in('asset_id', assetIds);
+        await this.client.from('publishing').delete().in('asset_id', assetIds);
+      }
+      if (campaignIds.length > 0) {
+        await this.client.from('performance').delete().in('campaign_id', campaignIds);
+        await this.client.from('media').delete().in('campaign_id', campaignIds);
+        await this.client.from('publishing').delete().in('campaign_id', campaignIds);
+      }
+
       await this.client.from('assets').delete().eq('organization_id', companyId);
+      await this.client.from('campaigns').delete().eq('organization_id', companyId);
       await this.client.from('memberships').delete().eq('company_id', companyId);
-      console.log(`[Supabase Adapter] Permanently deleted company ${companyId} and cascaded records in Supabase.`);
+      await this.client.from('settings').delete().eq('organization_id', companyId);
+
+      // Preserve audit/approval history without leaving invalid company FKs.
+      await this.client.from('approval_requests').update({ assigned_company_id: null }).eq('assigned_company_id', companyId);
+      await this.client.from('sessions').update({ active_company_id: null }).eq('active_company_id', companyId);
+
+      const { error: companyDeleteError } = await this.client
+        .from('companies')
+        .delete()
+        .eq('company_id', companyId);
+      if (companyDeleteError) throw companyDeleteError;
+
+      console.log(`[Supabase Adapter] Permanently deleted company ${companyId} and dependent records in FK-safe order.`);
     } catch (e: any) {
-      console.warn('[Supabase Adapter] Company delete warning:', e?.message);
+      console.error('[Supabase Adapter] Company delete failed:', e?.message);
+      throw new Error(`Supabase company deletion failed: ${e?.message || 'Unknown persistence error'}`);
     }
   }
 
