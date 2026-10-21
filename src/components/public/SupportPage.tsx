@@ -43,17 +43,17 @@ export const SupportPage: React.FC = () => {
   const categories: HelpCategory[] = [
     {
       id: 'sign-in',
-      title: 'Sign In & Google Authentication',
+      title: 'Sign In & Password Access',
       icon: <LogIn className="w-4 h-4 text-[#FF4500]" />,
-      summary: 'Troubleshooting login, session restoration, and Google OAuth credentials.',
+      summary: 'Troubleshooting email/password login, password resets, invitations, and session restoration.',
       faqs: [
         {
-          q: 'Why am I redirected to "Awaiting Approval" after signing in?',
-          a: 'For security and data isolation, new user signups enter a verified approval queue until the Super Administrator reviews and assigns your account to an active corporate workspace.'
+          q: 'How do I get an Autonoma account?',
+          a: 'Autonoma does not provide public signup. The Super Administrator or an authorized Company Administrator creates your workspace access and sends you a secure one-time link to set your password.'
         },
         {
-          q: 'Can I use personal Google accounts?',
-          a: 'Yes, both corporate Google Workspace accounts and standard personal Google accounts are supported for authentication.'
+          q: 'What if I forget my password?',
+          a: 'Use Forgot password on the sign-in screen. If the email belongs to an active Autonoma account, a secure one-time reset link is sent to that address.'
         },
         {
           q: 'How long do sessions last?',
@@ -73,7 +73,7 @@ export const SupportPage: React.FC = () => {
         },
         {
           q: 'What is the difference between Super Admin, Company Admin, and Member?',
-          a: 'Super Admins oversee the entire system, approve signups, and create companies. Company Admins manage their specific company profile, team invites, and brand settings. Members generate and review campaign creatives.'
+          a: 'Super Admins oversee the system and create company workspaces. Company Admins manage their company profile, team invitations and brand settings. Members work inside the company workspace on campaigns and creatives.'
         }
       ]
     },
@@ -88,8 +88,8 @@ export const SupportPage: React.FC = () => {
           a: 'In Company Management > Team Members, click the "Copy Link" action. You can send the unique invite URL directly to your colleague via Slack or WhatsApp.'
         },
         {
-          q: 'Why did the invite link say "Account Mismatch"?',
-          a: 'For security, the Google account used to accept the invitation must match the exact email address that was invited. Log in with the invited email address.'
+          q: 'Why did my invite link expire?',
+          a: 'Invitation links are one-time password setup links and expire for security. Ask your Company Administrator to use Resend Invite, which creates a fresh secure link.'
         }
       ]
     },
