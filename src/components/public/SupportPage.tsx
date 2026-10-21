@@ -57,7 +57,7 @@ export const SupportPage: React.FC = () => {
         },
         {
           q: 'How long do sessions last?',
-          a: 'Sessions remain active across restarts and page reloads for up to 30 days of inactivity, securely persisted in Supabase.'
+          a: 'Sessions remain active across restarts and page reloads for up to 30 days from sign-in, unless you sign out or an administrator revokes access.'
         }
       ]
     },
