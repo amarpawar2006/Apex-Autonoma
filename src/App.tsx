@@ -49,6 +49,7 @@ import { AboutPage } from './components/public/AboutPage';
 import { PrivacyPage } from './components/public/PrivacyPage';
 import { TermsPage } from './components/public/TermsPage';
 import { SupportPage } from './components/public/SupportPage';
+import { RequestAccessPage } from './components/public/RequestAccessPage';
 import { InviteLandingPage } from './components/public/InviteLandingPage';
 import { BottomNavigation } from './components/BottomNavigation';
 
@@ -473,8 +474,11 @@ export default function App() {
   // ==========================================
 
   // Public unauthenticated routes that bypass login and session gate
-  if (currentPath === '/about') {
+  if (currentPath === '/' || currentPath === '/about') {
     return <AboutPage />;
+  }
+  if (currentPath === '/request-access') {
+    return <RequestAccessPage />;
   }
   if (currentPath === '/privacy') {
     return <PrivacyPage />;
@@ -490,6 +494,28 @@ export default function App() {
   }
   if (currentPath === '/reset-password') {
     return <ResetPasswordPage onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  if (currentPath === '/login') {
+    if (authChecking) {
+      return (
+        <div className="min-h-screen bg-[#0A0B0E] text-white flex flex-col items-center justify-center space-y-4">
+          <ApexLogo variant="lockup" size="lg" />
+          <div className="flex items-center space-x-2 text-xs text-[#86868B] font-mono">
+            <div className="w-3.5 h-3.5 border-2 border-[#FF4500] border-t-transparent rounded-full animate-spin" />
+            <span>Restoring verified session...</span>
+          </div>
+        </div>
+      );
+    }
+    if (!session || !currentUser) {
+      return (
+        <LoginPage
+          onLoginSuccess={handleLoginSuccess}
+          onAwaitingApproval={handleAwaitingApproval}
+        />
+      );
+    }
   }
 
   // 1. Loading screen during session restoration
