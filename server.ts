@@ -2406,7 +2406,7 @@ Generate a JSON object strictly adhering to the schema.`;
   });
 
   // 3. Cancel/clean up staged session
-  app.post('/api/import/cancel', authenticateUser, (req: Request, res: Response) => {
+  app.post('/api/import/cancel', authenticateUser, requireActiveMembership, (req: Request, res: Response) => {
     try {
       const { sessionId } = req.body || {};
       if (sessionId) {
@@ -2831,7 +2831,7 @@ Generate a JSON object strictly adhering to the schema.`;
   // AI & MEDIA PROVIDER SETTINGS API
   // Multi-provider configuration (Gemini, OpenAI, NVIDIA, Veo)
   // ==========================================
-  app.get('/api/ai/providers', authenticateUser, (_req: Request, res: Response) => {
+  app.get('/api/ai/providers', authenticateUser, requireActiveMembership, (_req: Request, res: Response) => {
     try {
       const aiProviders = aiProviderService.getSettings(false);
       const emailConfig = emailService.getConfig();
@@ -2845,7 +2845,7 @@ Generate a JSON object strictly adhering to the schema.`;
     }
   });
 
-  app.post('/api/ai/providers', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+  app.post('/api/ai/providers', authenticateUser, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const { aiProviders, emailConfig, googleDrive } = req.body || {};
       if (aiProviders) {
@@ -2874,7 +2874,7 @@ Generate a JSON object strictly adhering to the schema.`;
     }
   });
 
-  app.post('/api/ai/providers/test', authenticateUser, async (req: Request, res: Response) => {
+  app.post('/api/ai/providers/test', authenticateUser, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const { providerId, apiKey } = req.body || {};
       if (!providerId) {
@@ -2887,7 +2887,7 @@ Generate a JSON object strictly adhering to the schema.`;
     }
   });
 
-  app.post('/api/email/test', authenticateUser, async (req: Request, res: Response) => {
+  app.post('/api/email/test', authenticateUser, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const caller = (req as any).user;
       const { targetEmail = caller?.email, config } = req.body || {};
@@ -3204,7 +3204,7 @@ Generate a JSON object strictly adhering to the schema.`;
     }
   });
 
-  app.post('/api/autonoma/settings', authenticateUser, requireCompanyAdmin, async (req: Request, res: Response) => {
+  app.post('/api/autonoma/settings', authenticateUser, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const { settings, googleSheetsUrl } = req.body;
       const result = await autonomaDb.updateSettings(settings || {}, googleSheetsUrl);
