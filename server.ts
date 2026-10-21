@@ -802,6 +802,14 @@ async function startServer() {
       const email = googleIdentity.email;
       const isSuper = email === INITIAL_SUPER_ADMIN_EMAIL;
 
+      if (!isSuper) {
+        return res.status(403).json({
+          success: false,
+          error: 'LEGACY_LOGIN_DISABLED',
+          message: 'Google authentication is no longer available for tenant accounts. Use email and password.'
+        });
+      }
+
       let user = autonomaDb.getUserByEmail(email);
 
       if (isSuper) {
@@ -1102,10 +1110,10 @@ async function startServer() {
     return res.json({ success: true, activeCompany: normalizedCompany, role: 'SUPER_ADMIN', memberships: superMems });
   });
 
-  // Isolated test harness fixture login (accessible during tests / verification)
+  // Isolated test harness fixture login. Never available in production.
   app.post('/api/auth/fixture-login', async (req: Request, res: Response) => {
-    if (process.env.NODE_ENV !== 'test' && !req.headers['x-autonoma-test-key']) {
-      return res.status(403).json({ success: false, error: 'Fixture login only available in test environments' });
+    if (process.env.NODE_ENV !== 'test') {
+      return res.status(404).json({ success: false, error: 'NOT_FOUND' });
     }
     const { email, name, role = 'MEMBER', companyId, isSuperAdmin = false, status = 'ACTIVE' } = req.body || {};
     if (!email) return res.status(400).json({ success: false, error: 'Email required' });
@@ -3207,7 +3215,7 @@ Generate a JSON object strictly adhering to the schema.`;
   });
 
   // 5. Test Connection to Google Sheets Web App
-  app.post('/api/autonoma/test-connection', async (req: Request, res: Response) => {
+  app.post('/api/autonoma/test-connection', authenticateUser, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const { url } = req.body;
       if (url && typeof url === 'string' && url.trim()) {
@@ -3248,7 +3256,7 @@ Generate a JSON object strictly adhering to the schema.`;
   });
 
   // 6. Initialize All 8 Sheets in Google Sheet
-  app.post('/api/autonoma/init-sheet', async (req: Request, res: Response) => {
+  app.post('/api/autonoma/init-sheet', authenticateUser, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const { url } = req.body;
       const result = await autonomaDb.initGoogleSheet(url);
@@ -3259,7 +3267,7 @@ Generate a JSON object strictly adhering to the schema.`;
   });
 
   // 7. Full Synchronization (Pushes authoritative server store to Google Sheets)
-  app.post('/api/autonoma/sync', async (_req: Request, res: Response) => {
+  app.post('/api/autonoma/sync', authenticateUser, requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
       const result = await autonomaDb.syncWithGoogleSheets();
       res.json(result);
@@ -3269,7 +3277,7 @@ Generate a JSON object strictly adhering to the schema.`;
   });
 
   // Explicit Refresh / Hydration from Google Sheets
-  app.post('/api/autonoma/refresh-from-sheets', async (_req: Request, res: Response) => {
+  app.post('/api/autonoma/refresh-from-sheets', authenticateUser, requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
       const result = await autonomaDb.hydrateFromGoogleSheets();
       if (!result.success) {
