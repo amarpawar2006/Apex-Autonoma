@@ -28,6 +28,14 @@ function scopedStorageKey(baseKey: string): string {
   }
 }
 
+function hasActiveCompanyContext(): boolean {
+  try {
+    return Boolean(localStorage.getItem(STORAGE_KEY_ACTIVE_COMPANY_CONTEXT));
+  } catch {
+    return false;
+  }
+}
+
 export interface CampaignCreationOptions {
   brief: string;
   primaryGoal?: string;
@@ -77,7 +85,7 @@ export function loadSavedCampaigns(): Campaign[] {
   } catch (err) {
     console.warn('Failed to load campaigns from localStorage, using initial baseline:', err);
   }
-  return INITIAL_CAMPAIGNS;
+  return hasActiveCompanyContext() ? [] : INITIAL_CAMPAIGNS;
 }
 
 /**
@@ -110,7 +118,7 @@ export function loadSavedAssets(): SocialAsset[] {
   } catch (err) {
     console.warn('Failed to load assets from localStorage, using initial baseline:', err);
   }
-  return SEED_ASSETS;
+  return hasActiveCompanyContext() ? [] : SEED_ASSETS;
 }
 
 /**
