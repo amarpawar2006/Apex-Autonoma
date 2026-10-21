@@ -49,12 +49,12 @@ check('Studio loads active company brand', studio.includes('getCompanyProfile') 
 check('Studio contains no Apex/AES renderer markers', !studio.includes('APEX //') && !studio.includes('AES-DS'));
 check('Media renderer is company-aware', mediaService.includes('companyName') && mediaService.includes('primaryColor') && mediaService.includes('backgroundColor'));
 check('Media renderer contains no hardcoded Apex company label', !mediaService.includes('APEX ENGINEERING'));
-check('Production modal passes provider/model context', production.includes('providerId: activeImageProviderId') && production.includes('modelName: activeImageModel'));
+check('Production modal passes provider/model context', production.includes('providerId: selectedImageProvider') && production.includes('modelName: currentModel'));
 check('Production modal handles image URL or base64', production.includes('result.dataUrl || result.fileUrl'));
 check('Production modal sits above global header menus', production.includes('z-[500]'));
 check('Production modal closes with Escape and backdrop', production.includes("event.key === 'Escape'") && production.includes('e.target === e.currentTarget'));
 check('External finished media can be uploaded', production.includes('Upload finished media') && mediaService.includes('/api/media/upload') && server.includes("'/api/media/upload'"));
-check('Image generation automatically falls back to another configured provider', server.includes('Automatic provider fallback') && server.includes("cfg.capabilities.includes('image')"));
+check('Image generation automatically falls back to another configured provider', server.includes('Automatic provider fallback') && server.includes("cfg.capabilities?.includes('image')"));
 check('Excel-style 1899 time values are normalized for display', production.includes('1899-12-30T') && production.includes('formatScheduleTime'));
 
 check('Video polling allows long-running Veo jobs', production.includes('attempts >= 36') && production.includes('10000'));
