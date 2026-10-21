@@ -62,7 +62,7 @@ interface AssetProductionModalProps {
 
 type ProductionModalTab = 'preview' | 'content' | 'generation' | 'posting';
 
-export type ImageProviderOptionId = 'cloudflare' | 'openai' | 'gemini';
+export type ImageProviderOptionId = 'cloudflare' | 'openai' | 'nvidia' | 'gemini';
 
 export interface ImageProviderOption {
   id: ImageProviderOptionId;
@@ -84,6 +84,11 @@ export const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     title: 'OpenAI',
     helperText: 'Use for advanced imaging when you want more polished outputs, stronger prompt-following, and better results for complex or premium visuals.',
     exampleHint: 'Examples: premium product visuals, high-quality posters, nuanced compositions, refined branding scenes.'
+  },
+  {
+    id: 'nvidia',
+    title: 'NVIDIA NIM',
+    helperText: 'Use the configured NVIDIA image model for fast production visuals when NVIDIA capacity is available.'
   },
   {
     id: 'gemini',
@@ -216,10 +221,10 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
 
       setProvidersData(providers);
 
-      const configuredImageProviders = (['cloudflare', 'openai', 'gemini'] as ImageProviderOptionId[])
+      const configuredImageProviders = (['cloudflare', 'openai', 'nvidia', 'gemini'] as ImageProviderOptionId[])
         .filter((id) => Boolean(providers?.[id]?.hasKey));
       const preferredImageProvider =
-        (defImg === 'cloudflare' || defImg === 'openai' || defImg === 'gemini') && providers?.[defImg]?.hasKey
+        (defImg === 'cloudflare' || defImg === 'openai' || defImg === 'nvidia' || defImg === 'gemini') && providers?.[defImg]?.hasKey
           ? defImg
           : configuredImageProviders[0];
 
@@ -386,6 +391,8 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
         ? '@cf/black-forest-labs/flux-1-schnell'
         : selectedImageProvider === 'openai'
         ? 'gpt-image-2'
+        : selectedImageProvider === 'nvidia'
+        ? 'stabilityai/stable-diffusion-3-medium'
         : 'gemini-3.1-flash-lite-image'
     );
 
@@ -576,6 +583,8 @@ export const AssetProductionModal: React.FC<AssetProductionModalProps> = ({
         ? '@cf/black-forest-labs/flux-1-schnell'
         : selectedImageProvider === 'openai'
         ? 'gpt-image-2'
+        : selectedImageProvider === 'nvidia'
+        ? 'stabilityai/stable-diffusion-3-medium'
         : 'gemini-3.1-flash-lite-image'
     );
 
