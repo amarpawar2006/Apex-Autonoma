@@ -284,6 +284,83 @@ async function startServer() {
     console.warn('[Server Startup] Provider settings hydration notice:', hydrateErr?.message);
   }
 
+  const accessRequestRateLimit = new Map<string, { count: number; resetAt: number }>();
+
+  app.post('/api/request-access', async (req: Request, res: Response) => {
+    try {
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown')
+        .split(',')[0]
+        .trim();
+      const now = Date.now();
+      const windowMs = 60 * 60 * 1000;
+      const current = accessRequestRateLimit.get(ip);
+      if (!current || current.resetAt <= now) {
+        accessRequestRateLimit.set(ip, { count: 1, resetAt: now + windowMs });
+      } else {
+        if (current.count >= 5) {
+          return res.status(429).json({
+            success: false,
+            error: 'RATE_LIMITED',
+            message: 'Too many access requests from this network. Please try again later.'
+          });
+        }
+        current.count += 1;
+      }
+
+      const name = String(req.body?.name || '').trim().slice(0, 120);
+      const company = String(req.body?.company || '').trim().slice(0, 160);
+      const email = normalizeAuthEmail(req.body?.email);
+      const useCase = String(req.body?.useCase || '').trim().slice(0, 4000);
+
+      if (!name || !company || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({
+          success: false,
+          error: 'INVALID_REQUEST',
+          message: 'Name, company and a valid work email are required.'
+        });
+      }
+
+      const recipient = (process.env.ACCESS_REQUEST_EMAIL || 'apexengineering.ai.studio@gmail.com').trim();
+      const safe = (value: string) =>
+        value.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] || ch));
+
+      const delivery = await emailService.dispatchEmail({
+        to: recipient,
+        subject: `Autonoma Access Request — ${company}`,
+        html: `
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:620px;margin:auto;padding:32px;color:#1D1D1F">
+            <h2 style="margin:0 0 20px">New Autonoma access request</h2>
+            <p><strong>Name:</strong> ${safe(name)}</p>
+            <p><strong>Company / Brand:</strong> ${safe(company)}</p>
+            <p><strong>Email:</strong> ${safe(email)}</p>
+            <p><strong>Use case:</strong></p>
+            <div style="white-space:pre-wrap;background:#F5F5F7;border-radius:12px;padding:16px;color:#444">${safe(useCase || 'Not provided')}</div>
+            <p style="margin-top:24px;font-size:12px;color:#86868B">Submitted from the public Apex Autonoma access page.</p>
+          </div>
+        `,
+        text: `New Autonoma access request\nName: ${name}\nCompany: ${company}\nEmail: ${email}\nUse case: ${useCase || 'Not provided'}`
+      });
+
+      if (!delivery.success) {
+        console.warn('[Request Access] Email delivery failed:', delivery.error);
+        return res.status(503).json({
+          success: false,
+          error: 'DELIVERY_UNAVAILABLE',
+          message: 'Your request could not be delivered right now. Please try again shortly.'
+        });
+      }
+
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error('[Request Access]', err);
+      return res.status(500).json({
+        success: false,
+        error: 'REQUEST_ACCESS_FAILED',
+        message: 'Your request could not be submitted right now.'
+      });
+    }
+  });
+
   // Lightweight Liveness Endpoint independent of Gemini and Sheets (instant 200 OK for Cloud Run / k8s probes)
   app.get(['/healthz', '/live', '/api/live'], (_req: Request, res: Response) => {
     res.status(200).json({ status: 'live', uptime: process.uptime(), timestamp: new Date().toISOString() });
