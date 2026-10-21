@@ -288,8 +288,8 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
         newRole
       );
       const delivery = result?.emailDelivery;
-      const memId = result?.data?.membershipId || result?.membershipId || '';
-      const invLink = result?.data?.inviteLink || `${window.location.origin}/invite?membership=${memId}&company=${activeCompany.companyId || activeCompany.id}`;
+      const memId = result?.membershipId || result?.id || '';
+      const invLink = result?.inviteLink || '';
 
       if (delivery?.success) {
         setSuccess(`Invited ${newEmail}! Transactional invitation email sent successfully.`);
