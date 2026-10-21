@@ -8,7 +8,17 @@ const STORAGE_KEY_CAMPAIGNS = 'apex_autonoma_campaigns_v2';
 const STORAGE_KEY_ASSETS = 'apex_autonoma_assets_v2';
 const STORAGE_KEY_ACTIVE_CAMPAIGN = 'apex_autonoma_active_campaign_filter';
 const STORAGE_KEY_SHEETS_URL = 'apex_autonoma_sheets_url';
+const STORAGE_KEY_ACTIVE_COMPANY_CONTEXT = 'autonoma_active_company_id';
 export const STORAGE_KEY_SESSION = 'autonoma_session_token';
+
+function scopedStorageKey(baseKey: string): string {
+  try {
+    const companyId = localStorage.getItem(STORAGE_KEY_ACTIVE_COMPANY_CONTEXT);
+    return companyId ? `${baseKey}:${companyId}` : `${baseKey}:unscoped`;
+  } catch {
+    return `${baseKey}:unscoped`;
+  }
+}
 
 export function getAuthHeaders(additionalHeaders: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = { ...additionalHeaders };
@@ -22,6 +32,16 @@ export function getAuthHeaders(additionalHeaders: Record<string, string> = {}): 
 }
 
 class AutonomaDataService {
+  setActiveCompanyContext(companyId?: string | null): void {
+    try {
+      if (companyId) {
+        localStorage.setItem(STORAGE_KEY_ACTIVE_COMPANY_CONTEXT, companyId);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_ACTIVE_COMPANY_CONTEXT);
+      }
+    } catch {}
+  }
+
   getSessionToken(): string | null {
     try {
       return localStorage.getItem(STORAGE_KEY_SESSION);
@@ -61,7 +81,7 @@ class AutonomaDataService {
         if (json.success && Array.isArray(json.data)) {
           const serverCampaigns: Campaign[] = json.data;
           try {
-            localStorage.setItem(STORAGE_KEY_CAMPAIGNS, JSON.stringify(serverCampaigns));
+            localStorage.setItem(scopedStorageKey(STORAGE_KEY_CAMPAIGNS), JSON.stringify(serverCampaigns));
           } catch {}
           return serverCampaigns;
         }
@@ -75,7 +95,7 @@ class AutonomaDataService {
 
     // Fallback to localStorage cache
     try {
-      const local = localStorage.getItem(STORAGE_KEY_CAMPAIGNS);
+      const local = localStorage.getItem(scopedStorageKey(STORAGE_KEY_CAMPAIGNS));
       if (local) {
         const parsed = JSON.parse(local);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -307,7 +327,7 @@ class AutonomaDataService {
           const serverAssets: SocialAsset[] = json.data;
           try {
             if (!campaignId || campaignId === 'all') {
-              localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(serverAssets));
+              localStorage.setItem(scopedStorageKey(STORAGE_KEY_ASSETS), JSON.stringify(serverAssets));
             }
           } catch {}
           if (campaignId && campaignId !== 'all') {
@@ -324,7 +344,7 @@ class AutonomaDataService {
 
     // Fallback to local storage
     try {
-      const local = localStorage.getItem(STORAGE_KEY_ASSETS);
+      const local = localStorage.getItem(scopedStorageKey(STORAGE_KEY_ASSETS));
       if (local) {
         const parsed: SocialAsset[] = JSON.parse(local);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -486,13 +506,13 @@ class AutonomaDataService {
         throw new Error(json?.error || 'Failed to batch archive assets');
       }
       try {
-        const raw = localStorage.getItem(STORAGE_KEY_ASSETS);
+        const raw = localStorage.getItem(scopedStorageKey(STORAGE_KEY_ASSETS));
         if (raw) {
           const list: SocialAsset[] = JSON.parse(raw);
           const targetSet = new Set(assetIds);
           const timestamp = archive ? new Date().toISOString() : undefined;
           const updated = list.map(a => targetSet.has(a.id) ? { ...a, isArchived: archive, archivedAt: timestamp } : a);
-          localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(updated));
+          localStorage.setItem(scopedStorageKey(STORAGE_KEY_ASSETS), JSON.stringify(updated));
         }
       } catch {}
       return { count: json.count ?? assetIds.length };
@@ -806,7 +826,7 @@ class AutonomaDataService {
 
   private updateLocalCampaignCache(campaign: Campaign): void {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_CAMPAIGNS);
+      const raw = localStorage.getItem(scopedStorageKey(STORAGE_KEY_CAMPAIGNS));
       const list: Campaign[] = raw ? JSON.parse(raw) : [];
       const idx = list.findIndex(c => c.id === campaign.id);
       if (idx >= 0) {
@@ -814,13 +834,13 @@ class AutonomaDataService {
       } else {
         list.unshift(campaign);
       }
-      localStorage.setItem(STORAGE_KEY_CAMPAIGNS, JSON.stringify(list));
+      localStorage.setItem(scopedStorageKey(STORAGE_KEY_CAMPAIGNS), JSON.stringify(list));
     } catch {}
   }
 
   private updateLocalAssetCache(asset: SocialAsset): void {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_ASSETS);
+      const raw = localStorage.getItem(scopedStorageKey(STORAGE_KEY_ASSETS));
       const list: SocialAsset[] = raw ? JSON.parse(raw) : [];
       const idx = list.findIndex(a => a.id === asset.id);
       if (idx >= 0) {
@@ -828,59 +848,59 @@ class AutonomaDataService {
       } else {
         list.unshift(asset);
       }
-      localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(list));
+      localStorage.setItem(scopedStorageKey(STORAGE_KEY_ASSETS), JSON.stringify(list));
     } catch {}
   }
 
   private prependLocalAssetsCache(newAssets: SocialAsset[]): void {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_ASSETS);
+      const raw = localStorage.getItem(scopedStorageKey(STORAGE_KEY_ASSETS));
       const list: SocialAsset[] = raw ? JSON.parse(raw) : [];
       const newIds = new Set(newAssets.map(a => a.id));
       const filtered = list.filter(a => !newIds.has(a.id));
       const combined = [...newAssets, ...filtered];
-      localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(combined));
+      localStorage.setItem(scopedStorageKey(STORAGE_KEY_ASSETS), JSON.stringify(combined));
     } catch {}
   }
 
   private removeCampaignFromLocalCache(campaignId: string): void {
     try {
       // 1. Remove campaign
-      const rawC = localStorage.getItem(STORAGE_KEY_CAMPAIGNS);
+      const rawC = localStorage.getItem(scopedStorageKey(STORAGE_KEY_CAMPAIGNS));
       if (rawC) {
         const list: Campaign[] = JSON.parse(rawC);
         const filtered = list.filter(c => c.id !== campaignId);
-        localStorage.setItem(STORAGE_KEY_CAMPAIGNS, JSON.stringify(filtered));
+        localStorage.setItem(scopedStorageKey(STORAGE_KEY_CAMPAIGNS), JSON.stringify(filtered));
       }
       // 2. Remove associated child assets from asset cache as well
-      const rawA = localStorage.getItem(STORAGE_KEY_ASSETS);
+      const rawA = localStorage.getItem(scopedStorageKey(STORAGE_KEY_ASSETS));
       if (rawA) {
         const aList: SocialAsset[] = JSON.parse(rawA);
         const filteredA = aList.filter(a => a.campaignId !== campaignId);
-        localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(filteredA));
+        localStorage.setItem(scopedStorageKey(STORAGE_KEY_ASSETS), JSON.stringify(filteredA));
       }
     } catch {}
   }
 
   private removeAssetFromLocalCache(assetId: string): void {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_ASSETS);
+      const raw = localStorage.getItem(scopedStorageKey(STORAGE_KEY_ASSETS));
       if (raw) {
         const list: SocialAsset[] = JSON.parse(raw);
         const filtered = list.filter(a => a.id !== assetId);
-        localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(filtered));
+        localStorage.setItem(scopedStorageKey(STORAGE_KEY_ASSETS), JSON.stringify(filtered));
       }
     } catch {}
   }
 
   private removeAssetsFromLocalCache(assetIds: string[]): void {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_ASSETS);
+      const raw = localStorage.getItem(scopedStorageKey(STORAGE_KEY_ASSETS));
       if (raw) {
         const list: SocialAsset[] = JSON.parse(raw);
         const targetSet = new Set(assetIds);
         const filtered = list.filter(a => !targetSet.has(a.id));
-        localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(filtered));
+        localStorage.setItem(scopedStorageKey(STORAGE_KEY_ASSETS), JSON.stringify(filtered));
       }
     } catch {}
   }
@@ -1008,6 +1028,7 @@ class AutonomaDataService {
       });
     } catch {}
     this.setSessionToken(null);
+    this.setActiveCompanyContext(null);
   }
 
   async submitAccessRequest(proposedCompanyName: string): Promise<{ success: boolean; data?: ApprovalRequest; error?: string }> {
