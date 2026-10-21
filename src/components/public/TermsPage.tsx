@@ -11,7 +11,7 @@ export const TermsPage: React.FC = () => {
         {/* Header */}
         <div className="space-y-3">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-50 border border-orange-200/60 text-[#FF4500] text-xs font-semibold">
-            <span>Effective Date: October 5, 2026</span>
+            <span>Effective Date: October 21, 2026</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[#1D1D1F]">
             Terms of Service
