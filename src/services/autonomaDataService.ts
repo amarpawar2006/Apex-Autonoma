@@ -1329,7 +1329,7 @@ class AutonomaDataService {
     });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.success) {
-      throw new Error(json?.error || json?.message || 'Campaign synthesis retry failed');
+      throw new Error(json?.message || json?.error || 'Campaign synthesis retry failed');
     }
     this.updateLocalCampaignCache(json.campaign);
     return {
