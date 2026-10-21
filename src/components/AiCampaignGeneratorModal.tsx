@@ -447,7 +447,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
       if (reqId !== activeRequestIdRef.current) return;
 
       // Part 1: Invoke AI synthesis
-      setLoadingStep('Analyzing business objective & synthesizing deliverables via Gemini…');
+      setLoadingStep('Analyzing business objective & synthesizing deliverables with available AI providers…');
       const result = await createAutonomaCampaign(optionsPayload);
 
       if (reqId !== activeRequestIdRef.current) return;
@@ -457,7 +457,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
       result.campaign.lastGenerationAttemptAt = new Date().toISOString();
 
       // Part 1: On success, commit populated campaign & assets (status = READY)
-      setLoadingStep('SAVING DELIVERABLES... Committing deliverables to database and Google Sheets…');
+      setLoadingStep('SAVING DELIVERABLES... Committing campaign and content to durable storage…');
       const commitRes = await autonomaDataService.commitCampaign(result.campaign, result.assets);
 
       if (reqId !== activeRequestIdRef.current) return;
