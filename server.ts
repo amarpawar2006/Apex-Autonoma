@@ -306,18 +306,16 @@ async function startServer() {
 
   // Health and System Status Endpoint (readiness)
   app.get('/api/health', (_req: Request, res: Response) => {
-    const hasKey = Boolean(process.env.GEMINI_API_KEY);
-    const hasSheets = Boolean(autonomaDb.getGoogleSheetsUrl());
-    const effectiveClientId = getEffectiveGoogleClientId();
+    const hasGemini = Boolean(aiProviderService.getRawProviderKey('gemini'));
+    const hasOpenAI = Boolean(aiProviderService.getRawProviderKey('openai'));
     res.json({
       status: 'ok',
-      hasGeminiKey: hasKey,
-      hasSheetsConnection: hasSheets,
-      hasGoogleOauth: Boolean(effectiveClientId),
-      googleClientId: effectiveClientId || '',
+      passwordAuth: true,
+      hasGeminiProvider: hasGemini,
+      hasOpenAiFallback: hasOpenAI,
+      supabaseConnected: supabaseStorage.ready,
       initialSuperAdminConfigured: Boolean(INITIAL_SUPER_ADMIN_EMAIL),
-      model: 'gemini-2.5-flash',
-      engine: 'Apex Autonoma Server-Side Campaign Generator & Durable Sheets Store'
+      engine: 'Apex Autonoma Multi-Provider Campaign Operating System'
     });
   });
 
@@ -1321,16 +1319,21 @@ async function startServer() {
         membershipsDurable: supabaseStorage.ready,
         approvalsDurable: supabaseStorage.ready,
         sessionsDurable: supabaseStorage.ready,
-        googleOauthConfigured: Boolean(process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID),
+        passwordAuthReady: true,
+        credentialStoreReady: supabaseStorage.ready,
+        superAdminEmailConfigured: Boolean(INITIAL_SUPER_ADMIN_EMAIL),
+        geminiTextProviderConfigured: Boolean(aiProviderService.getRawProviderKey('gemini')),
+        openAiTextFallbackConfigured: Boolean(aiProviderService.getRawProviderKey('openai')),
         publicAppUrlConfigured: Boolean(process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL),
         aboutPageReady: true,
         privacyPageReady: true,
         termsPageReady: true,
         supportPageReady: true,
+        seoFilesReady: true,
         emailProvider,
         emailLiveDeliveryReady: isLiveDeliveryReady,
         emailSender,
-        manualInviteFallbackReady: true
+        secureInviteFallbackReady: true
       };
 
       res.json({ success: true, data: readiness });
