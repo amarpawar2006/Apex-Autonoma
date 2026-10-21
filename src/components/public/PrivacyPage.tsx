@@ -25,10 +25,10 @@ export const PrivacyPage: React.FC = () => {
         <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-6 space-y-3 text-xs leading-relaxed text-amber-950">
           <div className="flex items-center space-x-2 text-amber-900 font-bold text-sm">
             <Shield className="w-4 h-4 text-amber-600" />
-            <span>Google API Services User Data Policy & Limited Use Disclosure</span>
+            <span>Third-Party AI & Connected Services Disclosure</span>
           </div>
           <p className="font-medium">
-            <strong>Autonoma does not sell Google user data.</strong> Google user data is used only to provide requested Autonoma functionality, including user identity authentication and authorized workspace access.
+            <strong>Autonoma does not sell user data to advertisers or third parties.</strong> Connected-service data is used only to provide requested Autonoma functionality and is not used for advertising profiles.
           </p>
           <p>
             Apex Autonoma&apos;s use and transfer to any other app of information received from Google APIs will adhere to the{' '}
@@ -52,7 +52,7 @@ export const PrivacyPage: React.FC = () => {
           </h2>
           <div className="text-xs sm:text-sm text-[#6E6E73] space-y-3 leading-relaxed">
             <p>
-              <strong>Account Identity & Google Sign-In Data:</strong> When you authenticate via Google Sign-In, we collect your verified email address, full name, and avatar profile picture. We use this information solely to establish your authenticated session and associate your account with authorized company workspaces.
+              <strong>Account & Authentication Data:</strong> Autonoma stores the email address, display name, account role, company memberships, session metadata, and security information required to provide controlled workspace access. Passwords are stored only as salted cryptographic hashes; plaintext passwords are not stored.
             </p>
             <p>
               <strong>Company & Workspace Information:</strong> Business descriptions, brand design systems (palettes, typography, voice, rules), market positioning, and target customer personas provided during workspace setup.
@@ -112,7 +112,7 @@ export const PrivacyPage: React.FC = () => {
               </div>
               <div className="p-3 rounded-xl bg-[#FBFBFD] border border-black/[0.06] space-y-1">
                 <span className="font-semibold text-[#1D1D1F] block">Google LLC</span>
-                <span className="text-[#86868B]">Identity authentication (Google OAuth), Google Gemini generation APIs, and Google Cloud infrastructure.</span>
+                <span className="text-[#86868B]">Google Gemini/Veo generation APIs and Google-connected capabilities only when configured or explicitly used.</span>
               </div>
               <div className="p-3 rounded-xl bg-[#FBFBFD] border border-black/[0.06] space-y-1">
                 <span className="font-semibold text-[#1D1D1F] block">Cloudflare, Inc.</span>
