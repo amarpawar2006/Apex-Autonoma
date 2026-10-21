@@ -17,6 +17,16 @@ import { calculateDynamicSchedule } from './schedulingEngine';
 export const STORAGE_KEY_CAMPAIGNS = 'apex_autonoma_campaigns_v2';
 export const STORAGE_KEY_ASSETS = 'apex_autonoma_assets_v2';
 export const STORAGE_KEY_ACTIVE_CAMPAIGN = 'apex_autonoma_active_campaign_filter';
+const STORAGE_KEY_ACTIVE_COMPANY_CONTEXT = 'autonoma_active_company_id';
+
+function scopedStorageKey(baseKey: string): string {
+  try {
+    const companyId = localStorage.getItem(STORAGE_KEY_ACTIVE_COMPANY_CONTEXT);
+    return companyId ? `${baseKey}:${companyId}` : `${baseKey}:unscoped`;
+  } catch {
+    return `${baseKey}:unscoped`;
+  }
+}
 
 export interface CampaignCreationOptions {
   brief: string;
@@ -57,7 +67,7 @@ export interface CampaignCreationOptions {
  */
 export function loadSavedCampaigns(): Campaign[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_CAMPAIGNS);
+    const raw = localStorage.getItem(scopedStorageKey(STORAGE_KEY_CAMPAIGNS));
     if (raw) {
       const parsed: Campaign[] = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -75,7 +85,7 @@ export function loadSavedCampaigns(): Campaign[] {
  */
 export function saveCampaigns(campaigns: Campaign[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY_CAMPAIGNS, JSON.stringify(campaigns));
+    localStorage.setItem(scopedStorageKey(STORAGE_KEY_CAMPAIGNS), JSON.stringify(campaigns));
   } catch (err) {
     console.error('Failed to save campaigns to localStorage:', err);
   }
@@ -86,7 +96,7 @@ export function saveCampaigns(campaigns: Campaign[]): void {
  */
 export function loadSavedAssets(): SocialAsset[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_ASSETS);
+    const raw = localStorage.getItem(scopedStorageKey(STORAGE_KEY_ASSETS));
     if (raw) {
       const parsed: SocialAsset[] = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -108,7 +118,7 @@ export function loadSavedAssets(): SocialAsset[] {
  */
 export function saveAssets(assets: SocialAsset[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY_ASSETS, JSON.stringify(assets));
+    localStorage.setItem(scopedStorageKey(STORAGE_KEY_ASSETS), JSON.stringify(assets));
   } catch (err) {
     console.error('Failed to save assets to localStorage:', err);
   }
@@ -119,7 +129,7 @@ export function saveAssets(assets: SocialAsset[]): void {
  */
 export function loadActiveCampaignFilter(): string {
   try {
-    return localStorage.getItem(STORAGE_KEY_ACTIVE_CAMPAIGN) || 'all';
+    return localStorage.getItem(scopedStorageKey(STORAGE_KEY_ACTIVE_CAMPAIGN)) || 'all';
   } catch {
     return 'all';
   }
@@ -130,7 +140,7 @@ export function loadActiveCampaignFilter(): string {
  */
 export function saveActiveCampaignFilter(campaignId: string): void {
   try {
-    localStorage.setItem(STORAGE_KEY_ACTIVE_CAMPAIGN, campaignId);
+    localStorage.setItem(scopedStorageKey(STORAGE_KEY_ACTIVE_CAMPAIGN), campaignId);
   } catch {
     // ignore
   }
