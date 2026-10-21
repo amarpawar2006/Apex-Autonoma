@@ -33,7 +33,7 @@ export const TermsPage: React.FC = () => {
         <section className="bg-white rounded-2xl border border-black/[0.06] p-6 sm:p-8 space-y-3 shadow-2xs">
           <h2 className="text-base font-bold text-[#1D1D1F]">2. Account Responsibility & Access</h2>
           <p className="text-xs sm:text-sm text-[#6E6E73] leading-relaxed">
-            Access to Autonoma requires authentication via Google Sign-In or verified corporate credentials. You are responsible for safeguarding your login credentials and for all activities conducted under your user account and workspaces. You agree to notify Apex Engineering immediately upon becoming aware of any unauthorized use.
+            Access to Autonoma is provisioned by an authorized administrator and requires verified email/password credentials or another expressly enabled enterprise authentication method. You are responsible for safeguarding your credentials and for activities conducted under your account and workspaces. You agree to notify Apex Engineering immediately upon becoming aware of unauthorized use.
           </p>
         </section>
 
@@ -89,7 +89,7 @@ export const TermsPage: React.FC = () => {
         <section className="bg-white rounded-2xl border border-black/[0.06] p-6 sm:p-8 space-y-3 shadow-2xs">
           <h2 className="text-base font-bold text-[#1D1D1F]">7. Third-Party Providers & APIs</h2>
           <p className="text-xs sm:text-sm text-[#6E6E73] leading-relaxed">
-            Autonoma interfaces with third-party providers including Google (OAuth & Gemini), Cloudflare (Workers AI FLUX), OpenAI, Supabase, and Resend. Service availability may depend upon the operational status and terms of these respective third-party providers.
+            Autonoma interfaces with third-party providers that may include Google Gemini/Veo, Cloudflare Workers AI, OpenAI, Supabase, Resend, and other configured infrastructure providers. Service availability may depend upon the operational status, quota, billing, and terms of these providers.
           </p>
         </section>
 
