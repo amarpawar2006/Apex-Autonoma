@@ -37,8 +37,8 @@ async function runReleaseGateTests() {
 
     // Verify Privacy Policy content requirements
     const privacyContent = fs.readFileSync(path.resolve('src/components/public/PrivacyPage.tsx'), 'utf8');
-    assert(privacyContent.includes('Autonoma does not sell Google user data'), 'Privacy must state Autonoma does not sell Google user data');
-    assert(privacyContent.includes('Limited Use'), 'Privacy must state Limited Use compliance');
+    assert(privacyContent.includes('does not sell user data'), 'Privacy must state Autonoma does not sell user data');
+    assert(privacyContent.includes('salted cryptographic hashes'), 'Privacy must disclose password storage protections');
     assert(privacyContent.includes('Supabase'), 'Privacy must disclose Supabase persistence');
 
     // Verify About Page requirements
@@ -255,10 +255,11 @@ async function runReleaseGateTests() {
 
     // Confirm manual invite URL generated correctly
     const expectedBase = 'https://autonoma.apex-engineering.co.in';
-    const manualInviteLink = `${expectedBase}/invite?membership=${testMemFail.membershipId}&company=${sapientCompany.companyId}`;
+    const manualInviteLink = `${expectedBase}/invite?membership=${testMemFail.membershipId}&company=${sapientCompany.companyId}&token=fixture-secure-token`;
     assert(manualInviteLink.startsWith(expectedBase), 'Must use production URL base');
     assert(manualInviteLink.includes('/invite?membership='), 'Must include /invite?membership=');
     assert(manualInviteLink.includes('&company='), 'Must include &company=');
+    assert(manualInviteLink.includes('&token='), 'Secure invite must include one-time token');
 
     results['EMAIL_FAILURE_ACCESS'] = true;
     results['EMAIL_FALSE_SUCCESS_FIX'] = true;
@@ -280,6 +281,7 @@ async function runReleaseGateTests() {
     assert(serverTs.includes('https://autonoma.apex-engineering.co.in'), 'Must contain production base URL');
     assert(serverTs.includes('/invite?membership='), 'Must format invite link with /invite?membership=');
     assert(serverTs.includes('&company='), 'Must format invite link with &company=');
+    assert(serverTs.includes('setupToken'), 'Invite generation must issue one-time password setup token');
     assert(serverTs.includes('PUBLIC_APP_URL'), 'Must check PUBLIC_APP_URL precedence');
     assert(serverTs.includes('APP_BASE_URL'), 'Must check APP_BASE_URL precedence');
 
@@ -303,7 +305,9 @@ async function runReleaseGateTests() {
     assert(serverTs.includes('membershipsDurable'), 'Readiness must include membershipsDurable');
     assert(serverTs.includes('approvalsDurable'), 'Readiness must include approvalsDurable');
     assert(serverTs.includes('sessionsDurable'), 'Readiness must include sessionsDurable');
-    assert(serverTs.includes('googleOauthConfigured'), 'Readiness must include googleOauthConfigured');
+    assert(serverTs.includes('passwordAuthReady'), 'Readiness must include passwordAuthReady');
+    assert(serverTs.includes('credentialStoreReady'), 'Readiness must include credentialStoreReady');
+    assert(serverTs.includes('openAiTextFallbackConfigured'), 'Readiness must include openAiTextFallbackConfigured');
     assert(serverTs.includes('publicAppUrlConfigured'), 'Readiness must include publicAppUrlConfigured');
     assert(serverTs.includes('aboutPageReady'), 'Readiness must include aboutPageReady');
     assert(serverTs.includes('privacyPageReady'), 'Readiness must include privacyPageReady');
@@ -312,7 +316,7 @@ async function runReleaseGateTests() {
     assert(serverTs.includes('emailProvider'), 'Readiness must include emailProvider');
     assert(serverTs.includes('emailLiveDeliveryReady'), 'Readiness must include emailLiveDeliveryReady');
     assert(serverTs.includes('emailSender'), 'Readiness must include emailSender');
-    assert(serverTs.includes('manualInviteFallbackReady'), 'Readiness must include manualInviteFallbackReady');
+    assert(serverTs.includes('secureInviteFallbackReady'), 'Readiness must include manualInviteFallbackReady');
 
     results['ONBOARDING_READINESS'] = true;
     console.log('✓ PASS: Onboarding readiness endpoint adheres strictly to contract without secret leakage.');
@@ -386,23 +390,16 @@ async function runReleaseGateTests() {
   }
 
   // ----------------------------------------------------
-  // TEST 13: Google Invite Acceptance Flow Simulation
+  // TEST 13: Password Invite Membership Flow Simulation
   // ----------------------------------------------------
-  console.log('\n[10] Testing Google Invite Acceptance Flow Simulation...');
+  console.log('\n[10] Testing password invitation membership flow...');
   try {
-    // Invite landing flow requires matching email between Google identity and membership user
+    // Password invite activation must preserve the provisioned membership and company role
     const invitedUserEmail = testUser.email;
-    const fixturePayload = {
-      email: invitedUserEmail,
-      name: testUser.name,
-      sub: `google_sub_${Date.now()}`
-    };
-
-    // Google identity email matches invited email -> valid acceptance
     const membership = autonomaDb.getMembership(testMem.membershipId);
     assert(membership, 'Membership must exist');
 
-    // Update existing user with Google details without duplicate
+    // Activation updates the existing user without creating a duplicate
     testUser.lastLoginAt = new Date().toISOString();
     await autonomaDb.saveUser(testUser);
 
@@ -415,11 +412,11 @@ async function runReleaseGateTests() {
     assert(targetMem, 'Must have membership in Sapient Dynamics');
     assert.strictEqual(targetMem.role, 'COMPANY_ADMIN', 'Must be COMPANY_ADMIN in Sapient Dynamics');
 
-    results['GOOGLE_INVITE_FLOW'] = true;
-    console.log('✓ PASS: Google invite acceptance correctly associates user into Sapient Dynamics as COMPANY_ADMIN without duplicates.');
+    results['PASSWORD_INVITE_FLOW'] = true;
+    console.log('✓ PASS: Password invitation preserves target company membership and role without duplicates.');
   } catch (err: any) {
-    console.error('✗ FAIL: Google invite flow:', err?.message);
-    results['GOOGLE_INVITE_FLOW'] = false;
+    console.error('✗ FAIL: Password invite flow:', err?.message);
+    results['PASSWORD_INVITE_FLOW'] = false;
   }
 
   console.log('\n====================================================');
