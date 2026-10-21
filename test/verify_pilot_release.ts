@@ -40,7 +40,17 @@ const checks: Array<[string, boolean]> = [
   ['Canonical SEO metadata exists', indexHtml.includes('rel="canonical"') && indexHtml.includes('SoftwareApplication')],
   ['robots.txt exists', fs.existsSync('public/robots.txt')],
   ['sitemap.xml exists', fs.existsSync('public/sitemap.xml')],
-  ['Public About landing page exists', fs.existsSync('src/components/public/AboutPage.tsx')]
+  ['Public About landing page exists', fs.existsSync('src/components/public/AboutPage.tsx')],
+  ['Production fixture auth is disabled', server.includes("process.env.NODE_ENV !== 'test'") && server.includes("error: 'NOT_FOUND'")],
+  ['Legacy Google auth cannot onboard tenant users', server.includes("error: 'LEGACY_LOGIN_DISABLED'")],
+  ['Tenant APIs use authenticated active company scope', !server.includes('userActiveCompanyId') && server.includes('(req as any).activeCompany?.companyId')],
+  ['Activity logs require Super Admin', server.includes("app.get('/api/autonoma/activity', authenticateUser, requireSuperAdmin")],
+  ['Global provider settings require Super Admin', server.includes("app.post('/api/ai/providers', authenticateUser, requireSuperAdmin")],
+  ['Media proxy requires tenant auth', server.includes("app.get('/api/media/proxy-image', authenticateUser, requireActiveMembership")],
+  ['Media proxy uses SSRF validation', server.includes('validateSafePublicUrl(targetUrl)')],
+  ['Composed creatives use durable upload helper', read('src/components/AssetProductionModal.tsx').includes('persistComposedCreative')],
+  ['Runtime DB snapshots are ignored', read('.gitignore').includes('data/autonoma-database.json')],
+  ['Runtime DB snapshots are not tracked', !fs.existsSync('data/autonoma-database.json') && !fs.existsSync('data/autonoma-database.backup.json')]
 ];
 
 let failed = 0;
