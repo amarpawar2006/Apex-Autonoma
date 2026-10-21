@@ -1128,7 +1128,11 @@ class AutonomaDataService {
     return json.data || [];
   }
 
-  async addCompanyMember(email: string, name: string, role: 'COMPANY_ADMIN' | 'MEMBER'): Promise<Membership> {
+  async addCompanyMember(
+    email: string,
+    name: string,
+    role: 'COMPANY_ADMIN' | 'MEMBER'
+  ): Promise<Membership & { emailDelivery?: any }> {
     const res = await fetch('/api/company/members', {
       method: 'POST',
       headers: this.getAuthHeaders({ 'Content-Type': 'application/json' }),
@@ -1136,7 +1140,7 @@ class AutonomaDataService {
     });
     const json = await res.json();
     if (!json.success) throw new Error(json.error || 'Failed to add member');
-    return json.data;
+    return { ...json.data, emailDelivery: json.emailDelivery };
   }
 
   async updateCompanyMemberRole(membershipId: string, role: 'COMPANY_ADMIN' | 'MEMBER'): Promise<Membership> {
