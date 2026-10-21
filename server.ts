@@ -4835,7 +4835,7 @@ STRICT GUARDRAILS:
 
       // Automatic provider fallback in exact order: Cloudflare -> OpenAI -> Gemini
       if (!result.success) {
-        const fallbackOrder = ['cloudflare', 'openai', 'gemini'];
+        const fallbackOrder = ['cloudflare', 'nvidia', 'openai', 'gemini'];
         const failedProvider = result.provider || providerId || 'cloudflare';
         const candidates = fallbackOrder.filter((id) => id !== failedProvider);
 
