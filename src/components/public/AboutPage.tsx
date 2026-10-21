@@ -493,7 +493,7 @@ export const AboutPage: React.FC = () => {
         </div>
 
         <a
-          href="/Apex-Autonoma-Brochure.pdf"
+          href="https://drive.google.com/file/d/1L9m-_NjpXoeqbx-jn_Ep0csdydkQ3hjz/view?usp=sharing"
           target="_blank"
           rel="noopener noreferrer"
           className="group inline-flex min-h-[48px] items-center gap-2 rounded-2xl bg-[#FF4500] px-4 sm:px-5 text-sm font-bold text-white shadow-[0_12px_36px_rgba(255,69,0,.3)] transition hover:-translate-y-0.5 hover:bg-[#EA3E00] active:translate-y-0"
