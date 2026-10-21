@@ -9,6 +9,9 @@ import {
   Database,
   Download,
   FileText,
+  Linkedin,
+  MessageCircle,
+  Share2,
   Globe2,
   Image,
   Languages,
@@ -67,6 +70,23 @@ export const AboutPage: React.FC = () => {
   const navigate = (path: string) => {
     window.history.pushState({}, '', path);
     window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  const getPublicShareUrl = () => `${window.location.origin}/`;
+  const openShare = (url: string) => window.open(url, '_blank', 'noopener,noreferrer,width=760,height=640');
+  const shareLinkedIn = () => openShare(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(getPublicShareUrl())}`);
+  const shareWhatsApp = () => openShare(`https://wa.me/?text=${encodeURIComponent('Apex Autonoma - AI Campaign Operating System ' + getPublicShareUrl())}`);
+  const shareNative = async () => {
+    const url = getPublicShareUrl();
+    if (navigator.share) {
+      await navigator.share({
+        title: 'Apex Autonoma',
+        text: 'AI Campaign Operating System by Apex Engineering',
+        url
+      }).catch(() => undefined);
+      return;
+    }
+    await navigator.clipboard?.writeText(url).catch(() => undefined);
   };
 
   return (
@@ -440,6 +460,49 @@ export const AboutPage: React.FC = () => {
           </div>
         </section>
       </main>
+
+      <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-[70] flex flex-col items-end gap-2">
+        <div className="flex items-center gap-1.5 rounded-2xl border border-black/[0.08] bg-white/95 p-1.5 shadow-xl backdrop-blur-xl">
+          <button
+            type="button"
+            onClick={shareLinkedIn}
+            aria-label="Share Autonoma on LinkedIn"
+            title="Share on LinkedIn"
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-[#1D1D1F] transition hover:bg-[#F5F5F7]"
+          >
+            <Linkedin className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={shareWhatsApp}
+            aria-label="Share Autonoma on WhatsApp"
+            title="Share on WhatsApp"
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-[#1D1D1F] transition hover:bg-[#F5F5F7]"
+          >
+            <MessageCircle className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={shareNative}
+            aria-label="Share or copy Autonoma link"
+            title="Share / Copy link"
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-[#1D1D1F] transition hover:bg-[#F5F5F7]"
+          >
+            <Share2 className="h-4 w-4" />
+          </button>
+        </div>
+
+        <a
+          href="/Apex-Autonoma-Brochure.pdf"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group inline-flex min-h-[48px] items-center gap-2 rounded-2xl bg-[#FF4500] px-4 sm:px-5 text-sm font-bold text-white shadow-[0_12px_36px_rgba(255,69,0,.3)] transition hover:-translate-y-0.5 hover:bg-[#EA3E00] active:translate-y-0"
+          aria-label="Download Apex Autonoma brochure"
+        >
+          <Download className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
+          <span>Download Brochure</span>
+        </a>
+      </div>
 
       <PublicFooter />
     </div>
