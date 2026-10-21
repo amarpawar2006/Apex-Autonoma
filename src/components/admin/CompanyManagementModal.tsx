@@ -342,7 +342,11 @@ export const CompanyManagementModal: React.FC<CompanyManagementModalProps> = ({
 
   const handleCopyInviteLink = (mem: Membership) => {
     const memId = mem.membershipId || mem.id || '';
-    const link = mem.inviteLink || `${window.location.origin}/invite?membership=${memId}&company=${activeCompany.companyId || activeCompany.id}`;
+    const link = mem.inviteLink || '';
+    if (!link) {
+      setError('No active setup link is available for this user. Use Resend Invite to issue a fresh secure link.');
+      return;
+    }
     navigator.clipboard.writeText(link);
     setCopiedInviteId(memId);
     setTimeout(() => setCopiedInviteId(null), 2000);
