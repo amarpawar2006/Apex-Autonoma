@@ -365,18 +365,23 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
       const customDaysSpan = duration === 'custom'
         ? Math.max(1, Math.round((new Date(customEndDate).getTime() - new Date(customStartDate).getTime()) / 86400000))
         : duration === 'single' ? 1 : duration === '3_days' ? 3 : duration === '30_days' ? 30 : 7;
-      const conceptCountEstimate = calculateOptimalAssetCount(
+      const oneRunConceptCount = calculateOptimalAssetCount(
         duration,
         Math.max(1, effectivePlatformList.length),
         customDaysSpan,
-        typeof customAssetCount === 'number' && customAssetCount > 0 ? customAssetCount : undefined,
+        undefined,
         Math.max(1, effectiveLanguages.length)
       );
-      const estimatedDeliverables = conceptCountEstimate * Math.max(1, effectivePlatformList.length) * Math.max(1, effectiveLanguages.length);
-      if (estimatedDeliverables > 36) {
-        setError(`This setup would create ${estimatedDeliverables} deliverables (${conceptCountEstimate} concepts × ${effectivePlatformList.length} platforms × ${effectiveLanguages.length} languages). Reduce the concept count, platforms, or languages to 36 or fewer for one reliable generation run.`);
-        return;
-      }
+      const requestedConceptCount = typeof customAssetCount === 'number' && customAssetCount > 0
+        ? Math.min(120, Math.max(1, customAssetCount))
+        : customDaysSpan > 30
+          ? Math.min(120, Math.max(12, Math.ceil(customDaysSpan / 7) * 3))
+          : oneRunConceptCount;
+      const estimatedDeliverables =
+        requestedConceptCount *
+        Math.max(1, effectivePlatformList.length) *
+        Math.max(1, effectiveLanguages.length);
+      const useDurableBatchGeneration = estimatedDeliverables > 36;
 
       const now = new Date();
       const campaignCodeSuffix = Math.floor(100 + Math.random() * 900);
@@ -407,7 +412,7 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
           targetAudience: targetAudience.trim() || undefined,
           primaryCta: primaryCta.trim() || undefined,
           productsEmphasized: productsEmphasized.trim() || undefined,
-          assetCount: typeof customAssetCount === 'number' && customAssetCount > 0 ? customAssetCount : undefined,
+          assetCount: requestedConceptCount,
           postingFrequency: postingFrequency.trim() || undefined,
           tone: tone.trim() || undefined,
           customLanguage: selectedLanguages.includes('Other / Custom Language') ? customLanguage.trim() : undefined,
@@ -432,7 +437,12 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
         formats: selectedFormats,
         languages: effectiveLanguages,
         startDate: duration === 'custom' && customStartDate ? customStartDate : now.toISOString().split('T')[0],
-        endDate: duration === 'custom' && customEndDate ? customEndDate : new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0],
+        endDate: duration === 'custom' && customEndDate
+          ? customEndDate
+          : new Date(
+              now.getTime() +
+              (duration === 'single' ? 1 : duration === '3_days' ? 3 : duration === '30_days' ? 30 : 7) * 86400000
+            ).toISOString().split('T')[0],
         createdAt: activeCampaignShellRef.current?.createdAt || now.toISOString(),
         updatedAt: now.toISOString(),
         assetCount: 0,
@@ -446,7 +456,31 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
 
       if (reqId !== activeRequestIdRef.current) return;
 
-      // Part 1: Invoke AI synthesis
+      // Large campaigns are generated as durable resumable batches. Each batch is persisted
+      // independently, so closing the browser or a provider timeout never discards completed work.
+      if (useDurableBatchGeneration) {
+        setLoadingStep(`Preparing durable generation plan for ${estimatedDeliverables} deliverables…`);
+        const batchResult = await autonomaDataService.runCampaignGenerationJobToCompletion(
+          savedShell.id,
+          (job) => {
+            const total = Math.max(1, Number(job?.totalBatches || 1));
+            const completed = Number(job?.completedBatches || 0);
+            const failed = Number(job?.failedBatches || 0);
+            const current = Math.min(total, completed + failed + 1);
+            setLoadingStep(
+              `Generating batch ${current}/${total} · ${Number(job?.completedDeliverables || 0)}/${Number(job?.totalDeliverables || estimatedDeliverables)} deliverables safely persisted…`
+            );
+          }
+        );
+
+        if (reqId !== activeRequestIdRef.current) return;
+        activeCampaignShellRef.current = null;
+        onCampaignCreated({ campaign: batchResult.campaign, assets: batchResult.assets });
+        setCreatedResult({ campaign: batchResult.campaign, assets: batchResult.assets });
+        return;
+      }
+
+      // Standard campaigns remain a single bounded synthesis request.
       setLoadingStep('Analyzing business objective & synthesizing deliverables with available AI providers…');
       const result = await createAutonomaCampaign(optionsPayload);
 
@@ -1337,13 +1371,13 @@ export const AiCampaignGeneratorModal: React.FC<AiCampaignGeneratorModalProps> =
                         <input
                           type="number"
                           min={1}
-                          max={8}
+                          max={120}
                           value={customAssetCount}
                           onChange={(e) => setCustomAssetCount(e.target.value ? Number(e.target.value) : '')}
                           placeholder="Auto concepts based on duration"
                           className="w-full bg-[#F5F5F7] px-3.5 py-2 rounded-xl text-xs text-[#1D1D1F] placeholder-[#86868B] border-0 focus:outline-none"
                         />
-                        <p className="text-[10px] text-[#86868B]">This is the number of campaign ideas. Autonoma creates a platform-native version in every selected language for every selected platform.</p>
+                        <p className="text-[10px] text-[#86868B]">This is the number of campaign ideas. Long campaigns automatically switch to durable resumable batches; every idea still gets a native version for each selected platform and language.</p>
                       </div>
 
                       <div className="space-y-1 sm:col-span-2">
