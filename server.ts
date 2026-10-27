@@ -3772,6 +3772,494 @@ Instructions:
     throw finalError;
   }
 
+  const MAX_BATCH_DELIVERABLES = 24;
+  const MAX_LONG_CAMPAIGN_CONCEPTS = 120;
+
+  function campaignDaysSpan(campaign: Campaign, opts: any): number {
+    const duration = opts?.duration || '7_days';
+    if (duration === 'single') return 1;
+    if (duration === '3_days') return 3;
+    if (duration === '7_days') return 7;
+    if (duration === '30_days') return 30;
+    const start = new Date(campaign.startDate || opts?.startDate || Date.now()).getTime();
+    const end = new Date(campaign.endDate || opts?.endDate || start).getTime();
+    return Math.max(1, Math.round((end - start) / 86400000));
+  }
+
+  function desiredLongCampaignConceptCount(campaign: Campaign, opts: any, daysSpan: number): number {
+    const explicit = Number(opts?.advancedOptions?.assetCount || 0);
+    if (explicit > 0) return Math.min(MAX_LONG_CAMPAIGN_CONCEPTS, Math.max(1, explicit));
+    if (daysSpan <= 30) return Math.min(12, Math.max(1, Math.ceil(daysSpan / 3)));
+    // Default long-form cadence: roughly three strategic concepts per week.
+    return Math.min(MAX_LONG_CAMPAIGN_CONCEPTS, Math.max(12, Math.ceil(daysSpan / 7) * 3));
+  }
+
+  function normalizeJobRow(row: any, batches: any[] = []) {
+    return {
+      jobId: row.job_id,
+      organizationId: row.organization_id,
+      campaignId: row.campaign_id,
+      status: row.status,
+      totalBatches: Number(row.total_batches || 0),
+      completedBatches: Number(row.completed_batches || 0),
+      failedBatches: Number(row.failed_batches || 0),
+      totalDeliverables: Number(row.total_deliverables || 0),
+      completedDeliverables: Number(row.completed_deliverables || 0),
+      plan: row.plan_json || {},
+      lastError: row.last_error || undefined,
+      lastProvider: row.last_provider || undefined,
+      lastModel: row.last_model || undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      batches: batches.map((batch: any) => ({
+        batchId: batch.batch_id,
+        batchIndex: Number(batch.batch_index),
+        status: batch.status,
+        deliverableCount: Array.isArray(batch.matrix_json) ? batch.matrix_json.length : 0,
+        attempts: Number(batch.attempts || 0),
+        lastError: batch.last_error || undefined,
+        provider: batch.provider || undefined,
+        model: batch.model || undefined
+      }))
+    };
+  }
+
+  function buildCompanyGenerationContext(activeCompanyId: string, activeCompany: any): string {
+    const comp = autonomaDb.getCompany(activeCompanyId);
+    const profile: any = comp?.profile || activeCompany?.profile || {};
+    const confirmed = profile?.confirmedContext;
+    const brand = profile?.brandDesignSystem;
+    const companyName = comp?.name || activeCompany?.name || 'Company';
+    return `
+COMPANY — AUTHORITATIVE CONTEXT
+Name: ${companyName}
+Organization Type: ${profile?.organizationType || 'Not specified'}
+Description: ${profile?.description || 'Not specified'}
+Offerings: ${profile?.offerings || 'Not specified'}
+Audience: ${profile?.audience || 'Not specified'}
+Geography: ${profile?.geography || 'Not specified'}
+Primary Goal: ${profile?.primaryGoal || 'Not specified'}
+Brand Voice: ${profile?.brandVoice || confirmed?.voice || 'Professional, grounded and authentic'}
+Confirmed Offering: ${confirmed?.organizationAndOffering || 'Not separately confirmed'}
+Confirmed Audience: ${confirmed?.audience || 'Not separately confirmed'}
+Confirmed Goals: ${confirmed?.goals || 'Not separately confirmed'}
+Default CTA: ${confirmed?.cta || 'Not specified'}
+Constraints / Claims to Avoid: ${confirmed?.constraints || profile?.claimsAvoid || 'None specified'}
+Brand Colors: ${brand ? [brand.primaryColor, brand.secondaryColor, brand.accentColor].filter(Boolean).join(', ') : 'Use saved/default brand system'}
+Brand Visual Direction: ${brand?.visualStyleNotes || 'Clean, relevant and brand-consistent'}
+Creative Rules: ${brand?.creativeRules || 'Do not invent products, claims, prices or unrelated capabilities'}
+`.trim();
+  }
+
+  function buildBatchPrompt(
+    campaign: Campaign,
+    opts: any,
+    matrix: any[],
+    plan: any,
+    activeCompanyId: string,
+    activeCompany: any
+  ): string {
+    const matrixText = matrix.map((m: any, idx: number) =>
+      `${idx + 1}. Global concept ${m.conceptIndex} | ${m.platform} | ${m.language}`
+    ).join('\n');
+    const formats = campaign.formats?.length ? campaign.formats : ['carousel', 'static_poster'];
+    return `You are Autonoma's senior campaign strategist and production copywriter.
+Generate ONE JSON object for the exact company below.
+
+CAMPAIGN
+Name: ${campaign.name}
+Brief: ${campaign.brief}
+Objective: ${campaign.objective}
+Campaign span: ${plan.daysSpan} days
+Total concepts in master plan: ${plan.conceptCount}
+This batch: ${matrix.length} deliverables
+Available formats: ${formats.join(', ')}
+Additional instructions: ${opts?.additionalInstructions || opts?.advancedOptions?.additionalInstructions || 'None'}
+
+${buildCompanyGenerationContext(activeCompanyId, activeCompany)}
+
+MANDATORY DOMAIN FIDELITY:
+- Generate only for this exact company and its real offerings.
+- Never insert Apex/Autonoma products unless this company itself is Apex.
+- Never invent prices, certifications, statistics, products or claims.
+- Keep one strategic idea consistent across platform/language variants of the same concept.
+- Rewrite natively for each platform and naturally for each language.
+- Return exactly one asset for every matrix row, in the same order.
+- No generic "Part 2", "Part 3" naming.
+
+REQUIRED DELIVERY MATRIX
+${matrixText}
+
+Return JSON only:
+{
+  "campaignName": "...",
+  "coreInsight": "...",
+  "valueProposition": "...",
+  "targetAudience": "...",
+  "buyerPersonas": ["..."],
+  "contentPillars": ["..."],
+  "postingSequence": "...",
+  "assets": [
+    {
+      "strategicPurpose": "...",
+      "angle": "...",
+      "title": "...",
+      "format": "one available format",
+      "hook": "...",
+      "caption": "...",
+      "hashtags": ["..."],
+      "CTA": "...",
+      "carouselSlides": [],
+      "reelScript": [],
+      "posterVisualPrompt": "...",
+      "viralityScore": 85,
+      "viralityRationale": "..."
+    }
+  ]
+}`;
+  }
+
+  async function refreshGenerationJobProgress(jobId: string, organizationId: string) {
+    const batches = await supabaseStorage.getCampaignGenerationBatches(jobId, organizationId);
+    const complete = batches.filter((b: any) => b.status === 'COMPLETE');
+    const failed = batches.filter((b: any) => b.status === 'FAILED');
+    const completedDeliverables = complete.reduce(
+      (sum: number, b: any) => sum + (Array.isArray(b.matrix_json) ? b.matrix_json.length : 0),
+      0
+    );
+    const allComplete = batches.length > 0 && complete.length === batches.length;
+    const status = allComplete ? 'COMPLETE' : failed.length > 0 ? 'PARTIAL' : complete.length > 0 ? 'RUNNING' : 'PENDING';
+    const job = await supabaseStorage.updateCampaignGenerationJob(jobId, organizationId, {
+      status,
+      completed_batches: complete.length,
+      failed_batches: failed.length,
+      completed_deliverables: completedDeliverables,
+      completed_at: allComplete ? new Date().toISOString() : null
+    });
+    return { job, batches, allComplete };
+  }
+
+  app.get('/api/campaign/generation-jobs/latest', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
+    try {
+      const activeCompanyId = (req as any).activeCompany.companyId;
+      const campaignId = String(req.query.campaignId || '');
+      if (!campaignId || !autonomaDb.getCampaign(campaignId, activeCompanyId)) {
+        return res.status(404).json({ success: false, error: 'Campaign not found in active workspace.' });
+      }
+      const job = await supabaseStorage.getLatestCampaignGenerationJob(campaignId, activeCompanyId);
+      if (!job) return res.json({ success: true, job: null });
+      const batches = await supabaseStorage.getCampaignGenerationBatches(job.job_id, activeCompanyId);
+      return res.json({ success: true, job: normalizeJobRow(job, batches) });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Could not read generation job.' });
+    }
+  });
+
+  app.post('/api/campaign/generation-jobs/start', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
+    try {
+      const activeCompany = (req as any).activeCompany;
+      const activeCompanyId = activeCompany.companyId;
+      const campaignId = String(req.body?.campaignId || '');
+      const row = autonomaDb.getCampaign(campaignId, activeCompanyId);
+      if (!row) return res.status(404).json({ success: false, error: 'Campaign not found in active workspace.' });
+      const campaign = dbRowToCampaign(row);
+      const existing = await supabaseStorage.getLatestCampaignGenerationJob(campaignId, activeCompanyId);
+      if (existing && !['COMPLETE', 'CANCELLED'].includes(existing.status)) {
+        const batches = await supabaseStorage.getCampaignGenerationBatches(existing.job_id, activeCompanyId);
+        return res.json({ success: true, reused: true, job: normalizeJobRow(existing, batches) });
+      }
+
+      const opts = campaign.generationOptions || {};
+      const platforms = campaign.platforms?.length ? campaign.platforms : ['instagram', 'facebook', 'linkedin'];
+      const languages = campaign.languages?.length ? campaign.languages : ['English'];
+      const daysSpan = campaignDaysSpan(campaign, opts);
+      const conceptCount = desiredLongCampaignConceptCount(campaign, opts, daysSpan);
+      const variantMultiplier = Math.max(1, platforms.length) * Math.max(1, languages.length);
+      const conceptsPerBatch = Math.max(1, Math.floor(MAX_BATCH_DELIVERABLES / variantMultiplier));
+      const matrix = Array.from({ length: conceptCount }, (_, conceptIdx) =>
+        platforms.flatMap((platform) =>
+          languages.map((language) => ({
+            sequence: conceptIdx * variantMultiplier + platforms.indexOf(platform) * languages.length + languages.indexOf(language) + 1,
+            conceptIndex: conceptIdx + 1,
+            platform,
+            language
+          }))
+        )
+      ).flat();
+
+      const jobId = `genjob_${crypto.randomBytes(10).toString('hex')}`;
+      const plan = {
+        daysSpan,
+        conceptCount,
+        platforms,
+        languages,
+        formats: campaign.formats || [],
+        variantMultiplier,
+        conceptsPerBatch,
+        batchDeliverableLimit: MAX_BATCH_DELIVERABLES
+      };
+      const batches: any[] = [];
+      for (let conceptStart = 1, batchIndex = 0; conceptStart <= conceptCount; conceptStart += conceptsPerBatch, batchIndex++) {
+        const conceptEnd = Math.min(conceptCount, conceptStart + conceptsPerBatch - 1);
+        const batchMatrix = matrix.filter((m: any) => m.conceptIndex >= conceptStart && m.conceptIndex <= conceptEnd);
+        batches.push({
+          batch_id: `${jobId}_b${String(batchIndex + 1).padStart(3, '0')}`,
+          job_id: jobId,
+          organization_id: activeCompanyId,
+          campaign_id: campaignId,
+          batch_index: batchIndex,
+          status: 'PENDING',
+          matrix_json: batchMatrix,
+          asset_ids_json: [],
+          attempts: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
+
+      const jobRow = {
+        job_id: jobId,
+        organization_id: activeCompanyId,
+        campaign_id: campaignId,
+        status: 'PENDING',
+        total_batches: batches.length,
+        completed_batches: 0,
+        failed_batches: 0,
+        total_deliverables: matrix.length,
+        completed_deliverables: 0,
+        plan_json: plan,
+        generation_options_json: opts,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      await supabaseStorage.createCampaignGenerationJob(jobRow, batches);
+
+      campaign.generationStatus = 'GENERATING';
+      campaign.lastGenerationError = undefined;
+      campaign.lastGenerationAttemptAt = new Date().toISOString();
+      campaign.assetCount = autonomaDb.getAssets(campaignId, activeCompanyId).length;
+      await autonomaDb.saveCampaign(campaignToDbRow(campaign, activeCompanyId), activeCompanyId);
+
+      return res.json({ success: true, reused: false, job: normalizeJobRow(jobRow, batches) });
+    } catch (err: any) {
+      console.error('[generation-jobs/start]', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Could not start durable generation job.' });
+    }
+  });
+
+  app.post('/api/campaign/generation-jobs/:jobId/process-next', authenticateUser, requireActiveMembership, async (req: Request, res: Response) => {
+    const activeCompany = (req as any).activeCompany;
+    const activeCompanyId = activeCompany.companyId;
+    const jobId = String(req.params.jobId || '');
+    let batch: any = null;
+    try {
+      const job = await supabaseStorage.getCampaignGenerationJob(jobId, activeCompanyId);
+      if (!job) return res.status(404).json({ success: false, error: 'Generation job not found.' });
+      const row = autonomaDb.getCampaign(job.campaign_id, activeCompanyId);
+      if (!row) return res.status(404).json({ success: false, error: 'Campaign no longer exists.' });
+      const campaign = dbRowToCampaign(row);
+      const opts = job.generation_options_json || campaign.generationOptions || {};
+      const plan = job.plan_json || {};
+      const batches = await supabaseStorage.getCampaignGenerationBatches(jobId, activeCompanyId);
+      if (job.status === 'COMPLETE') {
+        return res.json({ success: true, done: true, job: normalizeJobRow(job, batches) });
+      }
+
+      batch = batches.find((b: any) => b.status === 'PENDING');
+      if (!batch && req.body?.retryFailed) {
+        batch = batches.find((b: any) => b.status === 'FAILED' && Number(b.attempts || 0) < 5);
+      }
+      if (!batch) {
+        const progress = await refreshGenerationJobProgress(jobId, activeCompanyId);
+        const failed = progress.batches.filter((b: any) => b.status === 'FAILED');
+        if (progress.allComplete) {
+          return res.json({ success: true, done: true, job: normalizeJobRow(progress.job, progress.batches) });
+        }
+        return res.status(409).json({
+          success: false,
+          retryable: failed.length > 0,
+          error: failed.length > 0 ? 'GENERATION_BATCH_FAILED' : 'NO_PENDING_BATCH',
+          message: failed.length > 0
+            ? 'One or more generation batches need retry. Completed batches are safely preserved.'
+            : 'No pending generation batch is available.',
+          job: normalizeJobRow(progress.job, progress.batches)
+        });
+      }
+
+      const attempts = Number(batch.attempts || 0) + 1;
+      await supabaseStorage.updateCampaignGenerationBatch(batch.batch_id, activeCompanyId, {
+        status: 'RUNNING',
+        attempts,
+        started_at: new Date().toISOString(),
+        last_error: null
+      });
+      await supabaseStorage.updateCampaignGenerationJob(jobId, activeCompanyId, {
+        status: 'RUNNING',
+        started_at: job.started_at || new Date().toISOString(),
+        last_error: null
+      });
+
+      const matrix = Array.isArray(batch.matrix_json) ? batch.matrix_json : [];
+      const prompt = buildBatchPrompt(campaign, opts, matrix, plan, activeCompanyId, activeCompany);
+      const generation = await generateCampaignJsonWithFallback(prompt, undefined, `generation-job:${jobId}:batch:${batch.batch_index}`);
+      const parsed = generation.data;
+      if (!Array.isArray(parsed?.assets) || parsed.assets.length !== matrix.length) {
+        throw new Error(`AI returned ${Array.isArray(parsed?.assets) ? parsed.assets.length : 0} deliverables; ${matrix.length} were required for this batch.`);
+      }
+      const invalidIndex = parsed.assets.findIndex((item: any) =>
+        !item || !String(item.title || '').trim() || !String(item.hook || '').trim() ||
+        !String(item.caption || '').trim() || !String(item.CTA || '').trim()
+      );
+      if (invalidIndex >= 0) throw new Error(`AI returned incomplete content for batch deliverable ${invalidIndex + 1}.`);
+
+      const startDate = new Date(campaign.startDate || Date.now());
+      const totalConcepts = Math.max(1, Number(plan.conceptCount || 1));
+      const daysSpan = Math.max(1, Number(plan.daysSpan || 1));
+      const formats = campaign.formats?.length ? campaign.formats : ['carousel', 'static_poster'];
+      const brand: any = (autonomaDb.getCompany(activeCompanyId)?.profile as any)?.brandDesignSystem;
+      const assetIds: string[] = [];
+
+      for (let idx = 0; idx < parsed.assets.length; idx++) {
+        const item = parsed.assets[idx];
+        const matrixItem = matrix[idx];
+        const conceptIndex = Number(matrixItem.conceptIndex || 1);
+        const offset = totalConcepts <= 1 ? 0 : Math.round(((conceptIndex - 1) * Math.max(0, daysSpan - 1)) / (totalConcepts - 1));
+        const target = new Date(startDate.getTime() + offset * 86400000);
+        const platform = matrixItem.platform as Platform;
+        const language = String(matrixItem.language || 'English');
+        const format = (String(item.format || formats[(conceptIndex - 1) % formats.length]).toLowerCase() as ContentFormat);
+        const identity = `${campaign.id}|${conceptIndex}|${platform}|${language}`;
+        const assetId = `asset_${crypto.createHash('sha256').update(identity).digest('hex').slice(0, 20)}`;
+        const langCode = language.replace(/[^a-z0-9]/gi, '').slice(0, 4).toUpperCase() || 'LANG';
+        const platformCode = String(platform).replace(/[^a-z0-9]/gi, '').slice(0, 4).toUpperCase();
+        const asset: SocialAsset = {
+          id: assetId,
+          campaignId: campaign.id,
+          campaignName: parsed.campaignName || campaign.name,
+          assetCode: `${campaign.campaignCode}-C${String(conceptIndex).padStart(3, '0')}-${platformCode}-${langCode}`,
+          title: item.title,
+          strategicPurpose: item.strategicPurpose || 'Campaign progression',
+          angle: item.angle || '',
+          targetDate: target.toISOString().slice(0, 10),
+          postTimeIST: platform === 'linkedin' ? '11:30 AM' : platform === 'instagram' ? '06:30 PM' : '04:15 PM',
+          platform,
+          language,
+          conceptIndex,
+          secondaryPlatforms: (campaign.platforms || []).filter((p) => p !== platform),
+          format,
+          stream: 'digital_experiences',
+          speciesCode: 'SPEC-01_PROBLEM_FIRST',
+          status: 'draft',
+          productionStatus: 'NOT_GENERATED',
+          hook: item.hook,
+          caption: item.caption,
+          hashtags: Array.isArray(item.hashtags) ? item.hashtags : [],
+          callToAction: item.CTA,
+          slides: Array.isArray(item.carouselSlides) && item.carouselSlides.length ? item.carouselSlides.map((s: any) => ({
+            slideNumber: Number(s.slideNumber || 1),
+            layout: (s.layout as any) || 'title_hook',
+            badge: s.badge,
+            headline: s.headline || '',
+            subtext: s.subtext,
+            body: Array.isArray(s.body) ? s.body.map(String) : [String(s.body || '')]
+          })) : undefined,
+          videoScenes: Array.isArray(item.reelScript) && item.reelScript.length ? item.reelScript.map((sc: any) => ({
+            sceneNumber: Number(sc.sceneNumber || 1),
+            timestamp: sc.timestamp || '',
+            hookText: sc.hookText || '',
+            bRollPrompt: sc.bRollPrompt || '',
+            narrationVoiceover: sc.narrationVoiceover || '',
+            onScreenCaption: sc.onScreenCaption || '',
+            visualFocus: sc.visualFocus || ''
+          })) : undefined,
+          posterVisualPrompt: item.posterVisualPrompt || `Brand-aligned visual for ${item.title}. No readable text inside AI pixels.`,
+          viralityScore: Math.max(1, Math.min(100, Number(item.viralityScore || 85))),
+          viralityRationale: item.viralityRationale || 'Aligned to the campaign narrative and selected platform.',
+          targetReach: Math.max(0, Number(item.targetReach || 0)),
+          estimatedImpressions: Math.max(0, Number(item.estimatedImpressions || 0)),
+          expectedLeads: Math.max(0, Number(item.expectedLeads || 0)),
+          targetBuyerPersona: parsed.targetAudience || campaign.strategy?.targetAudience || '',
+          designSystemVerified: true,
+          colorScheme: brand ? 'brand_custom' : 'clean_white'
+        };
+        await autonomaDb.saveAsset(assetToDbRow(asset, activeCompanyId), activeCompanyId);
+        assetIds.push(assetId);
+      }
+
+      await supabaseStorage.updateCampaignGenerationBatch(batch.batch_id, activeCompanyId, {
+        status: 'COMPLETE',
+        asset_ids_json: assetIds,
+        provider: generation.provider,
+        model: generation.model,
+        completed_at: new Date().toISOString(),
+        last_error: null
+      });
+      await supabaseStorage.updateCampaignGenerationJob(jobId, activeCompanyId, {
+        last_provider: generation.provider,
+        last_model: generation.model,
+        last_error: null
+      });
+
+      const progress = await refreshGenerationJobProgress(jobId, activeCompanyId);
+      const allAssets = autonomaDb.getAssets(campaign.id, activeCompanyId);
+      const updatedCampaign: Campaign = {
+        ...campaign,
+        name: parsed.campaignName || campaign.name,
+        generationStatus: progress.allComplete ? 'READY' : 'GENERATING',
+        lastGenerationError: undefined,
+        lastGenerationAttemptAt: new Date().toISOString(),
+        assetCount: allAssets.length,
+        strategy: campaign.strategy || {
+          objectiveSummary: campaign.brief,
+          targetAudience: parsed.targetAudience || 'Audience derived from campaign brief',
+          buyerPersonas: parsed.buyerPersonas || [],
+          coreInsight: parsed.coreInsight || '',
+          valueProposition: parsed.valueProposition || '',
+          contentPillars: parsed.contentPillars || [],
+          postingSequence: parsed.postingSequence || '',
+          formatMix: formats.map(String),
+          languageGuidance: (campaign.languages || []).join(', ')
+        }
+      };
+      await autonomaDb.saveCampaign(campaignToDbRow(updatedCampaign, activeCompanyId), activeCompanyId);
+
+      return res.json({
+        success: true,
+        done: progress.allComplete,
+        generatedThisBatch: assetIds.length,
+        job: normalizeJobRow(progress.job, progress.batches)
+      });
+    } catch (err: any) {
+      console.error('[generation-jobs/process-next]', err);
+      if (batch) {
+        await supabaseStorage.updateCampaignGenerationBatch(batch.batch_id, activeCompanyId, {
+          status: 'FAILED',
+          last_error: err?.message || 'Batch generation failed',
+          completed_at: null
+        }).catch(() => {});
+      }
+      const job = await supabaseStorage.getCampaignGenerationJob(jobId, activeCompanyId).catch(() => null);
+      const campaignRow = job ? autonomaDb.getCampaign(job.campaign_id, activeCompanyId) : null;
+      if (campaignRow) {
+        const campaign = dbRowToCampaign(campaignRow);
+        campaign.generationStatus = 'GENERATION_FAILED';
+        campaign.lastGenerationError = err?.message || 'A generation batch failed. Completed batches are preserved.';
+        campaign.lastGenerationAttemptAt = new Date().toISOString();
+        await autonomaDb.saveCampaign(campaignToDbRow(campaign, activeCompanyId), activeCompanyId).catch(() => {});
+      }
+      const progress = job ? await refreshGenerationJobProgress(jobId, activeCompanyId).catch(() => null) : null;
+      return res.status(503).json({
+        success: false,
+        retryable: true,
+        error: err?.code || 'GENERATION_BATCH_FAILED',
+        message: err?.message || 'A generation batch failed. Completed batches are preserved and the job can resume.',
+        job: progress ? normalizeJobRow(progress.job, progress.batches) : undefined
+      });
+    }
+  });
+
   // Comprehensive Multi-Asset Campaign Director Endpoint
   // Generates a full narrative arc across platforms with zero generic "Part 2" titles,
   // platform-native executions, audience-grounded language, and calibrated realistic reach.
