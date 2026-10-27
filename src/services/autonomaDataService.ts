@@ -1350,7 +1350,90 @@ class AutonomaDataService {
     return json;
   }
 
+  async getLatestCampaignGenerationJob(campaignId: string): Promise<any | null> {
+    const res = await this.fetchWithAuth(`/api/campaign/generation-jobs/latest?campaignId=${encodeURIComponent(campaignId)}`);
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.success) {
+      throw new Error(json?.message || json?.error || 'Could not read campaign generation progress.');
+    }
+    return json.job || null;
+  }
+
+  async startCampaignGenerationJob(campaignId: string): Promise<any> {
+    const res = await this.fetchWithAuth('/api/campaign/generation-jobs/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaignId })
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.success || !json?.job) {
+      throw new Error(json?.message || json?.error || 'Could not start durable campaign generation.');
+    }
+    return json.job;
+  }
+
+  async processCampaignGenerationJob(
+    jobId: string,
+    retryFailed: boolean = false
+  ): Promise<{ done: boolean; job: any; generatedThisBatch?: number }> {
+    const res = await this.fetchWithAuth(
+      `/api/campaign/generation-jobs/${encodeURIComponent(jobId)}/process-next`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retryFailed })
+      }
+    );
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.success) {
+      const err: any = new Error(json?.message || json?.error || 'Campaign generation batch failed.');
+      err.job = json?.job;
+      err.retryable = json?.retryable !== false;
+      throw err;
+    }
+    return { done: Boolean(json.done), job: json.job, generatedThisBatch: json.generatedThisBatch };
+  }
+
+  async runCampaignGenerationJobToCompletion(
+    campaignId: string,
+    onProgress?: (job: any) => void
+  ): Promise<{ campaign: Campaign; assets: SocialAsset[]; job: any }> {
+    let job = await this.getLatestCampaignGenerationJob(campaignId);
+    if (!job || job.status === 'COMPLETE' || job.status === 'CANCELLED') {
+      job = await this.startCampaignGenerationJob(campaignId);
+    }
+    onProgress?.(job);
+
+    let safety = 0;
+    while (job.status !== 'COMPLETE' && safety < 200) {
+      safety += 1;
+      const hasFailed = Array.isArray(job.batches) && job.batches.some((b: any) => b.status === 'FAILED');
+      const step = await this.processCampaignGenerationJob(job.jobId, hasFailed);
+      job = step.job;
+      onProgress?.(job);
+      if (step.done || job.status === 'COMPLETE') break;
+    }
+
+    if (job.status !== 'COMPLETE') {
+      throw new Error('Campaign generation is still incomplete. Your progress is saved and can be resumed.');
+    }
+
+    const [campaigns, assets] = await Promise.all([
+      this.loadCampaigns(),
+      this.loadAssets(campaignId)
+    ]);
+    const campaign = campaigns.find((item) => item.id === campaignId);
+    if (!campaign) throw new Error('Campaign completed but could not be reloaded.');
+    return { campaign, assets, job };
+  }
+
   async retryCampaignGeneration(campaignId: string): Promise<{ campaign: Campaign; assets: SocialAsset[] }> {
+    const existingJob = await this.getLatestCampaignGenerationJob(campaignId).catch(() => null);
+    if (existingJob && existingJob.status !== 'COMPLETE' && existingJob.status !== 'CANCELLED') {
+      const resumed = await this.runCampaignGenerationJobToCompletion(campaignId);
+      return { campaign: resumed.campaign, assets: resumed.assets };
+    }
+
     const res = await this.fetchWithAuth('/api/campaign/retry-synthesis', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
