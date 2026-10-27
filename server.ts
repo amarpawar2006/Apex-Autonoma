@@ -285,6 +285,17 @@ async function startServer() {
     console.warn('[Server Startup] Provider settings hydration notice:', hydrateErr?.message);
   }
 
+  // Persist the masked runtime provider readiness after environment secrets are resolved.
+  // This never writes raw API keys, but makes deployment readiness externally verifiable.
+  try {
+    await autonomaDb.updateSettings({
+      aiProvidersJson: JSON.stringify(aiProviderService.getSettings(false)),
+      emailConfigJson: JSON.stringify(emailService.getConfig())
+    });
+  } catch (runtimeSettingsErr: any) {
+    console.warn('[Server Startup] Runtime provider readiness persistence notice:', runtimeSettingsErr?.message);
+  }
+
   const accessRequestRateLimit = new Map<string, { count: number; resetAt: number }>();
 
   app.post('/api/request-access', async (req: Request, res: Response) => {
