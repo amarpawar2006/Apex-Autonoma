@@ -860,6 +860,94 @@ export class SupabaseStorageAdapter {
   }
 
   // ==========================================
+  // DURABLE CAMPAIGN GENERATION JOBS
+  // ==========================================
+
+  public async getLatestCampaignGenerationJob(campaignId: string, organizationId: string): Promise<any | null> {
+    if (!this.ready || !this.client) return null;
+    const { data, error } = await this.client
+      .from('campaign_generation_jobs')
+      .select('*')
+      .eq('campaign_id', campaignId)
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Generation job lookup failed: ${error.message}`);
+    return data || null;
+  }
+
+  public async getCampaignGenerationJob(jobId: string, organizationId: string): Promise<any | null> {
+    if (!this.ready || !this.client) return null;
+    const { data, error } = await this.client
+      .from('campaign_generation_jobs')
+      .select('*')
+      .eq('job_id', jobId)
+      .eq('organization_id', organizationId)
+      .maybeSingle();
+    if (error) throw new Error(`Generation job lookup failed: ${error.message}`);
+    return data || null;
+  }
+
+  public async getCampaignGenerationBatches(jobId: string, organizationId: string): Promise<any[]> {
+    if (!this.ready || !this.client) return [];
+    const { data, error } = await this.client
+      .from('campaign_generation_batches')
+      .select('*')
+      .eq('job_id', jobId)
+      .eq('organization_id', organizationId)
+      .order('batch_index', { ascending: true });
+    if (error) throw new Error(`Generation batch lookup failed: ${error.message}`);
+    return data || [];
+  }
+
+  public async createCampaignGenerationJob(job: any, batches: any[]): Promise<void> {
+    if (!this.ready || !this.client) {
+      throw new Error('Durable generation jobs require Supabase production persistence.');
+    }
+    const { error: jobError } = await this.client
+      .from('campaign_generation_jobs')
+      .insert(job);
+    if (jobError) throw new Error(`Generation job creation failed: ${jobError.message}`);
+
+    if (batches.length > 0) {
+      const { error: batchError } = await this.client
+        .from('campaign_generation_batches')
+        .insert(batches);
+      if (batchError) {
+        await this.client.from('campaign_generation_jobs').delete().eq('job_id', job.job_id);
+        throw new Error(`Generation batch creation failed: ${batchError.message}`);
+      }
+    }
+  }
+
+  public async updateCampaignGenerationJob(jobId: string, organizationId: string, updates: Record<string, any>): Promise<any> {
+    if (!this.ready || !this.client) throw new Error('Generation job store unavailable.');
+    const { data, error } = await this.client
+      .from('campaign_generation_jobs')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('job_id', jobId)
+      .eq('organization_id', organizationId)
+      .select('*')
+      .single();
+    if (error) throw new Error(`Generation job update failed: ${error.message}`);
+    return data;
+  }
+
+  public async updateCampaignGenerationBatch(batchId: string, organizationId: string, updates: Record<string, any>): Promise<any> {
+    if (!this.ready || !this.client) throw new Error('Generation batch store unavailable.');
+    const { data, error } = await this.client
+      .from('campaign_generation_batches')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('batch_id', batchId)
+      .eq('organization_id', organizationId)
+      .select('*')
+      .single();
+    if (error) throw new Error(`Generation batch update failed: ${error.message}`);
+    return data;
+  }
+
+  // ==========================================
   // APPLICATION PASSWORD CREDENTIALS
   // Password hashes/reset tokens are intentionally kept OUT of the normal user model.
   // ==========================================
