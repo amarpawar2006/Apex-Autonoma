@@ -12,6 +12,7 @@ import {
   Linkedin,
   MessageCircle,
   Share2,
+  Send,
   Globe2,
   Image,
   Languages,
@@ -462,6 +463,19 @@ export const AboutPage: React.FC = () => {
       </main>
 
       <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-[70] flex flex-col items-end gap-2">
+        <a
+          href="https://t.me/ApexLeadOSAmarBot"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group inline-flex min-h-[48px] items-center gap-2 rounded-2xl border border-white/20 bg-[#229ED9] px-4 sm:px-5 text-sm font-bold text-white shadow-[0_12px_36px_rgba(34,158,217,.3)] transition hover:-translate-y-0.5 hover:bg-[#1D8EC4] active:translate-y-0"
+          aria-label="Chat with Apex AI on Telegram"
+          title="Ask about Autonoma, onboarding, campaigns or request a meeting"
+        >
+          <Send className="h-4 w-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+          <span className="hidden sm:inline">Chat with Apex AI</span>
+          <span className="sm:hidden">Apex AI</span>
+        </a>
+
         <div className="flex items-center gap-1.5 rounded-2xl border border-black/[0.08] bg-white/95 p-1.5 shadow-xl backdrop-blur-xl">
           <button
             type="button"
