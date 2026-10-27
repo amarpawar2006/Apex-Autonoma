@@ -1454,6 +1454,15 @@ async function startServer() {
         superAdminEmailConfigured: Boolean(INITIAL_SUPER_ADMIN_EMAIL),
         geminiTextProviderConfigured: Boolean(aiProviderService.getRawProviderKey('gemini')),
         openAiTextFallbackConfigured: Boolean(aiProviderService.getRawProviderKey('openai')),
+        openAiTextFallbackVerified: (() => {
+          try {
+            const stored = autonomaDb.getSettings()?.settings?.aiProvidersJson;
+            return Boolean(stored && JSON.parse(stored)?.providers?.openai?.connectionVerified);
+          } catch {
+            return false;
+          }
+        })(),
+        durableCampaignJobsReady: supabaseStorage.ready,
         publicAppUrlConfigured: Boolean(process.env.PUBLIC_APP_URL || process.env.APP_BASE_URL),
         aboutPageReady: true,
         privacyPageReady: true,
