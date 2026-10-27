@@ -285,11 +285,31 @@ async function startServer() {
     console.warn('[Server Startup] Provider settings hydration notice:', hydrateErr?.message);
   }
 
-  // Persist the masked runtime provider readiness after environment secrets are resolved.
-  // This never writes raw API keys, but makes deployment readiness externally verifiable.
+  // Persist masked runtime provider readiness after environment secrets are resolved.
+  // This never writes raw API keys. OpenAI is also connectivity-verified without consuming generation tokens.
   try {
+    const runtimeProviders: any = aiProviderService.getSettings(false);
+    const openAiConfigured = Boolean(aiProviderService.getRawProviderKey('openai'));
+    if (openAiConfigured && runtimeProviders?.providers?.openai) {
+      let verification: any;
+      try {
+        verification = await Promise.race([
+          aiProviderService.testProviderConnection('openai'),
+          new Promise((resolve) => setTimeout(
+            () => resolve({ success: false, provider: 'openai', message: 'OpenAI verification timed out after 8 seconds.' }),
+            8000
+          ))
+        ]);
+      } catch (verifyErr: any) {
+        verification = { success: false, provider: 'openai', message: verifyErr?.message || 'OpenAI verification failed.' };
+      }
+      runtimeProviders.providers.openai.connectionVerified = Boolean(verification?.success);
+      runtimeProviders.providers.openai.connectionMessage = verification?.message || '';
+      runtimeProviders.providers.openai.lastVerifiedAt = new Date().toISOString();
+    }
+
     await autonomaDb.updateSettings({
-      aiProvidersJson: JSON.stringify(aiProviderService.getSettings(false)),
+      aiProvidersJson: JSON.stringify(runtimeProviders),
       emailConfigJson: JSON.stringify(emailService.getConfig())
     });
   } catch (runtimeSettingsErr: any) {
