@@ -4062,10 +4062,24 @@ Return JSON only:
       const campaign = dbRowToCampaign(row);
       const opts = job.generation_options_json || campaign.generationOptions || {};
       const plan = job.plan_json || {};
-      const batches = await supabaseStorage.getCampaignGenerationBatches(jobId, activeCompanyId);
+      let batches = await supabaseStorage.getCampaignGenerationBatches(jobId, activeCompanyId);
       if (job.status === 'COMPLETE') {
         return res.json({ success: true, done: true, job: normalizeJobRow(job, batches) });
       }
+
+      // Recover batches left RUNNING by a browser close, container restart, or terminated request.
+      // A batch call itself is bounded to ~40s, so 2 minutes is safely stale.
+      const staleCutoff = Date.now() - 2 * 60_000;
+      for (const stale of batches.filter((b: any) =>
+        b.status === 'RUNNING' &&
+        new Date(b.updated_at || b.started_at || 0).getTime() < staleCutoff
+      )) {
+        await supabaseStorage.updateCampaignGenerationBatch(stale.batch_id, activeCompanyId, {
+          status: 'FAILED',
+          last_error: 'Recovered an interrupted generation batch; safe to retry.'
+        });
+      }
+      batches = await supabaseStorage.getCampaignGenerationBatches(jobId, activeCompanyId);
 
       batch = batches.find((b: any) => b.status === 'PENDING');
       if (!batch && req.body?.retryFailed) {
