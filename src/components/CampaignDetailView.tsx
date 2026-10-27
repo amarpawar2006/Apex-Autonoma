@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   ArrowLeft, 
   Calendar, 
@@ -31,6 +31,7 @@ import { getCampaignAssetMetrics } from '../services/campaignService';
 import { WhatsAppPostingPackModal } from './WhatsAppPostingPackModal';
 import { downloadCampaignRecoveryFile } from '../utils/recoveryUtils';
 import { downloadFullCampaignReport } from '../utils/campaignExportUtils';
+import { autonomaDataService } from '../services/autonomaDataService';
 
 
 const strategyText = (value: unknown, fallback = ''): string => {
@@ -96,6 +97,23 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRetryingGeneration, setIsRetryingGeneration] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const [generationJob, setGenerationJob] = useState<any | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (!['GENERATING', 'GENERATION_FAILED'].includes(String(campaign.generationStatus || ''))) {
+      setGenerationJob(null);
+      return () => { active = false; };
+    }
+    autonomaDataService.getLatestCampaignGenerationJob(campaign.id)
+      .then((job) => {
+        if (active) setGenerationJob(job);
+      })
+      .catch(() => {
+        if (active) setGenerationJob(null);
+      });
+    return () => { active = false; };
+  }, [campaign.id, campaign.generationStatus, campaign.assetCount]);
 
   // Filter assets specifically belonging to this active campaign (excluding individually archived)
   const campaignAssets = assets.filter((a) => a.campaignId === campaign.id && !a.isArchived);
@@ -195,6 +213,43 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
               <span>Download Recovery File</span>
             </button>
           </div>
+        </div>
+      )}
+
+      {generationJob && generationJob.status !== 'COMPLETE' && (
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 text-xs text-orange-950">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="font-semibold">Durable campaign generation progress</div>
+              <p className="mt-0.5 text-[11px] text-orange-800">
+                {Number(generationJob.completedDeliverables || 0)} / {Number(generationJob.totalDeliverables || 0)} deliverables saved ·{' '}
+                {Number(generationJob.completedBatches || 0)} / {Number(generationJob.totalBatches || 0)} batches complete
+                {Number(generationJob.failedBatches || 0) > 0 ? ' · ' + generationJob.failedBatches + ' batch awaiting retry' : ''}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full border border-orange-200 bg-white px-2.5 py-1 font-semibold">
+              {generationJob.status}
+            </span>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-orange-100">
+            <div
+              className="h-full rounded-full bg-[#FF4500] transition-all"
+              style={{
+                width:
+                  Math.min(
+                    100,
+                    Math.round(
+                      (Number(generationJob.completedDeliverables || 0) /
+                        Math.max(1, Number(generationJob.totalDeliverables || 1))) *
+                        100
+                    )
+                  ) + '%'
+              }}
+            />
+          </div>
+          <p className="mt-2 text-[10px] text-orange-700">
+            Completed batches are already persisted. You can close this page and resume later without regenerating completed work.
+          </p>
         </div>
       )}
 
