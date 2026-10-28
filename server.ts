@@ -257,7 +257,9 @@ async function startServer() {
   const app = express();
   const portArgIdx = process.argv.indexOf('--port');
   const portArg = portArgIdx !== -1 && process.argv[portArgIdx + 1] ? Number(process.argv[portArgIdx + 1]) : null;
-  const PORT = portArg || Number(process.env.PORT) || 3000;
+  // Dev server must always run on port 3000 for AI Studio environment (PORT=8080 is Cloud Run internal).
+  const rawEnvPort = Number(process.env.PORT);
+  const PORT = portArg || (rawEnvPort && rawEnvPort !== 8080 ? rawEnvPort : 3000);
   const isProd = process.env.NODE_ENV === 'production';
 
   app.use(express.json({ limit: '50mb' }));
