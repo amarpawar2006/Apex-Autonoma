@@ -30,7 +30,7 @@ import { Campaign, CampaignStatus, SocialAsset, ContentFormat, Platform, PostSta
 import { getCampaignAssetMetrics } from '../services/campaignService';
 import { WhatsAppPostingPackModal } from './WhatsAppPostingPackModal';
 import { downloadCampaignRecoveryFile } from '../utils/recoveryUtils';
-import { downloadFullCampaignReport } from '../utils/campaignExportUtils';
+import { downloadFullCampaignReport, downloadMetaPublishingPack } from '../utils/campaignExportUtils';
 import { autonomaDataService } from '../services/autonomaDataService';
 
 
@@ -388,6 +388,15 @@ export const CampaignDetailView: React.FC<CampaignDetailViewProps> = ({
             >
               <Download className="w-3.5 h-3.5" />
               <span>Download Full Campaign</span>
+            </button>
+
+            <button
+              onClick={() => downloadMetaPublishingPack(campaign, campaignAssets, companyName || 'Autonoma Workspace')}
+              className="col-span-2 sm:col-span-1 inline-flex w-full sm:w-auto items-center justify-center space-x-1.5 px-3.5 py-2 bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-semibold rounded-xl shadow-sm transition-all active:scale-95 min-h-[42px]"
+              title="Download a structured Facebook + Instagram publishing workbook for Meta/API scheduling"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Export Meta Publishing Pack</span>
             </button>
 
             <button
