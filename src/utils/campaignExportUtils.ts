@@ -1,4 +1,5 @@
 import { Campaign, SocialAsset } from '../types/campaign';
+import * as XLSX from 'xlsx';
 
 const esc = (value: unknown): string =>
   String(value ?? '')
@@ -185,4 +186,170 @@ export function downloadFullCampaignReport(
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+
+const normalizeHashtags = (asset: SocialAsset): string =>
+  (asset.hashtags || [])
+    .map((tag) => String(tag || '').trim())
+    .filter(Boolean)
+    .map((tag) => tag.startsWith('#') ? tag : `#${tag}`)
+    .join(' ');
+
+const mediaUrlsForAsset = (asset: SocialAsset): string[] => {
+  if (asset.format === 'carousel') {
+    const composed = Object.entries(asset.carouselSlideComposedUrls || {})
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([, url]) => url)
+      .filter(Boolean);
+    if (composed.length) return composed;
+
+    const generated = Object.entries(asset.carouselSlideVisuals || {})
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([, url]) => url)
+      .filter(Boolean);
+    if (generated.length) return generated;
+  }
+
+  const primary = [
+    asset.composedAssetUrl,
+    asset.generatedVideoUrl,
+    asset.generatedImageUrl,
+    asset.generatedBackgroundUrl,
+  ].filter(Boolean) as string[];
+
+  return Array.from(new Set(primary));
+};
+
+const metaMediaType = (asset: SocialAsset): string => {
+  if (asset.format === 'carousel') return 'CAROUSEL';
+  if (asset.format === 'reel_short' || asset.format === 'short_video') return 'REEL';
+  if (asset.format === 'story') return 'STORY';
+  return 'IMAGE';
+};
+
+export function downloadMetaPublishingPack(
+  campaign: Campaign,
+  assets: SocialAsset[],
+  organizationName: string
+): void {
+  const campaignAssets = (assets || [])
+    .filter((asset) => !asset.isArchived && ['facebook', 'instagram'].includes(String(asset.platform).toLowerCase()))
+    .sort((a, b) => `${a.targetDate || ''} ${a.postTimeIST || ''}`.localeCompare(`${b.targetDate || ''} ${b.postTimeIST || ''}`));
+
+  const rows = campaignAssets.map((asset) => {
+    const mediaUrls = mediaUrlsForAsset(asset);
+    const hashtags = normalizeHashtags(asset);
+    const caption = [asset.caption, hashtags, asset.callToAction].filter(Boolean).join('\n\n');
+
+    return {
+      company: organizationName || 'Company',
+      campaign_name: campaign.name,
+      campaign_code: campaign.campaignCode,
+      asset_code: asset.assetCode,
+      scheduled_date: asset.targetDate || '',
+      scheduled_time_ist: asset.postTimeIST || '',
+      timezone: 'Asia/Kolkata',
+      platform: String(asset.platform || '').toLowerCase(),
+      meta_media_type: metaMediaType(asset),
+      autonoma_format: asset.format,
+      title: asset.title,
+      caption,
+      base_caption: asset.caption || '',
+      hashtags,
+      call_to_action: asset.callToAction || '',
+      status: asset.status,
+      production_status: asset.productionStatus || '',
+      media_ready: mediaUrls.length > 0 ? 'YES' : 'NO',
+      media_count: mediaUrls.length,
+      media_urls: mediaUrls.join(' | '),
+      primary_media_url: mediaUrls[0] || '',
+      target_language: asset.language || '',
+      strategic_purpose: asset.strategicPurpose || '',
+      target_buyer_persona: asset.targetBuyerPersona || '',
+      api_publish_state: 'NOT_PUBLISHED',
+      api_publish_id: '',
+      api_error: '',
+    };
+  });
+
+  const carouselRows = campaignAssets.flatMap((asset) =>
+    (asset.slides || []).map((slide) => ({
+      asset_code: asset.assetCode,
+      platform: asset.platform,
+      scheduled_date: asset.targetDate,
+      slide_number: slide.slideNumber,
+      headline: slide.headline,
+      subtext: slide.subtext || '',
+      body: Array.isArray(slide.body) ? slide.body.join(' | ') : '',
+      visual_prompt: slide.visualPrompt || '',
+      rendered_media_url:
+        asset.carouselSlideComposedUrls?.[slide.slideNumber] ||
+        asset.carouselSlideVisuals?.[slide.slideNumber] ||
+        '',
+    }))
+  );
+
+  const reelRows = campaignAssets.flatMap((asset) =>
+    (asset.videoScenes || []).map((scene) => ({
+      asset_code: asset.assetCode,
+      platform: asset.platform,
+      scheduled_date: asset.targetDate,
+      scene_number: scene.sceneNumber,
+      timestamp: scene.timestamp,
+      hook_text: scene.hookText,
+      narration_voiceover: scene.narrationVoiceover,
+      on_screen_caption: scene.onScreenCaption,
+      b_roll_prompt: scene.bRollPrompt,
+      visual_focus: scene.visualFocus,
+      final_video_url: asset.generatedVideoUrl || asset.composedAssetUrl || '',
+    }))
+  );
+
+  const readme = [
+    ['AUTONOMA META PUBLISHING PACK'],
+    ['Campaign', campaign.name],
+    ['Company', organizationName || 'Company'],
+    ['Campaign code', campaign.campaignCode],
+    ['Generated', new Date().toISOString()],
+    [],
+    ['IMPORTANT'],
+    ['Meta Business Suite does not provide a documented bulk organic-content CSV/XLSX import into Planner for Facebook + Instagram posts, Reels and carousels.'],
+    ['This workbook is therefore a structured publishing manifest, not a file that should be presented to users as directly importable into Meta Business Suite.'],
+    ['It is designed for: (1) Autonoma direct Meta Graph API publishing/scheduling, (2) audit/review, and (3) controlled manual publishing operations.'],
+    [],
+    ['Publishing Queue columns'],
+    ['scheduled_date + scheduled_time_ist + timezone', 'Autonoma schedule'],
+    ['platform', 'facebook or instagram'],
+    ['meta_media_type', 'IMAGE / CAROUSEL / REEL / STORY'],
+    ['caption', 'Combined publish-ready caption + hashtags + CTA'],
+    ['media_urls', 'Ordered media URLs; carousel order is preserved'],
+    ['media_ready', 'YES only when Autonoma has a generated/rendered media URL'],
+    ['api_publish_state / api_publish_id / api_error', 'Reserved for the direct Meta connector'],
+    [],
+    ['Next production step'],
+    ['Connect each company workspace to its Facebook Page + Instagram Professional account using Meta OAuth, then let Autonoma publish/schedule this queue through Meta APIs.'],
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const readmeWs = XLSX.utils.aoa_to_sheet(readme);
+  const queueWs = XLSX.utils.json_to_sheet(rows);
+  const carouselWs = XLSX.utils.json_to_sheet(carouselRows);
+  const reelWs = XLSX.utils.json_to_sheet(reelRows);
+
+  readmeWs['!cols'] = [{ wch: 32 }, { wch: 105 }];
+  queueWs['!cols'] = [
+    { wch: 22 }, { wch: 30 }, { wch: 18 }, { wch: 20 }, { wch: 14 }, { wch: 18 }, { wch: 18 },
+    { wch: 12 }, { wch: 16 }, { wch: 18 }, { wch: 30 }, { wch: 80 }, { wch: 70 }, { wch: 28 },
+    { wch: 28 }, { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 80 }, { wch: 70 }, { wch: 18 },
+    { wch: 30 }, { wch: 30 }, { wch: 18 }, { wch: 24 }, { wch: 50 },
+  ];
+
+  XLSX.utils.book_append_sheet(wb, readmeWs, 'README');
+  XLSX.utils.book_append_sheet(wb, queueWs, 'Publishing Queue');
+  XLSX.utils.book_append_sheet(wb, carouselWs, 'Carousel Slides');
+  XLSX.utils.book_append_sheet(wb, reelWs, 'Reel Scenes');
+
+  const code = (campaign.campaignCode || campaign.id || 'CAMPAIGN').replace(/[^a-zA-Z0-9-_]/g, '_');
+  XLSX.writeFile(wb, `AUTONOMA-META-PUBLISHING-PACK-${code}.xlsx`);
 }
