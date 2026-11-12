@@ -18,8 +18,19 @@
   style.textContent = `#apex-kalyani-entry{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:calc(88px + env(safe-area-inset-bottom));z-index:90;display:inline-flex;align-items:center;justify-content:center;min-height:48px;max-width:calc(100vw - 32px);padding:12px 18px;border:1px solid #7df9db;border-radius:999px;background:#071d21;color:#a7ffe6;font:600 14px/1.4 system-ui,sans-serif;text-decoration:none;box-shadow:0 8px 32px #0005}#apex-kalyani-entry:focus-visible{outline:3px solid #fff;outline-offset:4px}#apex-kalyani-entry[hidden]{display:none}@media(max-width:400px){#apex-kalyani-entry{font-size:13px;padding:10px 14px}}`;
   document.head.appendChild(style);
   document.body.appendChild(link);
+  const marketingHosts = {
+    apex: ["apex-engineering.co.in", "www.apex-engineering.co.in"],
+    shop: ["shop.apex-engineering.co.in"],
+    autonoma: ["autonoma.apex-engineering.co.in"],
+    "business-os": ["office.apex-engineering.co.in"],
+    leados: ["apex-leados.lovable.app", "leados.apex-engineering.co.in"],
+  };
   const visibility = () => {
-    link.hidden = !["/", "/about", "/about/"].includes(location.pathname);
+    const ownHost =
+      marketingHosts[source].includes(location.hostname) ||
+      ["localhost", "127.0.0.1"].includes(location.hostname) ||
+      location.hostname.endsWith(".lovable.app");
+    link.hidden = !ownHost || !["/", "/about", "/about/"].includes(location.pathname);
   };
   visibility();
   window.addEventListener("popstate", visibility);
